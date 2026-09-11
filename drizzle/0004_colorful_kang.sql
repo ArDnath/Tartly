@@ -1,0 +1,1 @@
+ALTER TABLE "onboarding_state" DROP COLUMN "credits_earned";

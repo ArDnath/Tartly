@@ -1,0 +1,19 @@
+# Local secrets — never ship these; production values live in Vercel project env.
+.env
+.env.*
+!.env.example
+
+# Build artifacts and dependencies (Vercel ignores these too, kept explicit)
+.next
+node_modules
+*.tsbuildinfo
+
+# Agent/editor scratch dirs and local docs (not part of the app)
+.agents
+.claude
+.codex
+.cursor
+.grok
+.impeccable
+docs
+--full-page

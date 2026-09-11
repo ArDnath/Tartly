@@ -1,0 +1,104 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1789153443109,
+      "tag": "0000_mixed_nick_fury",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1789983438538,
+      "tag": "0001_plain_rawhide_kid",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789983935732,
+      "tag": "0002_ambitious_peter_parker",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1789989226441,
+      "tag": "0003_colossal_kid_colt",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790011041205,
+      "tag": "0004_colorful_kang",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790078048640,
+      "tag": "0005_complex_hammerhead",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790095664526,
+      "tag": "0006_aberrant_dark_beast",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790095960132,
+      "tag": "0007_familiar_fat_cobra",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790096785477,
+      "tag": "0008_first_starfox",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790097182646,
+      "tag": "0009_calm_puppet_master",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790332198726,
+      "tag": "0010_unknown_silvermane",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790347250432,
+      "tag": "0011_rare_cerise",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1790358933353,
+      "tag": "0012_windy_toro",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1790446609964,
+      "tag": "0013_legal_dragon_lord",
+      "breakpoints": true
+    }
+  ]
+}

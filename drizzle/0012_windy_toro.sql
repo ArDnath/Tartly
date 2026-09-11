@@ -1,0 +1,1 @@
+CREATE INDEX "pending_actions_user_updated_idx" ON "pending_actions" USING btree ("user_id","updated_at");

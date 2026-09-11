@@ -1,0 +1,1 @@
+ALTER TABLE "onboarding_state" ADD COLUMN "avatar_url" text;

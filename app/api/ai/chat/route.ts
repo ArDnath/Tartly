@@ -1,0 +1,82 @@
+import type { ModelMessage } from "ai";
+import { NextResponse } from "next/server";
+import { z } from "zod";
+
+import { appendMessage, loadThreadMessages } from "@/lib/ai/chat-service";
+import { buildFallbackSetupResponse } from "@/lib/ai/fallback-response";
+import { WORKSPACE_SETUP_SYSTEM_PROMPT } from "@/lib/ai/prompts";
+import { createAssistantReplyStream } from "@/lib/ai/stream-reply";
+import { userOwnsThread } from "@/lib/onboarding/server";
+import { getSession } from "@/lib/session";
+
+export const maxDuration = 60;
+
+const bodySchema = z.object({
+  threadId: z.string().min(1),
+  message: z.string().max(8_000).optional(),
+});
+
+/**
+ * SSE chat endpoint.
+ *
+ * Streams `event: delta` frames as the model produces text, then a final
+ * `event: done` frame carrying the persisted assistant message id. Errors are
+ * surfaced as `event: error` so the client can render them inline.
+ */
+export async function POST(request: Request) {
+  const session = await getSession();
+  if (!session?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const parsed = bodySchema.safeParse(await request.json().catch(() => ({})));
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+  }
+
+  const { threadId, message } = parsed.data;
+
+  if (!(await userOwnsThread(session.user.id, threadId))) {
+    return NextResponse.json({ error: "Thread not found" }, { status: 404 });
+  }
+
+  if (message?.trim()) {
+    await appendMessage({ threadId, role: "user", text: message.trim() });
+  }
+
+  const history = await loadThreadMessages(threadId);
+
+  // A trailing assistant message means there is nothing to answer.
+  const lastMessage = history[history.length - 1];
+  if (!lastMessage || lastMessage.role === "assistant") {
+    return NextResponse.json(
+      { error: "Nothing to respond to" },
+      { status: 409 },
+    );
+  }
+
+  const modelMessages: ModelMessage[] = history.map((entry) => ({
+    role: entry.role === "system" ? "user" : entry.role,
+    content: entry.text,
+  }));
+
+  const stream = createAssistantReplyStream({
+    threadId,
+    systemPrompt: WORKSPACE_SETUP_SYSTEM_PROMPT,
+    modelMessages,
+    buildFallbackText: () =>
+      buildFallbackSetupResponse({
+        userName: session.user.name ?? null,
+        workspaceName: "Redape",
+      }),
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    },
+  });
+}

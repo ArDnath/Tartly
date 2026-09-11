@@ -1,0 +1,479 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "tw-shimmer";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+/*
+ * Single dark palette built around the brand base #1B1B1B.
+ * #1B1B1B is the canvas/background everywhere; surfaces sit a
+ * few points lighter so hierarchy still reads without borders.
+ */
+:root {
+  color-scheme: dark;
+  --canvas: #1b1b1b;
+  --canvas-foreground: #f4f4f5;
+  --background: #1b1b1b;
+  --foreground: #f4f4f5;
+  --card: #222222;
+  --card-foreground: #f4f4f5;
+  --popover: #222222;
+  --popover-foreground: #f4f4f5;
+  --primary: #f4f4f5;
+  --primary-foreground: #1b1b1b;
+  --secondary: #262626;
+  --secondary-foreground: #f4f4f5;
+  --muted: #262626;
+  --muted-foreground: #a1a1aa;
+  --accent: #2e2e2e;
+  --accent-foreground: #f4f4f5;
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: rgba(255, 255, 255, 0.08);
+  --input: rgba(255, 255, 255, 0.12);
+  --ring: #52525b;
+  --chart-1: #e4e4e7;
+  --chart-2: #a1a1aa;
+  --chart-3: #71717a;
+  --chart-4: #52525b;
+  --chart-5: #3f3f46;
+  --radius: 0.625rem;
+  --sidebar: #1b1b1b;
+  --sidebar-foreground: #f4f4f5;
+  --sidebar-primary: #f4f4f5;
+  --sidebar-primary-foreground: #1b1b1b;
+  --sidebar-accent: #2e2e2e;
+  --sidebar-accent-foreground: #f4f4f5;
+  --sidebar-border: rgba(255, 255, 255, 0.08);
+  --sidebar-ring: #52525b;
+
+  /* Star glyph on mail rows/reader. */
+  --warning: #f8b84e;
+  --warning-foreground: #171715;
+
+  /* Mail client — re-anchored on the #1B1B1B dark canvas. */
+  --mail-surface: var(--card); /* #222222 */
+  --mail-rail: #1d1d1d; /* sidebar chrome — a step under the content surfaces */
+  --mail-rail-active: var(--accent); /* #2e2e2e */
+  --mail-line: var(--border); /* rgba(255,255,255,0.08) */
+  --mail-row-hover: #262626;
+  --mail-row-selected: #2e2e2e;
+  --mail-strong: var(--foreground); /* #f4f4f5 */
+  --mail-muted: var(--muted-foreground); /* #a1a1aa */
+  --mail-unread: #8ab4f8;
+  --mail-draft: #f28b82;
+  --mail-chip: #2e2e2e;
+  --mail-chip-foreground: #c6c4bf;
+  --mail-tag-important: #4a2320;
+  --mail-tag-important-foreground: #f6aea9;
+  --mail-tag-newsletter: #46330f;
+  --mail-tag-newsletter-foreground: #fdd663;
+  --mail-tag-calendar: #38254c;
+  --mail-tag-calendar-foreground: #d7aefb;
+  --mail-recipient: #8ab4f8;
+  --mail-recipient-surface: rgba(138, 180, 248, 0.14);
+  --mail-compose-chrome: #262626;
+  /* Mail assistant (AI rail) — matched to the navigation rail (#1d1d1d) so the
+     two chrome columns read as one system, and darker than the mail surface
+     (#222222) so the list pops. */
+  --mail-assistant: #1d1d1d;
+}
+
+/*
+ * `.dark` mirrors the base palette so the app keeps the same
+ * #1B1B1B surfaces whether or not the class is present.
+ */
+.dark {
+  --canvas: #1b1b1b;
+  --canvas-foreground: #f4f4f5;
+  --background: #1b1b1b;
+  --foreground: #f4f4f5;
+  --card: #222222;
+  --card-foreground: #f4f4f5;
+  --popover: #222222;
+  --popover-foreground: #f4f4f5;
+  --primary: #f4f4f5;
+  --primary-foreground: #1b1b1b;
+  --secondary: #262626;
+  --secondary-foreground: #f4f4f5;
+  --muted: #262626;
+  --muted-foreground: #a1a1aa;
+  --accent: #2e2e2e;
+  --accent-foreground: #f4f4f5;
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: rgba(255, 255, 255, 0.08);
+  --input: rgba(255, 255, 255, 0.12);
+  --ring: #52525b;
+  --chart-1: #e4e4e7;
+  --chart-2: #a1a1aa;
+  --chart-3: #71717a;
+  --chart-4: #52525b;
+  --chart-5: #3f3f46;
+  --sidebar: #1b1b1b;
+  --sidebar-foreground: #f4f4f5;
+  --sidebar-primary: #f4f4f5;
+  --sidebar-primary-foreground: #1b1b1b;
+  --sidebar-accent: #2e2e2e;
+  --sidebar-accent-foreground: #f4f4f5;
+  --sidebar-border: rgba(255, 255, 255, 0.08);
+  --sidebar-ring: #52525b;
+}
+
+body {
+  background-color: var(--canvas);
+  color: var(--canvas-foreground);
+  font-family: var(--font-sans);
+}
+
+@theme inline {
+  --font-heading: var(--font-sans);
+  --font-sans: var(--font-sans);
+  --color-canvas: var(--canvas);
+  --color-canvas-foreground: var(--canvas-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-mail-surface: var(--mail-surface);
+  --color-mail-rail: var(--mail-rail);
+  --color-mail-rail-active: var(--mail-rail-active);
+  --color-mail-assistant: var(--mail-assistant);
+  --color-mail-line: var(--mail-line);
+  --color-mail-row-hover: var(--mail-row-hover);
+  --color-mail-row-selected: var(--mail-row-selected);
+  --color-mail-strong: var(--mail-strong);
+  --color-mail-muted: var(--mail-muted);
+  --color-mail-unread: var(--mail-unread);
+  --color-mail-draft: var(--mail-draft);
+  --color-mail-chip: var(--mail-chip);
+  --color-mail-chip-foreground: var(--mail-chip-foreground);
+  --color-mail-tag-important: var(--mail-tag-important);
+  --color-mail-tag-important-foreground: var(--mail-tag-important-foreground);
+  --color-mail-tag-newsletter: var(--mail-tag-newsletter);
+  --color-mail-tag-newsletter-foreground: var(--mail-tag-newsletter-foreground);
+  --color-mail-tag-calendar: var(--mail-tag-calendar);
+  --color-mail-tag-calendar-foreground: var(--mail-tag-calendar-foreground);
+  --color-mail-recipient: var(--mail-recipient);
+  --color-mail-recipient-surface: var(--mail-recipient-surface);
+  --color-mail-compose-chrome: var(--mail-compose-chrome);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+  @keyframes collapsible-down {
+  from {
+    height: 0;
+    }
+  to {
+    height: var(--radix-collapsible-content-height, var(--collapsible-panel-height, auto));
+    }
+  }
+  @keyframes collapsible-up {
+  from {
+    height: var(--radix-collapsible-content-height, var(--collapsible-panel-height, auto));
+    }
+  to {
+    height: 0;
+    }
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+@layer utilities {
+  /* Scrollable area with no visible scrollbar. */
+  .scrollbar-none {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Actionable surface. The mail client's "Compose mail" button uses the
+     light-on-dark primary instead (Redape primary is light), but this ramp is
+     kept for surfaces that want a raised dark gradient. */
+  .surface-primary-gradient {
+    background-image: linear-gradient(180deg, #2e2e2e 0%, #262626 100%);
+    box-shadow:
+      inset 0 1px 2px rgba(255, 255, 255, 0.08),
+      inset 0 1px 1px rgba(255, 255, 255, 0.1);
+  }
+
+  /* AI-authored affordance (compose "Approve & Send" + drafted-body frame).
+     A distinct ramp from the brand gradient on purpose — it marks machine-
+     written content, it is not a brand accent. */
+  .surface-ai-gradient {
+    background-image: linear-gradient(
+      96.48deg,
+      #ff5e00 13.99%,
+      #8a43e1 66.66%,
+      #1800e7 133.16%
+    );
+  }
+
+  .shadow-row {
+    box-shadow: 0 1px 0.5px rgba(0, 0, 0, 0.4);
+  }
+
+  .shadow-fab {
+    box-shadow:
+      0 3px 5px rgba(0, 0, 0, 0.05),
+      0 16px 28px rgba(0, 0, 0, 0.15),
+      0 7px 16px rgba(0, 0, 0, 0.05),
+      0 35px 28px rgba(0, 0, 0, 0.05),
+      0 17px 13px rgba(0, 0, 0, 0.05);
+  }
+}
+
+/* Deeper, dark-friendly shadow for the assistant rail — Tailwind's stock
+   shadow-2xl reads faint against the #1b1b1b canvas. */
+@utility shadow-assistant {
+  box-shadow:
+    0 16px 40px -14px rgba(0, 0, 0, 0.6),
+    0 6px 18px -10px rgba(0, 0, 0, 0.45);
+}
+
+/* The desktop assistant rail is a flush, full-height column rather than a
+   floating card, so its elevation is a soft shadow cast leftward onto the
+   workspace instead of an all-round drop shadow. */
+@utility shadow-rail {
+  box-shadow: -16px 0 40px -28px rgba(0, 0, 0, 0.7);
+}
+
+/* Mail row hover "lift". A shadow — never a size change — so the rows above
+   and below stay exactly where they are while the hovered row appears raised. */
+@utility shadow-row-lift {
+  box-shadow:
+    0 12px 24px -14px rgba(0, 0, 0, 0.9),
+    0 2px 6px -4px rgba(0, 0, 0, 0.55);
+}
+
+/*
+ * Assistant modal expand. The dialog is centered with Tailwind's `translate`
+ * property, so these keyframes animate `transform` only — they compose on top
+ * of the centering instead of fighting it. The panel grows out of the right
+ * edge (where the rail lives) for a "the rail expanded into a window" feel.
+ */
+.assistant-modal-popup {
+  transform-origin: 100% 50%;
+  will-change: transform, opacity;
+}
+.assistant-modal-popup[data-open] {
+  animation: assistant-expand-in 420ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.assistant-modal-popup[data-closed] {
+  animation: assistant-expand-out 170ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+@keyframes assistant-expand-in {
+  from {
+    opacity: 0;
+    transform: translateX(7%) scale(0.86);
+  }
+  55% {
+    opacity: 1;
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+@keyframes assistant-expand-out {
+  from {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(4%) scale(0.94);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .assistant-modal-popup[data-open],
+  .assistant-modal-popup[data-closed] {
+    animation: none;
+  }
+}
+
+/* Transitions.dev — Matrix dot loader
+  Usage:
+    <div class="t-matrix" data-variant="scan"></div>
+
+  JS builds sixteen <i> dots per loader and hands each a --d
+  delay (ms) into the shared colour-pulse cycle — the variant is
+  just a delay table. scan: col * cycle/10. twinkle: the order
+  [7,2,11,5,14,9,0,12,3,15,6,10,13,1,8,4] * cycle/16. orbit: the
+  ring [1,2,7,11,14,13,8,4] * cycle/8, centre holds steady.
+  pulse: inner [5,6,9,10] first, the rest cycle*0.16 behind.
+  Rounded variants mark the corners [0,3,12,15] .is-gap so they
+  render nothing.
+*/
+
+:root {
+  --matrix-cycle: 1200ms;
+  --matrix-base: #333333;
+  --matrix-active: #d4d4d8;
+  --matrix-ease: ease-in-out;
+}
+
+.dark {
+  --matrix-base: #333333;
+  --matrix-active: #d4d4d8;
+}
+
+.t-matrix {
+  display: grid;
+  grid-template-columns: repeat(4, 2px);
+  grid-auto-rows: 2px;
+  gap: 2px;
+}
+.t-matrix i {
+  display: block;
+  background: var(--matrix-base);
+  animation: t-matrix-pulse var(--matrix-cycle) var(--matrix-ease) infinite;
+  animation-delay: calc(var(--d, 0) * 1ms);
+}
+/* Hole positions (rounded variants) render nothing. */
+.t-matrix i.is-gap {
+  visibility: hidden;
+  animation: none;
+}
+@keyframes t-matrix-pulse {
+  0%,
+  45%,
+  100% {
+    background-color: var(--matrix-base);
+  }
+  15% {
+    background-color: var(--matrix-active);
+  }
+}
+
+/* Full-page boot overlay that hosts the matrix loader */
+.t-matrix-boot {
+  animation: t-matrix-boot-in 240ms ease-out;
+}
+.t-matrix-boot.is-leaving {
+  animation: t-matrix-boot-out 320ms ease-in forwards;
+}
+@keyframes t-matrix-boot-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes t-matrix-boot-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+}
+
+/* Dashboard entrance after the loader leaves */
+.t-dash-enter {
+  animation: t-dash-enter 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes t-dash-enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-matrix i {
+    animation: none !important;
+  }
+  .t-matrix-boot,
+  .t-matrix-boot.is-leaving,
+  .t-dash-enter {
+    animation: none !important;
+  }
+}
+
+/* Chat markdown: Tailwind preflight removes list markers, so restore them for
+   assistant replies rendered through Streamdown. */
+.ai-chat-markdown ul {
+  list-style: disc;
+  padding-left: 1.25rem;
+}
+.ai-chat-markdown ol {
+  list-style: decimal;
+  padding-left: 1.25rem;
+}
+.ai-chat-markdown li {
+  margin-block: 0.15rem;
+}
+.ai-chat-markdown p {
+  margin-block: 0.35rem;
+}
+.ai-chat-markdown p:first-child {
+  margin-top: 0;
+}
+.ai-chat-markdown p:last-child {
+  margin-bottom: 0;
+}
+/*
+ ---break---
+ */
+@custom-variant data-open (&:where([data-state="open"], [data-open]:not([data-open="false"])));
+/*
+ ---break---
+ */
+@custom-variant data-closed (&:where([data-state="closed"], [data-closed]:not([data-closed="false"])));
