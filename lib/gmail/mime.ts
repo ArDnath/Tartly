@@ -3,6 +3,8 @@
  * Pure module (no `server-only`) so it can be unit-tested directly.
  */
 
+import { randomUUID } from "node:crypto";
+
 export type InlineImage = {
   /** Content-ID referenced from the HTML as `cid:<id>`. */
   cid: string;
@@ -102,7 +104,7 @@ function base64Body(content: Buffer): string {
 }
 
 function uniqueBoundary(prefix: string): string {
-  return `${prefix}_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+  return `${prefix}_${randomUUID().replace(/-/g, "")}`;
 }
 
 /** One MIME entity: its header lines and its encoded body. */

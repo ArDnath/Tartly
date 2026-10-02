@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
@@ -40,11 +42,11 @@ async function clearQueue(userId: string) {
 async function createRun(userId: string, graph: FlowGraph) {
   const [flow] = await db
     .insert(flows)
-    .values({ id: `flow-${Math.random().toString(36).slice(2)}`, userId, name: "test", graph: graph as unknown as Record<string, unknown> })
+    .values({ id: `flow-${randomUUID()}`, userId, name: "test", graph: graph as unknown as Record<string, unknown> })
     .returning();
   const [run] = await db
     .insert(flowRuns)
-    .values({ id: `run-${Math.random().toString(36).slice(2)}`, userId, flowId: flow.id, triggerKind: "test" })
+    .values({ id: `run-${randomUUID()}`, userId, flowId: flow.id, triggerKind: "test" })
     .returning();
   return { flow, run };
 }

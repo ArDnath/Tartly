@@ -224,11 +224,17 @@ melt Postgres.
   - **Evidence.** `npx tsc --noEmit` ✅ · `npm run lint` ✅ (one pre-existing
     unrelated warning).
 
-- [ ] **B3. Collision-safe IDs for the queue** · `SKILL §8.2`, matrix #14
+- [x] **B3. Collision-safe IDs for the queue** · `SKILL §8.2`, matrix #14
   - **Problem.** `lib/queue/queue.ts:106` builds job ids from `Math.random()`.
   - **Do.** Use `nanoid()` (already a dependency) or a ULID helper. Check other
     `Math.random()` id sites.
   - **Acceptance.** No `Math.random()` in persisted-id generation.
+  - **Landed.** `enqueueJob` now uses `randomUUID()` (`job_<uuid>`); MIME
+    boundaries (`lib/gmail/mime.ts`) use `randomUUID()`; test scaffolding
+    (`scripts/email-operator/harness.ts`, `phase2-engine-queue.ts`) also moved
+    off `Math.random`. `id` columns are `text`, so no length regression.
+  - **Evidence.** `grep -r "Math\.random"` → no matches ✅ · `npx tsc --noEmit`
+    ✅ · `npm run lint` ✅ (one pre-existing unrelated warning).
 
 - [ ] **B4. Connection pooling sizing + pooler guidance** · `SKILL §6.3`, matrix #12
   - **Problem.** `max: 12` hardcoded in `lib/db/index.ts`; serverless fan-out
@@ -350,7 +356,7 @@ horizontally, and traces/metrics are exported.
 | P0 | Near-zero rate limiting | `lib/api/http.ts` | A ✅ |
 | P1 | Server-buffered uploads + public bucket | `assets/route.ts`, `storage.ts` | B1 ✅ |
 | P1 | Non-constant-time cron secret | `cron-auth.ts` | B2 ✅ |
-| P1 | `Math.random` queue ids | `queue.ts` | B3 |
+| P1 | `Math.random` queue ids | `queue.ts` | B3 ✅ |
 | P1 | Pool fan-out / no global cap | `db/index.ts` | B4 |
 | P1 | SSE per-client DB polling | `agent/events/route.ts` | B6 |
 | P2 | No OpenAPI contract | repo root | C1 |

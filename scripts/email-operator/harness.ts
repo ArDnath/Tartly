@@ -1,5 +1,7 @@
 import "dotenv/config";
 
+import { randomUUID } from "node:crypto";
+
 import { eq, like } from "drizzle-orm";
 
 import { db } from "../../lib/db";
@@ -30,7 +32,7 @@ export function getFailureCount(): number {
 }
 
 export function makeTestUserId(prefix: string): string {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  return `${prefix}-${randomUUID()}`;
 }
 
 export async function createTestUser(userId: string, name = "Operator Test") {

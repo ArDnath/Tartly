@@ -1,5 +1,7 @@
 import "server-only";
 
+import { randomUUID } from "node:crypto";
+
 import type { Pool, PoolClient, QueryResult, QueryResultRow } from "pg";
 
 /**
@@ -103,7 +105,7 @@ export async function enqueueJob(
   userId: string,
   input: EnqueueInput,
 ): Promise<{ job: JobRow; deduped: boolean }> {
-  const id = `job_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+  const id = `job_${randomUUID()}`;
 
   try {
     const { rows } = await db.query<RawJobRow>(
