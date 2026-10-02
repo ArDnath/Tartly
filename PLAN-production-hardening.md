@@ -236,7 +236,7 @@ melt Postgres.
   - **Evidence.** `grep -r "Math\.random"` → no matches ✅ · `npx tsc --noEmit`
     ✅ · `npm run lint` ✅ (one pre-existing unrelated warning).
 
-- [ ] **B4. Connection pooling sizing + pooler guidance** · `SKILL §6.3`, matrix #12
+- [x] **B4. Connection pooling sizing + pooler guidance** · `SKILL §6.3`, matrix #12
   - **Problem.** `max: 12` hardcoded in `lib/db/index.ts`; serverless fan-out
     multiplies that per instance.
   - **Do.** Read `DB_POOL_MAX` (default lower for serverless, e.g. 5) from env;
@@ -244,6 +244,13 @@ melt Postgres.
     confirm `idleTimeoutMillis` / `connectionTimeoutMillis`.
   - **Acceptance.** Pool size is configurable; `.env.example` documents the
     pooled-endpoint requirement.
+  - **Landed.** `lib/db/index.ts` reads `DB_POOL_MAX` (default 5) straight from
+    `process.env` (so scripts importing the pool skip full env validation);
+    `idleTimeoutMillis` 30s and `connectionTimeoutMillis` 15s confirmed.
+    `lib/env.ts` registers `DB_POOL_MAX`; `.env.example` documents it and the
+    mandatory pooled endpoint.
+  - **Evidence.** `npx tsc --noEmit` ✅ · `npm run lint` ✅ (one pre-existing
+    unrelated warning).
 
 - [ ] **B5. `getSession` existence-check cost** · `SKILL §6.3` / §13
   - **Problem.** `lib/session.ts` runs a Postgres `SELECT` on the `user` row on
@@ -357,7 +364,7 @@ horizontally, and traces/metrics are exported.
 | P1 | Server-buffered uploads + public bucket | `assets/route.ts`, `storage.ts` | B1 ✅ |
 | P1 | Non-constant-time cron secret | `cron-auth.ts` | B2 ✅ |
 | P1 | `Math.random` queue ids | `queue.ts` | B3 ✅ |
-| P1 | Pool fan-out / no global cap | `db/index.ts` | B4 |
+| P1 | Pool fan-out / no global cap | `db/index.ts` | B4 ✅ |
 | P1 | SSE per-client DB polling | `agent/events/route.ts` | B6 |
 | P2 | No OpenAPI contract | repo root | C1 |
 | P2 | SQL in services (no repos) | `lib/inbox`, `lib/services` | C2 |

@@ -11,6 +11,10 @@ const envSchema = z.object({
     .string()
     .min(1, "DATABASE_URL is required (postgres connection string)"),
 
+  // Per-instance pg pool ceiling. Keep it small on serverless (default 5);
+  // the provider-side pooler bounds total connections, not this.
+  DB_POOL_MAX: z.coerce.number().int().positive().optional(),
+
   BETTER_AUTH_SECRET: z
     .string()
     .min(16, "BETTER_AUTH_SECRET must be at least 16 characters")
