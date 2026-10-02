@@ -290,12 +290,21 @@ melt Postgres.
   - **Evidence.** `npx tsc --noEmit` ✅ · `npm run lint` ✅ (one pre-existing
     unrelated warning).
 
-- [ ] **B7. Cache stampede / single-flight** · `SKILL §7.2`
+- [x] **B7. Cache stampede / single-flight** · `SKILL §7.2`
   - **Problem.** `lib/ai/cache.ts` has TTLs but no mutex; a popular key expiring
     fans many identical model calls into the DB.
   - **Do.** Redis lock/single-flight around expensive misses, or probabilistic
     early expiry (XFetch).
   - **Acceptance.** Concurrent misses for one key trigger one recompute.
+  - **Landed.** New `singleFlight(key, compute)` in `lib/ai/cache.ts`: an
+    in-process promise map dedupes local callers, and a best-effort Redis `SET NX
+    PX` lock (30s self-expiry) dedupes across instances; the lock loser waits
+    briefly and re-checks. The three cached features (`summarize-thread`,
+    `meeting-brief`, `report`) now do their read→compute→write inside
+    `singleFlight`, with a re-check after winning. Redis failure degrades to
+    duplicate work, never a hang.
+  - **Evidence.** `npx tsc --noEmit` ✅ · `npm run lint` ✅ (one pre-existing
+    unrelated warning).
 
 - [ ] **B8. Unified error envelope + trace id** · `SKILL §5.1`, matrix #8
   - **Problem.** `/api/onboarding/*`, `/api/ai/*`, `/api/sign-out` return

@@ -3,7 +3,7 @@ import "server-only";
 import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { contentHash, getCached, setCached } from "@/lib/ai/cache";
+import { contentHash, getCached, setCached, singleFlight } from "@/lib/ai/cache";
 import { generateObject } from "@/lib/ai/generate";
 import { db } from "@/lib/db";
 import {
@@ -351,55 +351,67 @@ export async function generateReport({
     if (cached) return { ...cached, cached: true };
   }
 
-  const metrics = await computeReportMetrics({ userId, now });
-  const fallback = buildFallbackReport(metrics);
-
-  let headline = fallback.headline;
-  let summary = fallback.summary;
-  let suggestions = fallback.suggestions;
-  let source: "model" | "heuristic" = "heuristic";
-
-  if (isInsightsEnabled() && metrics.threadsProcessed > 0) {
-    const ai = await generateObject({
-      schema: reportSchema,
-      role: "standard",
-      feature: "weekly-report",
-      userId,
-      system: SYSTEM,
-      prompt: buildPrompt(metrics),
-      hardening: { trust: "trusted" },
-      maxOutputTokens: 700,
-    });
-    if (ai) {
-      headline = ai.headline.trim();
-      summary = ai.summary.trim();
-      suggestions = ai.suggestions;
-      source = "model";
+  // One recompute per key, even under a burst of identical requests.
+  return singleFlight(cacheKey, async () => {
+    if (!force) {
+      const cached = await getCached<ReportPayload>({
+        userId,
+        type: REPORT_CACHE_TYPE,
+        key: cacheKey,
+      });
+      if (cached) return { ...cached, cached: true };
     }
-  }
 
-  const periodEnd = now;
-  const periodStart = new Date(now.getTime() - REPORT_WINDOW_DAYS * 86_400_000);
-  const report: ReportPayload = {
-    id: `${weekKey}`,
-    periodStart: periodStart.toISOString(),
-    periodEnd: periodEnd.toISOString(),
-    headline,
-    summary,
-    suggestions,
-    source,
-    metrics,
-    generatedAt: now.toISOString(),
-    cached: false,
-  };
+    const metrics = await computeReportMetrics({ userId, now });
+    const fallback = buildFallbackReport(metrics);
 
-  await setCached({
-    userId,
-    type: REPORT_CACHE_TYPE,
-    key: cacheKey,
-    payload: report,
-    ttlMs: 7 * 24 * 60 * 60 * 1000,
+    let headline = fallback.headline;
+    let summary = fallback.summary;
+    let suggestions = fallback.suggestions;
+    let source: "model" | "heuristic" = "heuristic";
+
+    if (isInsightsEnabled() && metrics.threadsProcessed > 0) {
+      const ai = await generateObject({
+        schema: reportSchema,
+        role: "standard",
+        feature: "weekly-report",
+        userId,
+        system: SYSTEM,
+        prompt: buildPrompt(metrics),
+        hardening: { trust: "trusted" },
+        maxOutputTokens: 700,
+      });
+      if (ai) {
+        headline = ai.headline.trim();
+        summary = ai.summary.trim();
+        suggestions = ai.suggestions;
+        source = "model";
+      }
+    }
+
+    const periodEnd = now;
+    const periodStart = new Date(now.getTime() - REPORT_WINDOW_DAYS * 86_400_000);
+    const report: ReportPayload = {
+      id: `${weekKey}`,
+      periodStart: periodStart.toISOString(),
+      periodEnd: periodEnd.toISOString(),
+      headline,
+      summary,
+      suggestions,
+      source,
+      metrics,
+      generatedAt: now.toISOString(),
+      cached: false,
+    };
+
+    await setCached({
+      userId,
+      type: REPORT_CACHE_TYPE,
+      key: cacheKey,
+      payload: report,
+      ttlMs: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    return report;
   });
-
-  return report;
 }

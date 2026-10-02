@@ -3,7 +3,7 @@ import "server-only";
 import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { contentHash, getCached, setCached } from "@/lib/ai/cache";
+import { contentHash, getCached, setCached, singleFlight } from "@/lib/ai/cache";
 import { generateObject } from "@/lib/ai/generate";
 import { db } from "@/lib/db";
 import { messages, threads } from "@/lib/db/schema";
@@ -199,45 +199,55 @@ export async function summarizeThread({
   const thread = await loadThreadForSummary({ userId, threadId });
   if (!thread || thread.messages.length === 0) return null;
 
+  const cacheKey = summaryCacheKey({
+    threadId: thread.threadId,
+    lastMessageAt: thread.lastMessageAt,
+  });
+
   if (!force) {
     const cached = await getCachedThreadSummary({ userId, thread });
     if (cached) return cached;
   }
 
-  const ai = await generateObject({
-    schema: summarySchema,
-    role: "fast",
-    feature: "summarize-thread",
-    userId,
-    system: SYSTEM_PROMPT,
-    prompt: buildSummaryPrompt(thread),
-    hardening: { trust: "untrusted", level: "compact" },
-    maxOutputTokens: 600,
+  // One recompute per key, even under a burst of identical requests.
+  return singleFlight(cacheKey, async () => {
+    if (!force) {
+      const cached = await getCachedThreadSummary({ userId, thread });
+      if (cached) return cached;
+    }
+
+    const ai = await generateObject({
+      schema: summarySchema,
+      role: "fast",
+      feature: "summarize-thread",
+      userId,
+      system: SYSTEM_PROMPT,
+      prompt: buildSummaryPrompt(thread),
+      hardening: { trust: "untrusted", level: "compact" },
+      maxOutputTokens: 600,
+    });
+
+    const result: ThreadSummary = ai
+      ? {
+          summary: ai.summary.trim(),
+          decisions: ai.decisions,
+          actionItems: ai.actionItems,
+          openQuestions: ai.openQuestions,
+          messageCount: thread.messages.length,
+          source: "model",
+          generatedAt: new Date().toISOString(),
+        }
+      : buildFallbackThreadSummary(thread.messages);
+
+    await setCached({
+      userId,
+      type: THREAD_SUMMARY_CACHE_TYPE,
+      key: cacheKey,
+      payload: result,
+      // Model summaries hold for a day; the fallback retries sooner.
+      ttlMs: result.source === "model" ? 24 * 60 * 60 * 1000 : 5 * 60 * 1000,
+    });
+
+    return result;
   });
-
-  const result: ThreadSummary = ai
-    ? {
-        summary: ai.summary.trim(),
-        decisions: ai.decisions,
-        actionItems: ai.actionItems,
-        openQuestions: ai.openQuestions,
-        messageCount: thread.messages.length,
-        source: "model",
-        generatedAt: new Date().toISOString(),
-      }
-    : buildFallbackThreadSummary(thread.messages);
-
-  await setCached({
-    userId,
-    type: THREAD_SUMMARY_CACHE_TYPE,
-    key: summaryCacheKey({
-      threadId: thread.threadId,
-      lastMessageAt: thread.lastMessageAt,
-    }),
-    payload: result,
-    // Model summaries hold for a day; the fallback retries sooner.
-    ttlMs: result.source === "model" ? 24 * 60 * 60 * 1000 : 5 * 60 * 1000,
-  });
-
-  return result;
 }

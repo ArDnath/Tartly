@@ -7,6 +7,7 @@ import { nanoid } from "nanoid";
 
 import { db } from "@/lib/db";
 import { aiCache } from "@/lib/db/schema";
+import { redis } from "@/lib/redis";
 
 /**
  * Content-addressed AI artifact cache (Phase 2).
@@ -144,5 +145,80 @@ export async function purgeExpiredCache(): Promise<number> {
   } catch (error) {
     console.warn("[ai/cache] purge failed", error);
     return 0;
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Single-flight / stampede guard                                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * In-process dedupe of identical in-flight computes. When a popular key expires
+ * and many requests miss at once, they all await the same promise instead of
+ * fanning out N identical model calls.
+ */
+const flights = new Map<string, Promise<unknown>>();
+
+/** How long a cross-instance compute lock may be held before it self-expires. */
+const STAMPEDE_LOCK_TTL_MS = 30_000;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function acquireStampedeLock(lockKey: string): Promise<boolean> {
+  try {
+    const result = await redis.set(lockKey, "1", {
+      nx: true,
+      px: STAMPEDE_LOCK_TTL_MS,
+    });
+    return result === "OK";
+  } catch {
+    // Redis unavailable: don't claim a lock, but do compute (local single-flight
+    // still dedupes within this instance).
+    return false;
+  }
+}
+
+async function releaseStampedeLock(lockKey: string): Promise<void> {
+  try {
+    await redis.del(lockKey);
+  } catch {
+    // Self-expires via the lock TTL.
+  }
+}
+
+/**
+ * Run `compute` at most once for `key` at a time.
+ *
+ * Local callers share one promise. Cross-instance callers contend on a
+ * best-effort Redis lock; the loser waits briefly so the winner can populate
+ * the cache, then runs `compute` anyway if the recheck still misses. `compute`
+ * is expected to re-read the cache first (so the wait pays off) and to write the
+ * result. A cache failure therefore degrades to duplicate work, never a hang.
+ */
+export async function singleFlight<T>(
+  key: string,
+  compute: () => Promise<T>,
+): Promise<T> {
+  const existing = flights.get(key);
+  if (existing) return existing as Promise<T>;
+
+  const flight = (async () => {
+    const lockKey = `aicache:lock:${key}`;
+    const locked = await acquireStampedeLock(lockKey);
+    if (!locked) {
+      await sleep(150 + Math.floor(Math.random() * 250));
+    }
+    try {
+      return await compute();
+    } finally {
+      if (locked) await releaseStampedeLock(lockKey);
+    }
+  })();
+
+  flights.set(key, flight);
+  try {
+    return await flight;
+  } finally {
+    flights.delete(key);
   }
 }

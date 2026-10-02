@@ -3,7 +3,7 @@ import "server-only";
 import { and, desc, eq, inArray, ne } from "drizzle-orm";
 import { z } from "zod";
 
-import { contentHash, getCached, setCached } from "@/lib/ai/cache";
+import { contentHash, getCached, setCached, singleFlight } from "@/lib/ai/cache";
 import { generateObject } from "@/lib/ai/generate";
 import { db } from "@/lib/db";
 import { commitments, mailboxes, meetings, messages, threads } from "@/lib/db/schema";
@@ -298,61 +298,71 @@ export async function generateMeetingBrief({
   if (!context) return null;
 
   const day = now.toISOString().slice(0, 10);
+  const cacheKey = meetingBriefCacheKey({
+    eventId: context.meetingId,
+    attendeeEmails: context.attendees,
+    day,
+  });
+
   if (!force) {
     const cached = await getCachedMeetingBrief({ userId, context, day });
     if (cached) return cached;
   }
 
-  const fallback = buildFallbackMeetingBrief({
-    subject: context.subject,
-    attendees: context.attendees,
-    priorThreads: context.priorThreads,
-    openCommitments: context.openCommitments,
+  // One recompute per key, even under a burst of identical requests.
+  return singleFlight(cacheKey, async () => {
+    if (!force) {
+      const cached = await getCachedMeetingBrief({ userId, context, day });
+      if (cached) return cached;
+    }
+
+    const fallback = buildFallbackMeetingBrief({
+      subject: context.subject,
+      attendees: context.attendees,
+      priorThreads: context.priorThreads,
+      openCommitments: context.openCommitments,
+    });
+
+    const ai =
+      isMeetingBriefsEnabled() && context.priorThreads.length > 0
+        ? await generateObject({
+            schema: briefSchema,
+            role: "standard",
+            feature: "meeting-brief",
+            userId,
+            system: SYSTEM,
+            prompt: buildPrompt(context),
+            hardening: { trust: "untrusted", level: "compact" },
+            maxOutputTokens: 800,
+          })
+        : null;
+
+    const result: MeetingBrief = ai
+      ? {
+          summary: ai.summary.trim(),
+          attendees: context.attendees,
+          lastTouch: fallback.lastTouch,
+          objective: ai.objective?.trim() || fallback.objective,
+          talkingPoints: ai.talkingPoints,
+          agenda: ai.agenda,
+          outstandingQuestions: ai.outstandingQuestions,
+          lastProposal: ai.lastProposal?.trim() || null,
+          // Open commitments always survive, model or not.
+          openItems: [...context.openCommitments, ...ai.openItems].slice(0, 8),
+          relevantEmails: fallback.relevantEmails,
+          source: "model",
+          generatedAt: new Date().toISOString(),
+        }
+      : fallback;
+
+    await setCached({
+      userId,
+      type: MEETING_BRIEF_CACHE_TYPE,
+      key: cacheKey,
+      payload: result,
+      ttlMs: 24 * 60 * 60 * 1000,
+    });
+
+    return result;
   });
-
-  const ai =
-    isMeetingBriefsEnabled() && context.priorThreads.length > 0
-      ? await generateObject({
-          schema: briefSchema,
-          role: "standard",
-          feature: "meeting-brief",
-          userId,
-          system: SYSTEM,
-          prompt: buildPrompt(context),
-          hardening: { trust: "untrusted", level: "compact" },
-          maxOutputTokens: 800,
-        })
-      : null;
-
-  const result: MeetingBrief = ai
-    ? {
-        summary: ai.summary.trim(),
-        attendees: context.attendees,
-        lastTouch: fallback.lastTouch,
-        objective: ai.objective?.trim() || fallback.objective,
-        talkingPoints: ai.talkingPoints,
-        agenda: ai.agenda,
-        outstandingQuestions: ai.outstandingQuestions,
-        lastProposal: ai.lastProposal?.trim() || null,
-        // Open commitments always survive, model or not.
-        openItems: [...context.openCommitments, ...ai.openItems].slice(0, 8),
-        relevantEmails: fallback.relevantEmails,
-        source: "model",
-        generatedAt: new Date().toISOString(),
-      }
-    : fallback;
-
-  await setCached({
-    userId,
-    type: MEETING_BRIEF_CACHE_TYPE,
-    key: meetingBriefCacheKey({
-      eventId: context.meetingId,
-      attendeeEmails: context.attendees,
-      day,
-    }),
-    payload: result,
-    ttlMs: 24 * 60 * 60 * 1000,
-  });
-
-  return result;
 }
