@@ -4,6 +4,10 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { toSafeError } from "@/lib/agent/errors";
 import { jsonError } from "@/lib/api/error-envelope";
+import {
+  beginIdempotent,
+  MAX_IDEMPOTENCY_KEY_LENGTH,
+} from "@/lib/api/idempotency";
 import { apiRateLimitPerMin } from "@/lib/env";
 import {
   resolveRequestId,
@@ -68,6 +72,12 @@ export type UserRouteOptions = {
   rateLimit?: false | { limit: number; windowSeconds?: number; scope?: string };
   /** Maximum accepted request body size in bytes (header-based fast reject). */
   maxBodyBytes?: number;
+  /**
+   * Honour an `Idempotency-Key` header on mutating requests: the first call
+   * runs and its JSON response is replayed for retries with the same key.
+   * Defaults to on; set `false` for routes where replay would be wrong.
+   */
+  idempotency?: boolean;
 };
 
 function methodHasBody(method: string): boolean {
@@ -189,14 +199,54 @@ export function withUser<Ctx = unknown>(
           }
         }
 
+        const idempotencyKey =
+          options.idempotency === false
+            ? null
+            : (request.headers.get("idempotency-key")?.trim() ?? null);
+        let finishIdempotency: ((response: Response) => Promise<void>) | null = null;
+        if (
+          idempotencyKey &&
+          idempotencyKey.length > 0 &&
+          idempotencyKey.length <= MAX_IDEMPOTENCY_KEY_LENGTH &&
+          methodHasBody(request.method.toUpperCase())
+        ) {
+          const outcome = await beginIdempotent({
+            userId: session.user.id,
+            key: idempotencyKey,
+          });
+          if (outcome.kind === "replay") {
+            logger.info("request.idempotent_replay", {
+              status_code: outcome.response.status,
+            });
+            return attachRequestId(outcome.response, requestId);
+          }
+          if (outcome.kind === "in_flight") {
+            logger.warn("request.idempotency_conflict", { status_code: 409 });
+            return attachRequestId(
+              apiError(
+                "conflict",
+                "A request with this Idempotency-Key is already in progress.",
+                409,
+                { headers: { "Retry-After": "1" } },
+              ),
+              requestId,
+            );
+          }
+          finishIdempotency = outcome.finish;
+        }
+
         try {
           const response = await handler(session.user.id, request, context);
+          if (finishIdempotency) await finishIdempotency(response);
           logger.info("request.completed", {
             status_code: response.status,
             latency_ms: Date.now() - startedAt,
           });
           return attachRequestId(response, requestId);
         } catch (error) {
+          if (finishIdempotency) {
+            await finishIdempotency(new Response(null, { status: 500 }));
+          }
           const safe = toSafeError(error);
           logger.error("request.failed", {
             status_code: safe.httpStatus,

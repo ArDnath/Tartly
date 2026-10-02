@@ -62,15 +62,15 @@ phase and update this table.
 | 4 | Input validation | `[~]` | Good Zod coverage on newer routes; loose query parsing on older ones. Phase C. |
 | 5 | BOLA/IDOR protection | `[x]` | `userId` sourced from session everywhere; `ActionService` owner-scoped. Strong. |
 | 6 | Authentication security | `[x]` | JWE cookie cache → Redis → Postgres; trusted origins; **auth rate limit added in A**. |
-| 7 | Password/crypto hygiene | `[~]` | OAuth-only; OIDC RS256 verified. **Cron secret compare not constant-time** (B). |
+| 7 | Password/crypto hygiene | `[x]` | OAuth-only; OIDC RS256 verified; **B** made the cron secret compare constant-time. |
 | 8 | Global error middleware | `[x]` | `toSafeError` redaction + A logging; **B unified the envelope** to `{ error: { code, message, trace_id } }` everywhere. |
 | 9 | Graceful shutdown | `[ ]` | No SIGTERM drain; no worker process. Phase D (serverless today). |
 | 10 | DB migrations | `[x]` | 21+ versioned Drizzle SQL migrations; no prod auto-sync. Strong. |
 | 11 | Indexing & N+1 | `[x]` | 66 indexes / 68 FKs; `DISTINCT ON` + batched `inArray`. Strong. |
-| 12 | Connection pooling | `[~]` | Pool `max:12` hardcoded in `lib/db/index.ts`. Phase B. |
-| 13 | Caching & invalidation | `[~]` | Postgres AI cache w/ TTL + content hash; Redis session cache. No stampede guard (B). |
-| 14 | Async queues | `[x]` | `job_queue` w/ `SKIP LOCKED`, lanes, dedupe, backoff, `dead` DLQ, reaper. **Job id uses `Math.random`** (B). |
-| 15 | Object storage direct upload | `[ ]` | Server-buffered multipart; **no pre-signed URL**; Blob stored `access:"public"`. Phase B. |
+| 12 | Connection pooling | `[x]` | **B** made the pool ceiling `DB_POOL_MAX` (serverless default 5) and documented the pooled endpoint. |
+| 13 | Caching & invalidation | `[x]` | Postgres AI cache w/ TTL + content hash; Redis session cache; **B** added single-flight stampede guard; session existence memoized. |
+| 14 | Async queues | `[x]` | `job_queue` w/ `SKIP LOCKED`, lanes, dedupe, backoff, `dead` DLQ, reaper. **B** replaced `Math.random` job ids with `randomUUID`. |
+| 15 | Object storage direct upload | `[x]` | **B** moved to client-direct uploads (Blob `handleUpload`, S3 presigned PUT) with private objects and metadata-only registration. |
 | 16 | Webhook security | `[x]` | OIDC fail-closed + `event_log` dedupe + fast 200 + `after()`. Outbound N/A. |
 | 17 | 12-Factor | `[x]` | Zod env, lockfile, `.env` ignored, stateless, feature gates. |
 | 18 | Observability | `[~]` | **A added** structured logs, trace context, health probes, global error hook. Metrics/tracing still open (D). |
@@ -84,7 +84,7 @@ phase and update this table.
 | Phase | Theme | Skill anchors | Status |
 |-------|-------|---------------|--------|
 | **A** | Operate: see it, gate it, protect it | §13, §5.3, §4.3, §3.2 | `[x]` done |
-| **B** | Harden: uploads, secrets, identity, pools, streams | §9, §4.3, §6.3, §7.2, §10.1 | `[ ]` next |
+| **B** | Harden: uploads, secrets, identity, pools, streams | §9, §4.3, §6.3, §7.2, §10.1 | `[x]` done |
 | **C** | Contract & confidence: OpenAPI, layering, tests | §2, §1, §14 | `[ ]` |
 | **D** | Scale: workers, replicas, tracing, containers | §8.1, §6.3, §13, §15 | `[ ]` |
 
@@ -176,7 +176,7 @@ and a CI pipeline that gates PRs.
 
 ---
 
-## Phase B — Harden (NEXT)
+## Phase B — Harden (DONE)
 
 **Goal.** Close the abuse/leak/scale foot-guns before user growth. **Exit
 criteria:** no unbounded in-memory upload path, no non-constant-time secret
@@ -324,12 +324,20 @@ melt Postgres.
     matches ✅ · `npx tsc --noEmit` ✅ · `npm run lint` ✅ (one pre-existing
     unrelated warning).
 
-- [ ] **B9. HTTP idempotency for mutating POSTs** · `SKILL §8.2`
+- [x] **B9. HTTP idempotency for mutating POSTs** · `SKILL §8.2`
   - **Problem.** Only `sendEmail` has a ledger; arbitrary retried POSTs can
     duplicate side effects.
   - **Do.** Optional `Idempotency-Key` header → store `(userId, key, response)`
     for a TTL; replay returns the stored response.
   - **Acceptance.** A repeated POST with the same key runs the handler once.
+  - **Landed.** New `lib/api/idempotency.ts` (Redis-backed): `beginIdempotent`
+    replays a stored JSON response, returns `409 Retry-After` while an identical
+    key is in flight (`SET NX` lock), or hands the handler a `finish` that stores
+    the response (24h TTL, <64 KiB, JSON only) and releases the lock. `withUser`
+    honours the header on mutating methods by default; opt out with
+    `{ idempotency: false }`. Redis failure degrades to a normal request.
+  - **Evidence.** `npx tsc --noEmit` ✅ · `npm run lint` ✅ (one pre-existing
+    unrelated warning) · `npm run build` ✅.
 
 - [x] **B10. Vendored skill + this tracker** (housekeeping)
   - `docs/SKILL-v2.md` now holds a verbatim copy of the skill; the header of
