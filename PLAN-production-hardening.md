@@ -344,6 +344,22 @@ melt Postgres.
     this file points at it so other threads can read it in-repo.
   - **Acceptance:** `docs/SKILL-v2.md` exists and `PLAN-production-hardening.md` references it. ✅
 
+**Phase B verification (all green, run at implementation time):**
+`npx tsc --noEmit` ✅ · `npm run lint` ✅ (one pre-existing unrelated warning) ·
+`npm run build` ✅ after each task, then again at the phase end.
+
+**Phase B caveats to remember**
+1. Client-direct uploads default to **private** Blob objects; a public-access
+   Blob store must set `ASSET_BLOB_ACCESS="public"`.
+2. S3 client uploads use a SigV4 presigned `PUT` that signs
+   `content-type`/`content-length`; the browser must send exactly those.
+3. Idempotency stores JSON responses <64 KiB for 24h; streamed/oversize
+   responses are not replayable.
+4. The SSE poller is one-per-instance; a cross-instance backplane is Phase D if
+   the fleet ever needs true O(1) fleet-wide polling.
+5. `getSession`'s user-existence memo trusts Redis for up to 60s for
+   out-of-band deletions; in-app deletes invalidate immediately.
+
 ---
 
 ## Phase C — Contract & confidence
