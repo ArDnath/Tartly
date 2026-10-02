@@ -216,6 +216,34 @@ export class ActionService {
   }
 
   /**
+   * Batched form of {@link listUpdatedSince} for the shared realtime poller:
+   * one query covers every connected user, so the DB poll rate tracks the
+   * instance count, not the number of open tabs. The global limit is a safety
+   * cap; per-user fairness is not guaranteed under one user's heavy churn.
+   */
+  async listUpdatedSinceMany(input: {
+    userIds: string[];
+    since: Date;
+    limitPerUser?: number;
+  }): Promise<PendingAction[]> {
+    const userIds = [...new Set(input.userIds.filter(Boolean))];
+    if (userIds.length === 0) return [];
+    const perUser = Math.min(Math.max(input.limitPerUser ?? 50, 1), MAX_ACTION_LIST);
+    const total = Math.min(perUser * userIds.length, 500);
+    return db
+      .select()
+      .from(pendingActions)
+      .where(
+        and(
+          inArray(pendingActions.userId, userIds),
+          gt(pendingActions.updatedAt, input.since),
+        ),
+      )
+      .orderBy(asc(pendingActions.updatedAt))
+      .limit(total);
+  }
+
+  /**
    * Confirm and execute. Guarantees:
    *  - the arguments the action was created with are the arguments executed
    *    (a caller-supplied `args` payload must hash to the stored hash);

@@ -268,13 +268,27 @@ melt Postgres.
   - **Evidence.** `npx tsc --noEmit` ✅ · `npm run lint` ✅ (one pre-existing
     unrelated warning).
 
-- [ ] **B6. SSE scaling** · `SKILL §10.1`
+- [x] **B6. SSE scaling** · `SKILL §10.1`
   - **Problem.** `app/api/v1/agent/events/route.ts` polls Postgres every 3s per
     connected client.
   - **Do.** Either move to a pub/sub backplane (Redis/NATS) for action updates,
     or bound the connection (max lifetime + client reconnect) and batch the
     cursor query. Measure query rate per active tab.
   - **Acceptance.** N concurrent clients do not produce O(N) polls/sec.
+  - **Landed.** New `lib/realtime/poller.ts` owns **one** timer per server
+    instance and batches every subscriber's cursor into a single query per tick
+    (`listUpdatedSinceMany` / `listThreadActivitySinceMany`, both new). Both
+    SSE routes (`agent/events`, `mail/events`) now share it via
+    `lib/realtime/hubs.ts` (a `globalThis` singleton so HMR cannot leak a second
+    interval). New `lib/realtime/sse.ts` centralizes headers, `hello`,
+    abort/cancel cleanup and a 5-minute **max lifetime** that emits `reconnect`
+    before closing; `EventSource` reconnects automatically. No new infra.
+  - **Acceptance detail.** DB query rate is O(instances with ≥1 subscriber)
+    instead of O(tabs); per-instance it is 1 query / 3s regardless of N. Across
+    many serverless instances a full cross-instance backplane would be needed;
+    this bounds cost per instance and connection lifetime.
+  - **Evidence.** `npx tsc --noEmit` ✅ · `npm run lint` ✅ (one pre-existing
+    unrelated warning).
 
 - [ ] **B7. Cache stampede / single-flight** · `SKILL §7.2`
   - **Problem.** `lib/ai/cache.ts` has TTLs but no mutex; a popular key expiring
@@ -373,7 +387,7 @@ horizontally, and traces/metrics are exported.
 | P1 | Non-constant-time cron secret | `cron-auth.ts` | B2 ✅ |
 | P1 | `Math.random` queue ids | `queue.ts` | B3 ✅ |
 | P1 | Pool fan-out / no global cap | `db/index.ts` | B4 ✅ |
-| P1 | SSE per-client DB polling | `agent/events/route.ts` | B6 |
+| P1 | SSE per-client DB polling | `agent/events/route.ts` | B6 ✅ |
 | P2 | No OpenAPI contract | repo root | C1 |
 | P2 | SQL in services (no repos) | `lib/inbox`, `lib/services` | C2 |
 | P2 | No unit/integration pyramid | `scripts/` only | C3 |

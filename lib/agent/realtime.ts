@@ -35,6 +35,7 @@ export interface MailThreadDto {
 export type AgentRealtimeEvent =
   | { type: "hello"; at: string }
   | { type: "ping"; at: string }
+  | { type: "reconnect"; at: string; reason: string }
   | { type: "action.updated"; at: string; action: AgentActionDto }
   | { type: "mail.updated"; at: string; thread: MailThreadDto };
 

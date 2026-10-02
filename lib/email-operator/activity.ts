@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, eq, gt } from "drizzle-orm";
+import { and, asc, eq, gt, inArray } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import { threads } from "@/lib/db/schema";
@@ -45,4 +45,42 @@ export async function listThreadActivitySince(input: {
     )
     .orderBy(asc(threads.lastMessageAt))
     .limit(limit);
+}
+
+export type ThreadActivityWithUser = ThreadActivity & { userId: string };
+
+/**
+ * Batched form of {@link listThreadActivitySince} for the shared realtime
+ * poller: one query for every connected user. The global limit is a safety cap.
+ */
+export async function listThreadActivitySinceMany(input: {
+  userIds: string[];
+  since: Date;
+  limitPerUser?: number;
+}): Promise<ThreadActivityWithUser[]> {
+  const userIds = [...new Set(input.userIds.filter(Boolean))];
+  if (userIds.length === 0) return [];
+  const perUser = Math.min(
+    Math.max(input.limitPerUser ?? MAX_ACTIVITY_BATCH, 1),
+    200,
+  );
+  const total = Math.min(perUser * userIds.length, 1000);
+  return db
+    .select({
+      id: threads.id,
+      userId: threads.userId,
+      gmailThreadId: threads.gmailThreadId,
+      subject: threads.subject,
+      lastMessageAt: threads.lastMessageAt,
+      isUnread: threads.isUnread,
+    })
+    .from(threads)
+    .where(
+      and(
+        inArray(threads.userId, userIds),
+        gt(threads.lastMessageAt, input.since),
+      ),
+    )
+    .orderBy(asc(threads.lastMessageAt))
+    .limit(total);
 }
