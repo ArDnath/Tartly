@@ -6,6 +6,11 @@ import { cache } from "react";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { user } from "@/lib/db/schema";
+import {
+  cacheSessionUser,
+  invalidateSessionUserCache,
+  isSessionUserCached,
+} from "@/lib/session-cache";
 
 /**
  * Resolve the current session using Better Auth's lookup chain:
@@ -22,19 +27,31 @@ import { user } from "@/lib/db/schema";
  * foreign key (or leak stale data). Confirming existence here makes those
  * sessions unauthenticated everywhere at once: pages redirect to `/auth` and
  * API routes answer `401` instead of throwing a 500.
+ *
+ * The positive existence probe is memoized in Redis for a short TTL (see
+ * `lib/session-cache.ts`) so repeat requests skip the `SELECT`; absence is never
+ * cached, and deletions invalidate the key immediately.
  */
 export const getSession = cache(async () => {
   try {
     const session = await auth.api.getSession({ headers: await headers() });
     if (!session?.user) return null;
 
+    const userId = session.user.id;
+    if (await isSessionUserCached(userId)) return session;
+
     const existing = await db
       .select({ id: user.id })
       .from(user)
-      .where(eq(user.id, session.user.id))
+      .where(eq(user.id, userId))
       .limit(1);
 
-    return existing[0] ? session : null;
+    if (!existing[0]) {
+      await invalidateSessionUserCache(userId);
+      return null;
+    }
+    await cacheSessionUser(userId);
+    return session;
   } catch {
     return null;
   }

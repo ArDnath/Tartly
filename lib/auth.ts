@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
 import { env } from "@/lib/env";
 import { redis } from "@/lib/redis";
+import { invalidateSessionUserCache } from "@/lib/session-cache";
 
 /**
  * Redis is a *speed layer plus fallback signal*, never a single point of
@@ -144,6 +145,21 @@ export const auth = betterAuth({
       // explicit, authenticated action; the existing-account-owner check still
       // prevents two users from sharing one Google account.
       allowDifferentEmails: true,
+    },
+  },
+  /**
+   * Invalidate the cached user-existence probe the moment a user is deleted, so
+   * `getSession` stops treating their sessions as authenticated immediately
+   * rather than after the TTL. Absence is never cached, so a recreated id is
+   * unaffected.
+   */
+  databaseHooks: {
+    user: {
+      delete: {
+        after: async (deletedUser) => {
+          await invalidateSessionUserCache(deletedUser.id);
+        },
+      },
     },
   },
 });

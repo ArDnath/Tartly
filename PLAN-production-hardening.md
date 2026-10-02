@@ -252,13 +252,21 @@ melt Postgres.
   - **Evidence.** `npx tsc --noEmit` ✅ · `npm run lint` ✅ (one pre-existing
     unrelated warning).
 
-- [ ] **B5. `getSession` existence-check cost** · `SKILL §6.3` / §13
+- [x] **B5. `getSession` existence-check cost** · `SKILL §6.3` / §13
   - **Problem.** `lib/session.ts` runs a Postgres `SELECT` on the `user` row on
     every authenticated request (to reject stale cookie-cache users).
   - **Do.** Cache the existence probe in Redis (short TTL, invalidate on user
     delete), or accept FK-conflict-on-write with a clean 401. Keep correctness:
     a deleted user must not be treated as authenticated.
   - **Acceptance.** A repeat request within the cache TTL does no `user` SELECT.
+  - **Landed.** New `lib/session-cache.ts` memoizes only the **positive** probe
+    (`session:user-exists:<id>`, 60s TTL, best-effort); absence is never cached,
+    so a recreated id is never locked out. `lib/session.ts` checks the memo
+    before the `SELECT` and clears it when the row is gone. Better Auth's
+    `databaseHooks.user.delete.after` invalidates immediately, bounding the
+    deletion window to the TTL for out-of-band deletes.
+  - **Evidence.** `npx tsc --noEmit` ✅ · `npm run lint` ✅ (one pre-existing
+    unrelated warning).
 
 - [ ] **B6. SSE scaling** · `SKILL §10.1`
   - **Problem.** `app/api/v1/agent/events/route.ts` polls Postgres every 3s per
