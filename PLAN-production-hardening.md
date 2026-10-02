@@ -211,12 +211,18 @@ melt Postgres.
     unrelated warning) · `npm run build` ✅ (routes `/api/v1/assets/upload`,
     `/api/v1/assets/upload-ticket` compiled).
 
-- [ ] **B2. Constant-time secret comparison** · `SKILL §4.3`, matrix #7
+- [x] **B2. Constant-time secret comparison** · `SKILL §4.3`, matrix #7
   - **Problem.** `lib/email-operator/cron-auth.ts:17` compares with `===`.
   - **Do.** `crypto.timingSafeEqual` over equal-length buffers (guard length
     first). Audit other secret compares (webhook already uses asymmetric verify).
   - **Acceptance.** Constant-time compare; wrong-length inputs return false
     without throwing.
+  - **Landed.** New `lib/security/constant-time.ts` exports
+    `constantTimeEqual(a, b)` (length guard → `timingSafeEqual`). `cron-auth.ts`
+    now uses it. Audit found no other shared-secret `===` compares; the Gmail
+    webhook verifies a Google OIDC token asymmetrically.
+  - **Evidence.** `npx tsc --noEmit` ✅ · `npm run lint` ✅ (one pre-existing
+    unrelated warning).
 
 - [ ] **B3. Collision-safe IDs for the queue** · `SKILL §8.2`, matrix #14
   - **Problem.** `lib/queue/queue.ts:106` builds job ids from `Math.random()`.
@@ -343,7 +349,7 @@ horizontally, and traces/metrics are exported.
 | P0 | No CI gate | `.github/` | A ✅ |
 | P0 | Near-zero rate limiting | `lib/api/http.ts` | A ✅ |
 | P1 | Server-buffered uploads + public bucket | `assets/route.ts`, `storage.ts` | B1 ✅ |
-| P1 | Non-constant-time cron secret | `cron-auth.ts` | B2 |
+| P1 | Non-constant-time cron secret | `cron-auth.ts` | B2 ✅ |
 | P1 | `Math.random` queue ids | `queue.ts` | B3 |
 | P1 | Pool fan-out / no global cap | `db/index.ts` | B4 |
 | P1 | SSE per-client DB polling | `agent/events/route.ts` | B6 |
