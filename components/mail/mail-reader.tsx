@@ -3,6 +3,7 @@
 import {
   Archive,
   ArrowLeft,
+  BellOff,
   ClockFading,
   Forward,
   Mail,
@@ -87,6 +88,16 @@ export function MailReader({ message }: { message: MailMessage }) {
       body: quoted(message),
     });
 
+  const unsubscribe = async () => {
+    await fetch("/api/v1/mail/unsubscribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ senderEmail: message.from.email, archiveThread: false }),
+    }).catch(() => null);
+    archive([message.id]);
+    closeMessage();
+  };
+
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-mail-surface">
       <div className="flex shrink-0 items-center gap-1 border-b border-mail-line bg-mail-surface px-6 py-3">
@@ -111,6 +122,13 @@ export function MailReader({ message }: { message: MailMessage }) {
           icon={Trash2}
           onClick={() => remove([message.id])}
         />
+        {message.unsubscribe ? (
+          <ReaderAction
+            label="Unsubscribe from sender"
+            icon={BellOff}
+            onClick={() => void unsubscribe()}
+          />
+        ) : null}
         <LabelAction ids={[message.id]} />
         <ReaderAction
           label="Mark as unread"

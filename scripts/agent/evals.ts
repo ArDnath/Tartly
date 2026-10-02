@@ -1,11 +1,67 @@
 import "dotenv/config";
 
+import type { ModelMessage, ToolResultPart } from "ai";
+import { z } from "zod";
+
 import { defineTool, type AnyToolDefinition } from "../../lib/agent/registry";
 import type { AgentContext } from "../../lib/agent/context";
 import type { AgentEvent } from "../../lib/agent/events";
+import {
+  buildCompactionSummaryMessage,
+  buildFallbackSummary,
+  estimateTokens,
+  shouldCompact,
+  toolOutputText,
+  trimToolResults,
+} from "../../lib/agent/compaction";
 import { MAX_AGENT_STEPS, runAgent } from "../../lib/agent/loop";
 import { createToolRegistry } from "../../lib/agent/registry";
-import { createDefaultToolRegistry } from "../../lib/agent/tools";
+import {
+  createDefaultToolRegistry,
+  createFollowupTool,
+  scheduleEmailTool,
+} from "../../lib/agent/tools";
+import { buildAgentSystemPrompt } from "../../lib/agent/prompts";
+import {
+  ACTIVATE_TOOLS_TOOL_NAME,
+  CORE_GROUP,
+  planActiveToolNames,
+  toolGroupFor,
+  unmappedToolNames,
+} from "../../lib/agent/tool-groups";
+import {
+  createCircuitBreaker,
+  type CircuitStore,
+} from "../../lib/ai/circuit-breaker";
+import {
+  modelChainForRole,
+  parseModelChain,
+  runWithModelFallback,
+} from "../../lib/ai/model-chain";
+import {
+  isGlobalAiBudgetExhausted,
+  tryConsumeAiBudget,
+  type BudgetCounter,
+} from "../../lib/ai/budget";
+import { meetsConfidenceRequirement } from "../../lib/ai/features/draft-context";
+import {
+  extractSnippetShortcuts,
+  normalizeShortcut,
+  tokenize,
+  bm25Score,
+} from "../../lib/ai/features/knowledge";
+import {
+  extractDomainFromEmail,
+  hasMeaningfulEdit,
+  isPublicEmailDomain,
+  rankRelevantMemories,
+  sanitizeExtractedMemories,
+} from "../../lib/ai/features/reply-memory";
+import {
+  buildStyleGuide,
+  deriveStyleHeuristically,
+} from "../../lib/ai/features/writing-style";
+import { estimateCostMicros } from "../../lib/ai/usage";
 import { getModelProvider } from "../../lib/ai/model-provider";
 import { scriptedModel } from "./scripted-model";
 
@@ -411,6 +467,14 @@ const LIVE_PROMPTS: Array<{ prompt: string; expectAnyOf: string[] }> = [
 async function runLiveEvals(): Promise<void> {
   section("live model evals (optional)");
 
+  // Live runs cost tokens and depend on an external gateway, so they are
+  // opt-in. The deterministic scripted evals above already cover model-path
+  // tool selection, authorization and argument validation.
+  if (process.env.AGENT_EVAL_LIVE !== "true") {
+    console.log("  skip  set AGENT_EVAL_LIVE=true to run against a live model");
+    return;
+  }
+
   const provider = getModelProvider();
   if (!provider.isConfigured()) {
     console.log("  skip  OPENCODE_API_KEY not set");
@@ -437,7 +501,7 @@ async function runLiveEvals(): Promise<void> {
         ctx: testCtx(),
         model,
         system:
-          "You are Redape's email assistant operating the user's mailbox through tools. Prefer doing over explaining.",
+          "You are Lunabox's email assistant operating the user's mailbox through tools. Prefer doing over explaining.",
         messages: [{ role: "user", content: scenario.prompt }],
         registry,
         events: (event) => events.push(event),
@@ -486,9 +550,641 @@ async function runLiveEvals(): Promise<void> {
   );
 }
 
+// --------------------------------------------------------------------------
+// Phase 0 foundation evals (A1/A3/A4/A6/A8)
+// --------------------------------------------------------------------------
+
+function memoryCircuitStore(): CircuitStore {
+  const map = new Map<string, { value: string; expiresAt: number }>();
+  return {
+    async get(key) {
+      const entry = map.get(key);
+      if (!entry) return null;
+      if (entry.expiresAt <= Date.now()) {
+        map.delete(key);
+        return null;
+      }
+      return entry.value;
+    },
+    async set(key, value, ttlSeconds) {
+      map.set(key, { value, expiresAt: Date.now() + ttlSeconds * 1000 });
+      return "OK";
+    },
+    async del(key) {
+      map.delete(key);
+      return 1;
+    },
+  };
+}
+
+function fakeBudgetCounter(): BudgetCounter {
+  const counts = new Map<string, number>();
+  return {
+    async incr(key) {
+      const next = (counts.get(key) ?? 0) + 1;
+      counts.set(key, next);
+      return next;
+    },
+    async expire() {
+      return 1;
+    },
+  };
+}
+
+function toolMessage(index: number): ModelMessage {
+  return {
+    role: "tool",
+    content: [
+      {
+        type: "tool-result",
+        toolCallId: `call-${index}`,
+        toolName: "get_email",
+        output: {
+          type: "json",
+          value: { id: `m-${index}`, body: "x".repeat(200) },
+        },
+      },
+    ],
+  } as ModelMessage;
+}
+
+async function runPhase0Evals(): Promise<void> {
+  section("phase 0 foundation evals (fallback · compaction · budget · circuit)");
+
+  // --- model chain parsing (A1) ---
+  const fallback = { providerId: "opencode", modelId: "space-bunny-free" };
+  assert(
+    parseModelChain(undefined, fallback).length === 1,
+    "unset chain falls back to the single configured model",
+  );
+  const parsed = parseModelChain(
+    "opencode:a-free, fallback:gpt-4o-mini , broken",
+    fallback,
+  );
+  assert(
+    parsed.length === 2 &&
+      parsed[0]!.modelId === "a-free" &&
+      parsed[1]!.providerId === "fallback",
+    "chain parses provider:model entries and drops malformed ones",
+  );
+  const filtered = modelChainForRole({
+    raw: "opencode:a-free,ghost:never",
+    fallback,
+    isProviderConfigured: (providerId) => providerId === "opencode",
+  });
+  assert(
+    filtered.length === 1 && filtered[0]!.providerId === "opencode",
+    "chain drops candidates whose provider has no credentials",
+  );
+
+  // --- fallback runner (A1) ---
+  const candidates = [
+    { providerId: "primary", modelId: "m1" },
+    { providerId: "secondary", modelId: "m2" },
+  ];
+  const recovered = await runWithModelFallback({
+    candidates,
+    attempt: async (candidate) => {
+      if (candidate.providerId === "primary") throw new Error("boom");
+      return "ok";
+    },
+  });
+  assert(
+    recovered?.value === "ok" && recovered.fallbackDepth === 1,
+    "fallback advances past a retryable failure",
+  );
+
+  const exhausted = await runWithModelFallback({
+    candidates,
+    attempt: async () => {
+      throw new Error("always down");
+    },
+  });
+  assert(exhausted === null, "fallback returns null when every candidate fails");
+
+  let nonRetryableAttempts = 0;
+  const stopped = await runWithModelFallback({
+    candidates,
+    attempt: async () => {
+      nonRetryableAttempts += 1;
+      throw new Error("bad request");
+    },
+    isRetryable: () => false,
+  });
+  assert(
+    stopped === null && nonRetryableAttempts === 1,
+    "a non-retryable failure stops the chain immediately",
+  );
+
+  // --- compaction + tool-result trimming (A3) ---
+  const manyToolMessages = Array.from({ length: 14 }, (_, index) =>
+    toolMessage(index),
+  );
+  const trimmed = trimToolResults(manyToolMessages, { keepLast: 10 });
+  const firstOutput = (
+    trimmed[0] as { content: Array<{ output: ToolResultPart["output"] }> }
+  ).content[0]!.output;
+  const lastOutput = (
+    trimmed[13] as { content: Array<{ output: ToolResultPart["output"] }> }
+  ).content[0]!.output;
+  assert(
+    toolOutputText(firstOutput).includes("trimmed") &&
+      (lastOutput as { type: string }).type === "json",
+    "trimToolResults stubs old results and keeps the recent ones",
+  );
+  assert(
+    trimToolResults(manyToolMessages.slice(0, 3)).length === 3,
+    "tool results under the keep-limit are untouched",
+  );
+
+  const bigHistory: ModelMessage[] = [
+    { role: "user", content: "x".repeat(40_000) },
+  ];
+  assert(
+    estimateTokens(bigHistory) > 9_000 &&
+      shouldCompact(bigHistory, 1_000) &&
+      !shouldCompact(bigHistory, 1_000_000),
+    "shouldCompact respects the token threshold",
+  );
+  assert(
+    buildFallbackSummary(manyToolMessages).includes("condensed") &&
+      buildCompactionSummaryMessage("hello").role === "user",
+    "compaction has a deterministic offline summary + framed message",
+  );
+
+  // --- budgets (A8) ---
+  const counter = fakeBudgetCounter();
+  const first = await tryConsumeAiBudget({ userId: "u1", limit: 2, counter });
+  const second = await tryConsumeAiBudget({ userId: "u1", limit: 2, counter });
+  const third = await tryConsumeAiBudget({ userId: "u1", limit: 2, counter });
+  assert(
+    first && second && !third,
+    "per-user daily budget rejects the call past its limit",
+  );
+
+  const globalCounter = fakeBudgetCounter();
+  const g1 = await isGlobalAiBudgetExhausted({ limit: 1, counter: globalCounter });
+  const g2 = await isGlobalAiBudgetExhausted({ limit: 1, counter: globalCounter });
+  assert(
+    !g1 && g2,
+    "global budget is exhausted once the platform ceiling is crossed",
+  );
+
+  // The dated global key must get a TTL on first use, or it leaks in Redis
+  // forever (the per-user path already does this).
+  const expiring: string[] = [];
+  let globalHits = 0;
+  await isGlobalAiBudgetExhausted({
+    limit: 5,
+    counter: {
+      async incr() {
+        globalHits += 1;
+        return globalHits;
+      },
+      async expire(key: string) {
+        expiring.push(key);
+        return 1;
+      },
+    },
+  });
+  assert(
+    expiring.length === 1 && expiring[0]!.startsWith("ai-global-budget:"),
+    "the global budget key is given a daily TTL on first use",
+  );
+
+  // --- circuit breaker (A6) ---
+  const store = memoryCircuitStore();
+  let clock = 1_000_000;
+  const breaker = createCircuitBreaker(store, {
+    failureThreshold: 3,
+    openMs: 60_000,
+    now: () => clock,
+  });
+  await breaker.recordFailure("primary");
+  await breaker.recordFailure("primary");
+  assert(
+    !(await breaker.isOpen("primary")),
+    "circuit stays closed below the failure threshold",
+  );
+  await breaker.recordFailure("primary");
+  assert(
+    await breaker.isOpen("primary"),
+    "circuit opens at the failure threshold",
+  );
+  clock += 60_001;
+  assert(
+    !(await breaker.isOpen("primary")),
+    "circuit closes again after the cooldown window",
+  );
+  await breaker.recordFailure("primary");
+  await breaker.recordSuccess("primary");
+  assert(
+    !(await breaker.isOpen("primary")),
+    "a success resets the breaker",
+  );
+
+  const failingStore: CircuitStore = {
+    async get() {
+      throw new Error("redis down");
+    },
+    async set() {
+      throw new Error("redis down");
+    },
+    async del() {
+      throw new Error("redis down");
+    },
+  };
+  const failingBreaker = createCircuitBreaker(failingStore);
+  await failingBreaker.recordFailure("primary");
+  assert(
+    !(await failingBreaker.isOpen("primary")),
+    "circuit breaker fails open when its store is unreachable",
+  );
+}
+
+// --------------------------------------------------------------------------
+// Phase 1 evals (voice · memory · knowledge · confidence)
+// --------------------------------------------------------------------------
+
+async function runPhase1Evals(): Promise<void> {
+  section("phase 1 evals (voice · memory · knowledge · confidence)");
+
+  // --- meaningful-edit detection (memory learning gate) ---
+  assert(
+    !hasMeaningfulEdit("Hi there,\n\nThanks!", "hi there, thanks!"),
+    "whitespace/case-only edits are not treated as meaningful",
+  );
+  assert(
+    hasMeaningfulEdit("Thanks for reaching out.", "Thanks! I'll call you tomorrow."),
+    "a substantive edit is detected",
+  );
+
+  // --- memory sanitization (durability + scope guards) ---
+  const invalidTopic =
+    "this topic label is far far too long to ever be a valid short topic indeed";
+  const cleanedPrivate = sanitizeExtractedMemories(
+    [
+      {
+        content: "Always sign off with 'Best,'",
+        kind: "PREFERENCE",
+        scopeType: "SENDER",
+        scopeValue: "jane@acme.com",
+      },
+      {
+        content: "Acme is on an enterprise plan",
+        kind: "FACT",
+        scopeType: "DOMAIN",
+        scopeValue: "gmail.com",
+      },
+      {
+        content: "Too long",
+        kind: "FACT",
+        scopeType: "TOPIC",
+        scopeValue: invalidTopic,
+      },
+    ],
+    { allowDomainScope: false },
+  );
+  assert(
+    cleanedPrivate.length === 1 &&
+      cleanedPrivate[0]!.scopeType === "GLOBAL" &&
+      cleanedPrivate[0]!.scopeValue === "",
+    "sanitizer forces PREFERENCE→GLOBAL and drops DOMAIN + malformed TOPIC memories",
+  );
+  const cleanedDomain = sanitizeExtractedMemories(
+    [
+      {
+        content: "Pricing starts at $20/seat",
+        kind: "FACT",
+        scopeType: "DOMAIN",
+        scopeValue: "acme.com",
+      },
+    ],
+    { allowDomainScope: true },
+  );
+  assert(
+    cleanedDomain.length === 1 &&
+      cleanedDomain[0]!.scopeType === "DOMAIN" &&
+      cleanedDomain[0]!.scopeValue === "acme.com",
+    "sanitizer keeps a valid private-domain memory when domain scope is allowed",
+  );
+
+  // --- memory selection ordering (deterministic fallback) ---
+  const now = new Date();
+  const preselect = rankRelevantMemories({
+    memories: [
+      {
+        id: "g",
+        content: "Global rule",
+        kind: "PREFERENCE",
+        scopeType: "GLOBAL",
+        scopeValue: "",
+        updatedAt: now,
+      },
+      {
+        id: "s",
+        content: "Sender rule",
+        kind: "FACT",
+        scopeType: "SENDER",
+        scopeValue: "jane@acme.com",
+        updatedAt: now,
+      },
+      {
+        id: "d",
+        content: "Domain rule",
+        kind: "PROCEDURE",
+        scopeType: "DOMAIN",
+        scopeValue: "acme.com",
+        updatedAt: now,
+      },
+      {
+        id: "t",
+        content: "Topic rule",
+        kind: "FACT",
+        scopeType: "TOPIC",
+        scopeValue: "pricing",
+        updatedAt: now,
+      },
+      {
+        id: "other",
+        content: "Unrelated sender",
+        kind: "FACT",
+        scopeType: "SENDER",
+        scopeValue: "someone@else.com",
+        updatedAt: now,
+      },
+    ],
+    senderEmail: "jane@acme.com",
+    subject: "Pricing question",
+    text: "Can you send pricing?",
+  });
+  assert(
+    preselect.map((memory) => memory.id).join(",") === "s,d,t,g" &&
+      !preselect.some((memory) => memory.id === "other"),
+    "fallback selection keeps only relevant scopes, most specific first",
+  );
+  assert(
+    isPublicEmailDomain(extractDomainFromEmail("jane@gmail.com")) &&
+      !isPublicEmailDomain(extractDomainFromEmail("jane@acme.com")),
+    "domain extraction distinguishes public providers",
+  );
+
+  // --- writing style fallback + guide ---
+  const style = deriveStyleHeuristically([
+    {
+      to: "a@b.com",
+      content: "Hey, quick one — can we move the call? I can't do 3pm. Thanks!",
+    },
+    { to: "c@d.com", content: "Sounds good. I'll send the deck over tomorrow." },
+  ]);
+  const guide = buildStyleGuide(style);
+  assert(
+    guide.includes("mirror this voice") &&
+      guide.includes("Typical length") &&
+      style.notableTraits.length > 0,
+    "heuristic style produces a usable, injecting guide",
+  );
+  assert(
+    buildStyleGuide(deriveStyleHeuristically([])).includes(
+      "no sent mail to analyze",
+    ),
+    "no samples yields a neutral, non-inventing style",
+  );
+
+  // --- confidence gating ---
+  assert(
+    meetsConfidenceRequirement({ draftConfidence: "LOW", minimum: "all" }) &&
+      !meetsConfidenceRequirement({ draftConfidence: "LOW", minimum: "standard" }) &&
+      meetsConfidenceRequirement({ draftConfidence: "MEDIUM", minimum: "standard" }) &&
+      !meetsConfidenceRequirement({ draftConfidence: "MEDIUM", minimum: "high" }) &&
+      meetsConfidenceRequirement({ draftConfidence: "HIGH", minimum: "high" }) &&
+      !meetsConfidenceRequirement({ draftConfidence: null, minimum: "standard" }),
+    "confidence gate matches the configured minimum",
+  );
+
+  // --- knowledge retrieval + snippets ---
+  const df = new Map<string, number>([
+    ["pricing", 1],
+    ["seat", 1],
+  ]);
+  const score = bm25Score({
+    queryTokens: tokenize("what is the pricing per seat?"),
+    docTokens: tokenize("Pricing is $20 per seat"),
+    avgLength: 6,
+    docCount: 2,
+    docFrequency: df,
+  });
+  assert(score > 0, "bm25 scores a clearly relevant knowledge entry");
+  assert(
+    tokenize("the and table").join(",") === "table",
+    "tokenizer drops stop words",
+  );
+  assert(
+    extractSnippetShortcuts("Hi {{snippet:intro}} — see {{ snippet:bio }}").join(",") ===
+      "intro,bio",
+    "snippet references are extracted case/spacing-insensitively",
+  );
+  assert(
+    normalizeShortcut("  My Intro! ") === "my-intro-",
+    "shortcut normalization is stable",
+  );
+
+  // --- cost estimation (A4) ---
+  assert(
+    estimateCostMicros({ model: "gpt-4o-mini", promptTokens: 1_000_000 }) === 150_000,
+    "cost estimate uses the pricing table",
+  );
+  assert(
+    estimateCostMicros({ model: "space-bunny-free", promptTokens: 1_000_000 }) === 0,
+    "an unpriced (free) model costs zero",
+  );
+  // Cached tokens are a subset of the prompt and must be billed at the
+  // discounted rate once, not at the full input rate as well.
+  assert(
+    estimateCostMicros({
+      model: "gpt-4o-mini",
+      promptTokens: 1_000_000,
+      cachedTokens: 1_000_000,
+    }) === 75_000,
+    "cached prompt tokens are billed at the cache rate, not double-counted",
+  );
+}
+
+/**
+ * §5.3 progressive tool disclosure. The pure planner is asserted here; the
+ * loop-level behaviour is driven by a scripted model so it needs no network.
+ */
+async function runToolGroupEvals(): Promise<void> {
+  section("phase 0 — progressive tool disclosure (§5.3)");
+
+  const registryNames = createDefaultToolRegistry()
+    .list()
+    .map((definition) => definition.name);
+  const allToolNames = [...registryNames, ACTIVATE_TOOLS_TOOL_NAME];
+
+  assert(
+    unmappedToolNames(registryNames).length === 0,
+    "every registered tool is mapped to a group",
+  );
+  assert(
+    toolGroupFor("a_brand_new_tool") === CORE_GROUP,
+    "an unmapped tool defaults to core, so it can never be hidden by accident",
+  );
+  assert(
+    unmappedToolNames([ACTIVATE_TOOLS_TOOL_NAME]).length === 0,
+    "activate_tools is reserved control plumbing, not a group member",
+  );
+
+  const off = planActiveToolNames({ allToolNames, progressive: false });
+  assert(
+    off === null,
+    "progressive off returns null so the caller leaves every tool active",
+  );
+
+  const initial = planActiveToolNames({ allToolNames, progressive: true })!;
+  assert(
+    initial.includes("search_emails") &&
+      initial.includes("get_thread") &&
+      initial.includes(ACTIVATE_TOOLS_TOOL_NAME),
+    "core search/read tools and activate_tools are active by default",
+  );
+  assert(
+    !initial.includes("send_email") &&
+      !initial.includes("create_rule") &&
+      !initial.includes("research_person"),
+    "non-core groups start hidden",
+  );
+
+  const composed = planActiveToolNames({
+    allToolNames,
+    activatedGroups: ["compose"],
+    progressive: true,
+  })!;
+  assert(
+    composed.includes("send_email") && composed.includes("create_draft"),
+    "unlocking a group makes its tools active",
+  );
+  assert(
+    !composed.includes("create_rule"),
+    "unlocking one group does not leak another",
+  );
+
+  // Loop integration: a scripted model unlocks `compose`, then uses a grouped
+  // tool. Both must reach their execute functions.
+  const executed: string[] = [];
+  const offered: string[][] = [];
+  const fakeSearch = defineTool({
+    name: "search_emails",
+    description: "Search mail.",
+    risk: "READ",
+    inputSchema: z.object({ query: z.string() }),
+    async execute() {
+      executed.push("search_emails");
+      return { messages: [] };
+    },
+  });
+  const fakeDraft = defineTool({
+    name: "create_draft",
+    description: "Create a draft.",
+    risk: "READ",
+    inputSchema: z.object({ to: z.string(), body: z.string() }),
+    async execute() {
+      executed.push("create_draft");
+      return { draftId: "d1" };
+    },
+  });
+
+  const result = runAgent({
+    ctx: testCtx(),
+    model: scriptedModel(
+      [
+        { toolCalls: [{ toolName: ACTIVATE_TOOLS_TOOL_NAME, input: { groups: ["compose"] } }] },
+        { toolCalls: [{ toolName: "create_draft", input: { to: "a@b.com", body: "hi" } }] },
+        { text: "Done." },
+      ],
+      { onStep: (names) => offered.push(names) },
+    ),
+    system: "You are the eval harness.",
+    messages: [{ role: "user", content: "Draft a hello to a@b.com." }],
+    registry: createToolRegistry([fakeSearch, fakeDraft]),
+    progressiveTools: true,
+  });
+  await result.text;
+  const steps = await result.steps;
+  const calledTools = steps.flatMap((step) =>
+    (step.toolCalls ?? []).map((call) => call.toolName),
+  );
+
+  assert(
+    calledTools.includes(ACTIVATE_TOOLS_TOOL_NAME),
+    "the model can unlock a group through activate_tools",
+  );
+  assert(
+    executed.includes("create_draft"),
+    "a tool from the unlocked group becomes callable and executes",
+  );
+
+  // The point of §5.3 is cost: hidden tools must not be sent as schemas.
+  assert(
+    offered[0]?.includes("search_emails") &&
+      offered[0]?.includes(ACTIVATE_TOOLS_TOOL_NAME) &&
+      !offered[0]?.includes("create_draft"),
+    "the first request offers core tools only, not the grouped tool",
+  );
+  assert(
+    offered[1]?.includes("create_draft"),
+    "after activation the next request offers the unlocked tool",
+  );
+}
+
+/**
+ * Deterministic guard for the "ask, don't guess" time rule. The semantic
+ * behaviour is model-judged in the live suite; this only pins the instructions
+ * the model is given, so a future edit cannot silently drop them.
+ */
+function runTimeClarificationEvals(): void {
+  section("Time clarification");
+
+  const prompt = buildAgentSystemPrompt({
+    now: new Date("2026-09-30T12:00:00Z"),
+    timezone: "America/New_York",
+    autonomy: "copilot",
+  });
+
+  assert(
+    prompt.includes("## Dates and times"),
+    "the agent prompt has a dates-and-times section",
+  );
+  assert(
+    /ask one short question/i.test(prompt),
+    "the prompt requires asking when the time is ambiguous",
+  );
+  assert(
+    /earlier in this thread/i.test(prompt),
+    "the prompt reuses a time already fixed in the thread",
+  );
+  assert(
+    /do not call the tool/i.test(prompt),
+    "the prompt forbids acting on an ambiguous time",
+  );
+
+  assert(
+    /ask when it should go out/i.test(scheduleEmailTool.description),
+    "schedule_email asks for a time instead of guessing",
+  );
+  assert(
+    /ask before starting/i.test(createFollowupTool.description),
+    "create_followup asks for timing instead of guessing",
+  );
+}
+
 async function main(): Promise<void> {
+  await runPhase0Evals();
+  await runToolGroupEvals();
+  await runPhase1Evals();
   await runScriptedEvals();
   await runLiveEvals();
+  runTimeClarificationEvals();
 
   if (failures > 0) {
     console.error(`\n${failures} assertion(s) failed.`);

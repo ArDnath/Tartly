@@ -2,6 +2,11 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { apiError, ok } from "@/lib/api/http";
+import {
+  buildHtmlWithImages,
+  resolveOutboundAssets,
+} from "@/lib/assets/outbound";
+import { expandSnippets } from "@/lib/ai/features/knowledge";
 import { getMailboxForUser } from "@/lib/email-operator/mailbox";
 import { sendEmail } from "@/lib/gmail/send";
 import { allowMailSend } from "@/lib/mail/rate-limit";
@@ -15,6 +20,9 @@ const schema = z.object({
   body: z.string().default(""),
   threadId: z.string().optional(),
   inReplyTo: z.string().optional(),
+  /** Phase 6: assets to attach, and images to render inline. */
+  assetIds: z.array(z.string()).max(20).optional(),
+  inlineImageIds: z.array(z.string()).max(20).optional(),
 });
 
 /**
@@ -35,7 +43,19 @@ export const POST = withMailUser(async (userId, request) => {
     return apiError("no_mailbox", "No connected mailbox", 409);
   }
 
-  const { to, cc, bcc, subject, body, threadId, inReplyTo } = parsed.data;
+  const { to, cc, bcc, subject, body, threadId, inReplyTo, assetIds, inlineImageIds } =
+    parsed.data;
+
+  // Expand `{{snippet:shortcut}}` server-side so it works from any composer.
+  const { text: expandedBody } = await expandSnippets({ userId, text: body });
+
+  // Resolve assets to bytes now (Phase 6); deleting them later leaves sent mail intact.
+  const assets = await resolveOutboundAssets({
+    userId,
+    inlineImageIds: inlineImageIds ?? [],
+    attachmentIds: assetIds ?? [],
+  });
+  const html = buildHtmlWithImages(expandedBody, assets.htmlImages);
 
   const result = await sendEmail({
     userId,
@@ -45,7 +65,10 @@ export const POST = withMailUser(async (userId, request) => {
       ...(cc?.length ? { cc } : {}),
       ...(bcc?.length ? { bcc } : {}),
       subject,
-      text: body,
+      text: expandedBody,
+      ...(html ? { html } : {}),
+      ...(assets.inlineImages.length ? { inlineImages: assets.inlineImages } : {}),
+      ...(assets.attachments.length ? { attachments: assets.attachments } : {}),
       ...(inReplyTo ? { inReplyTo, references: [inReplyTo] } : {}),
     },
     gmailThreadId: threadId ?? null,

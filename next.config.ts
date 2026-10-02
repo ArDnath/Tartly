@@ -48,15 +48,52 @@ const nextConfig: NextConfig = {
       static: 180,
     },
   },
+  // Baseline security headers on every response. No CSP here: the app ships
+  // inline styles/scripts from Next and a naive policy would break it; CSP
+  // belongs in a deliberate, tested follow-up.
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          // HTTPS-only for two years. No `preload` yet — that is a one-way
+          // commitment that must be deliberate.
+          {
+            key: "Strict-Transport-Security",
+            value: "max-age=63072000; includeSubDomains",
+          },
+          // Never let a browser sniff a response into a different type (XSS).
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          // Do not leak the full URL cross-origin.
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          // Clickjacking defense (superseded by CSP frame-ancestors, kept for
+          // older browsers).
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          {
+            key: "Permissions-Policy",
+            value: "camera=(), microphone=(), geolocation=(), browsing-topics=()",
+          },
+        ],
+      },
+    ];
+  },
   // Collapse every legacy alias onto the canonical origin with a 308 so no
   // request is ever served (or authenticated) off-origin.
   async redirects() {
-    return LEGACY_HOSTS.map((host) => ({
+    const hostRedirects = LEGACY_HOSTS.map((host) => ({
       source: "/:path*",
       has: [{ type: "host" as const, value: host }],
       destination: `${CANONICAL_ORIGIN}/:path*`,
       permanent: true,
     }));
+
+    return [
+      ...hostRedirects,
+      // `/metrics` was an early, orphaned duplicate of the richer `/activity`
+      // board — same page title, linked from nowhere. Fold it into the
+      // canonical surface so old bookmarks never land on a dead card grid.
+      { source: "/metrics", destination: "/activity", permanent: true },
+    ];
   },
 };
 

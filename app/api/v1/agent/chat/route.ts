@@ -15,20 +15,23 @@ import {
 import { toSafeError } from "@/lib/agent/errors";
 import { createLoggingEventSink, type AgentEvent } from "@/lib/agent/events";
 import { streamAgentTurn, type AgentTurnSummary } from "@/lib/agent/loop";
-import { storedMessageToUIMessage } from "@/lib/agent/messages";
+import { storedMessageToModelUIMessage } from "@/lib/agent/messages";
 import {
   appendMessageParts,
   createAgentRun,
   createRunTracer,
   finishAgentRun,
   loadConversationMessages,
+  saveThreadCompaction,
 } from "@/lib/agent/persistence";
 import { buildAgentSystemPrompt } from "@/lib/agent/prompts";
 import { createDefaultToolRegistry } from "@/lib/agent/tools";
 import { getModelProvider } from "@/lib/ai/model-provider";
 import { isBudgetDisabled, tryConsumeAiBudget } from "@/lib/ai/budget";
+import { recordAiUsage } from "@/lib/ai/usage";
 import { ensureChatThreadTitle, findThreadForUser } from "@/lib/ai/chat-service";
-import { apiError, withUser } from "@/lib/api/http";
+import { apiError, withUser, type UserRouteHandler } from "@/lib/api/http";
+import { agentRateLimitPerMin } from "@/lib/env";
 import { actionService } from "@/lib/services/action-service";
 import type { ChatMessagePart } from "@/lib/db/schema";
 
@@ -144,7 +147,7 @@ function summarizeActionResult(result: unknown): string {
  *
  * The client never supplies its identity or its history.
  */
-export const POST = withUser(async (userId, request) => {
+const handleChat: UserRouteHandler = async (userId, request) => {
   const parsed = bodySchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {
     return apiError("validation", "Invalid request.", 400);
@@ -219,7 +222,7 @@ export const POST = withUser(async (userId, request) => {
     limit: MODEL_HISTORY_LIMIT,
   });
   const modelMessages = await convertToModelMessages(
-    stored.map(storedMessageToUIMessage),
+    stored.map(storedMessageToModelUIMessage),
   );
   // NOTE: we deliberately do NOT pass `originalMessages` to the UI stream. The
   // AI SDK's "continuation" mode reuses the last assistant message's id when
@@ -345,7 +348,20 @@ export const POST = withUser(async (userId, request) => {
       promptTokens: summary.promptTokens,
       completionTokens: summary.outputTokens,
       error: summary.errorCode ?? null,
-    });
+    }).then(() =>
+      // Cross-feature cost ledger (A4/A8): the agent's tokens are money too.
+      recordAiUsage({
+        userId,
+        feature: "agent-chat",
+        provider: getModelProvider().id,
+        model: process.env.AI_MODEL_ID ?? "unknown",
+        role: "standard",
+        promptTokens: summary.promptTokens,
+        completionTokens: summary.outputTokens,
+        ok: summary.status !== "failed",
+        errorCode: summary.errorCode ?? null,
+      }),
+    );
 
   // `onFinish` above records the terminal status (including `failed`), so this
   // only logs for operators.
@@ -371,6 +387,8 @@ export const POST = withUser(async (userId, request) => {
     abortSignal: request.signal,
     onConfirmationRequired,
     onAutonomousAction,
+    onCompact: ({ summary }) =>
+      saveThreadCompaction({ conversationId, summary }),
     onFinish: onTurnFinish,
     onError: onRunError,
     onStreamError: (error) => {
@@ -392,7 +410,12 @@ export const POST = withUser(async (userId, request) => {
   const response = createUIMessageStreamResponse({ stream });
   response.headers.set("X-Agent-Run-Id", runId);
   return response;
-});
+};
+
+export const POST = withUser(
+  { rateLimit: { limit: agentRateLimitPerMin(), scope: "agent" } },
+  handleChat,
+);
 
 /** A minimal UI-message stream carrying one text part (offline / no model). */
 function textOnlyResponse(text: string, id: string): Response {

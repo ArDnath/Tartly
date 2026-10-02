@@ -4,8 +4,15 @@ import { and, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
-import { AI_DRAFT_MODEL_ID } from "@/lib/ai/provider";
-import { generateStructured } from "@/lib/ai/structured";
+import {
+  DRAFT_PIPELINE_VERSION,
+  buildDraftContext,
+  buildDraftContextPrompt,
+  getAssistantSettings,
+  meetsConfidenceRequirement,
+  type ConfidenceLevel,
+} from "@/lib/ai/features/draft-context";
+import { generateObject } from "@/lib/ai/generate";
 import { db } from "@/lib/db";
 import { drafts, user } from "@/lib/db/schema";
 import { defineStep } from "@/lib/engine/step";
@@ -112,16 +119,50 @@ export const draftReplyStep = defineStep({
       ? `\n\nProposed times: ${options.join(", ")}`
       : "";
 
-    const ai = await generateStructured({
-      schema: z.object({ body: z.string().min(1).max(4_000) }),
+    // A matching plain-English rule can steer the reply (Phase 3).
+    const ruleInstruction =
+      typeof ctx.state.draftInstruction === "string"
+        ? ctx.state.draftInstruction
+        : null;
+    const ruleBlock = ruleInstruction
+      ? `\n\nFollow this instruction for the reply: ${ruleInstruction}`
+      : "";
+
+    // Personalization: voice + memory + knowledge, all deterministic to fetch
+    // and free when empty. Bounded; never blocks the draft.
+    const context = await buildDraftContext({
+      userId: ctx.userId,
+      senderEmail: contact?.email ?? latest?.from ?? "",
+      subject: latest?.subject ?? null,
+      text: latest?.text ?? "",
+      threadId,
+    });
+    const contextBlock = buildDraftContextPrompt(context);
+    const config = await getAssistantSettings(ctx.userId);
+
+    const ai = await generateObject({
+      schema: z.object({
+        body: z.string().min(1).max(4_000),
+        confidence: z.enum(["LOW", "MEDIUM", "HIGH"]),
+      }),
+      role: "standard",
+      feature: "draft-reply",
       system: `${SYSTEM_PROMPT}${ctx.input.tone ? ` Tone: ${ctx.input.tone}.` : ""}`,
       prompt: [
+        contextBlock,
+        contextBlock ? "" : undefined,
         `Reply to: ${contact?.name ?? contact?.email ?? latest?.from ?? "unknown"}`,
         `Subject: ${latest?.subject ?? "(none)"}`,
         `Their message:\n${latest?.text ?? "(empty)"}`,
         optionBlock,
-      ].join("\n"),
-      modelId: AI_DRAFT_MODEL_ID,
+        ruleBlock,
+        "",
+        "Return the reply body and your confidence in it (LOW, MEDIUM or HIGH).",
+      ]
+        .filter((line): line is string => line !== undefined)
+        .join("\n"),
+      hardening: { trust: "untrusted", level: "full", outputConstraint: "plain-text" },
+      maxOutputTokens: 1_000,
       userId: ctx.userId,
     });
 
@@ -132,6 +173,16 @@ export const draftReplyStep = defineStep({
         subject: latest?.subject ?? null,
         senderName,
         options,
+      });
+
+    const confidence: ConfidenceLevel | null = ai?.confidence ?? null;
+    // Only a model-produced draft can be "low confidence". A deterministic
+    // template is always shown — suppressing it would confuse the user.
+    const suppressed =
+      ai !== null &&
+      !meetsConfidenceRequirement({
+        draftConfidence: confidence,
+        minimum: config.draftConfidence,
       });
 
     // One pending draft per thread: regenerate updates it in place.
@@ -146,7 +197,14 @@ export const draftReplyStep = defineStep({
       draftId = existing[0].id;
       await db
         .update(drafts)
-        .set({ body, runId: ctx.runId, editedBody: null })
+        .set({
+          body,
+          runId: ctx.runId,
+          editedBody: null,
+          confidence,
+          suppressed,
+          pipelineVersion: DRAFT_PIPELINE_VERSION,
+        })
         .where(eq(drafts.id, draftId));
     } else {
       draftId = nanoid();
@@ -157,10 +215,19 @@ export const draftReplyStep = defineStep({
         runId: ctx.runId,
         body,
         status: "pending",
+        confidence,
+        suppressed,
+        pipelineVersion: DRAFT_PIPELINE_VERSION,
       });
     }
 
-    ctx.log("draft-reply", { draftId, length: body.length });
-    return { body, draftId };
+    ctx.log("draft-reply", {
+      draftId,
+      length: body.length,
+      confidence,
+      suppressed,
+      pipelineVersion: DRAFT_PIPELINE_VERSION,
+    });
+    return { body, draftId, confidence, suppressed };
   },
 });

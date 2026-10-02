@@ -107,7 +107,7 @@ export function createTavilyAdapter(
 
     async fetchPage({ url, signal }): Promise<WebPage> {
       const response = await fetch(url, {
-        headers: { "User-Agent": "RedapeResearch/1.0" },
+        headers: { "User-Agent": "LunaboxResearch/1.0" },
         signal: signal ?? AbortSignal.timeout(OPERATOR_TIMEOUT_MS),
       });
       if (!response.ok) {

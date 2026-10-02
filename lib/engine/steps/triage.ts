@@ -2,125 +2,47 @@ import "server-only";
 
 import { z } from "zod";
 
-import { AI_CLASSIFIER_MODEL_ID } from "@/lib/ai/provider";
-import { generateStructured } from "@/lib/ai/structured";
+import {
+  TRIAGE_PIPELINE_VERSION,
+  classifyThreadsBatch,
+  heuristicTriage,
+  triageResultSchema,
+  type TriageResult,
+} from "@/lib/ai/features/triage";
+import { deriveReplyStatus } from "@/lib/ai/features/thread-status";
 import { db } from "@/lib/db";
 import { threadStates } from "@/lib/db/schema";
 import { defineStep } from "@/lib/engine/step";
+import { isReplyStatusEnabled } from "@/lib/env";
 import { loadThreadContext } from "@/lib/email-operator/thread-context";
 import { requireThreadId } from "./helpers";
 
-export const TRIAGE_CATEGORIES = [
-  "needs_reply",
-  "awaiting_reply",
-  "fyi",
-  "meeting_request",
-  "invoice",
-  "newsletter",
-  "spam",
-] as const;
+// Re-exported so existing callers/tests keep working; the implementation now
+// lives in `lib/ai/features/triage.ts` (shared with the batched inbox pass).
+export {
+  TRIAGE_CATEGORIES,
+  heuristicTriage,
+  triageResultSchema,
+  type TriageAction,
+  type TriageCategory,
+  type TriageResult,
+} from "@/lib/ai/features/triage";
 
-export type TriageCategory = (typeof TRIAGE_CATEGORIES)[number];
-export type TriageAction = "draft" | "none" | "handoff";
-
-export type TriageResult = {
-  category: TriageCategory;
+/** A precomputed verdict passed through the run trigger by the inbox batch pass. */
+type PrecomputedTriage = {
+  category: TriageResult["category"];
   priority: number;
-  action: TriageAction;
+  action: TriageResult["action"];
   reason?: string;
 };
 
-export const triageResultSchema = z.object({
-  category: z.enum(TRIAGE_CATEGORIES),
-  priority: z.number().int().min(0).max(100),
-  action: z.enum(["draft", "none", "handoff"]),
-  reason: z.string().max(200).optional(),
-});
-
-const PRIORITY: Record<TriageCategory, number> = {
-  meeting_request: 80,
-  needs_reply: 60,
-  invoice: 40,
-  awaiting_reply: 30,
-  fyi: 10,
-  newsletter: 5,
-  spam: 0,
-};
-
-const MEETING_PATTERN =
-  /\b(meet|meeting|call|schedule|calendar|availability|available|book|sync up|catch up|standup|1:1|slot)\b/i;
-const NEWSLETTER_PATTERN =
-  /\b(unsubscribe|newsletter|webinar|no-?reply|do not reply|digest|weekly roundup|promotion|% off|sale ends)\b/i;
-const INVOICE_PATTERN =
-  /\b(invoice|receipt|payment|remittance|purchase order|billing|amount due)\b/i;
-const SPAM_PATTERN =
-  /\b(viagra|crypto|casino|lottery|winner|wire transfer|nigerian prince|bitcoin investment)\b/i;
-const REQUEST_PATTERN =
-  /\b(can you|could you|would you|please|need you|let me know|thoughts|feedback|review|confirm|approve)\b|\?/i;
-
-/** Deterministic triage used when no model is configured. */
-export function heuristicTriage({
-  subject,
-  body,
-}: {
-  subject: string | null;
-  body: string;
-}): TriageResult {
-  const text = `${subject ?? ""}\n${body}`;
-
-  if (SPAM_PATTERN.test(text)) {
-    return { category: "spam", priority: PRIORITY.spam, action: "handoff", reason: "spam signals" };
-  }
-  if (MEETING_PATTERN.test(text)) {
-    return {
-      category: "meeting_request",
-      priority: PRIORITY.meeting_request,
-      action: "draft",
-      reason: "meeting language",
-    };
-  }
-  if (INVOICE_PATTERN.test(text)) {
-    return {
-      category: "invoice",
-      priority: PRIORITY.invoice,
-      action: "none",
-      reason: "invoice language",
-    };
-  }
-  if (NEWSLETTER_PATTERN.test(text)) {
-    return {
-      category: "newsletter",
-      priority: PRIORITY.newsletter,
-      action: "none",
-      reason: "newsletter signals",
-    };
-  }
-  if (REQUEST_PATTERN.test(text)) {
-    return {
-      category: "needs_reply",
-      priority: PRIORITY.needs_reply,
-      action: "draft",
-      reason: "explicit request",
-    };
-  }
-  return { category: "fyi", priority: PRIORITY.fyi, action: "none", reason: "no action needed" };
+function readPrecomputedTriage(
+  state: Record<string, unknown>,
+): PrecomputedTriage | null {
+  const trigger = state.trigger as { triage?: unknown } | undefined;
+  const parsed = triageResultSchema.safeParse(trigger?.triage);
+  return parsed.success ? parsed.data : null;
 }
-
-const TRIAGE_SYSTEM_PROMPT = [
-  "You triage a single inbound email thread for an executive assistant.",
-  "Choose exactly one category:",
-  "- meeting_request: asks to meet, call, schedule, or check availability",
-  "- needs_reply: a real person expects an answer or action from the user",
-  "- awaiting_reply: the user already replied and is waiting on the other side",
-  "- invoice: invoices, receipts, billing, or payments",
-  "- newsletter: bulk or marketing mail, digests, unsubscribe links",
-  "- spam: scams, phishing, or unsolicited promotional junk",
-  "- fyi: informational, no reply or action needed",
-  "Set priority 0-100, roughly: meeting_request 80, needs_reply 60, invoice 40,",
-  "awaiting_reply 30, fyi 10, newsletter 5, spam 0.",
-  'Set action to "draft" when the assistant should write a reply, "handoff"',
-  'for spam or malicious mail, otherwise "none".',
-].join(" ");
 
 export const triageStep = defineStep({
   type: "triage",
@@ -141,16 +63,28 @@ export const triageStep = defineStep({
       context?.latestInbound?.snippet ??
       ""
     ).slice(0, ctx.input.maxBodyChars ?? 6_000);
+    const lastDirection = context?.history.at(-1)?.direction ?? null;
 
-    const ai = await generateStructured({
-      schema: triageResultSchema,
-      system: TRIAGE_SYSTEM_PROMPT,
-      prompt: `Subject: ${subject ?? "(none)"}\n\nBody:\n${body}`,
-      modelId: AI_CLASSIFIER_MODEL_ID,
-      userId: ctx.userId,
-    });
+    // Prefer a verdict the inbox batch pass already produced (one model call for
+    // several threads); otherwise classify this thread on its own.
+    const precomputed = readPrecomputedTriage(ctx.state);
+    let result: TriageResult;
+    if (precomputed) {
+      result = precomputed;
+    } else {
+      const [classified] = await classifyThreadsBatch({
+        userId: ctx.userId,
+        threads: [{ threadId, subject, body, lastDirection }],
+        ...(ctx.input.maxBodyChars ? { maxBodyChars: ctx.input.maxBodyChars } : {}),
+      });
+      result = classified ?? heuristicTriage({ subject, body, lastDirection });
+    }
 
-    const result = ai ?? heuristicTriage({ subject, body });
+    // Reply Zero (Phase 4) is a kill-switchable capability: when disabled we
+    // ignore the model's verdict and keep the deterministic direction signal.
+    const replyStatus = isReplyStatusEnabled()
+      ? result.replyStatus ?? deriveReplyStatus({ lastDirection, subject, body })
+      : deriveReplyStatus({ lastDirection, subject, body });
 
     await db
       .insert(threadStates)
@@ -159,6 +93,9 @@ export const triageStep = defineStep({
         category: result.category,
         priority: result.priority,
         action: result.action,
+        reason: result.reason ?? null,
+        triageVersion: TRIAGE_PIPELINE_VERSION,
+        replyStatus,
       })
       .onConflictDoUpdate({
         target: threadStates.threadId,
@@ -166,11 +103,14 @@ export const triageStep = defineStep({
           category: result.category,
           priority: result.priority,
           action: result.action,
+          reason: result.reason ?? null,
+          triageVersion: TRIAGE_PIPELINE_VERSION,
+          replyStatus,
           updatedAt: new Date(),
         },
       });
 
-    ctx.log("triage", result);
-    return result;
+    ctx.log("triage", { ...result, replyStatus });
+    return { ...result, replyStatus };
   },
 });

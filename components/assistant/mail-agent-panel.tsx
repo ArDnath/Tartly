@@ -18,6 +18,7 @@ import { AgentChat } from "@/components/assistant/agent-chat";
 import {
   ASSISTANT_CLOSE_EVENT,
   ASSISTANT_OPEN_EVENT,
+  registerAssistantCatchUp,
 } from "@/components/assistant/assistant-events";
 import { useMailStore } from "@/components/mail/mail-store";
 import { Button } from "@/components/ui/button";
@@ -27,9 +28,11 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import type { ChatThread } from "@/lib/ai/chat-types";
+import type { CatchUp } from "@/lib/briefing/catchup-types";
 import { useStoredBoolean } from "@/lib/use-stored-boolean";
 import { useStoredNumber } from "@/lib/use-stored-number";
 import { cn } from "@/lib/utils";
+import assistantLogo from "@/public/assitantlogo.png";
 
 /**
  * The mail screen's assistant panel — the single, primary agent surface.
@@ -41,7 +44,7 @@ import { cn } from "@/lib/utils";
  *
  * On first-run onboarding the ambient chat provider streams the workspace-setup
  * welcome; while that thread is active the panel renders it (its "Welcome to
- * Redape" preamble is the target the halftone overlay title flies into) and
+ * Lunabox" preamble is the target the halftone overlay title flies into) and
  * offers a hand-off into the agent.
  *
  * It is a client-only surface: the agent's tools mutate live Gmail, so after
@@ -50,8 +53,11 @@ import { cn } from "@/lib/utils";
 
 const EMPTY_HISTORY: ChatThread[] = [];
 
+/** The dedicated conversation the once-a-day catch-up popup opens into. */
+const CATCH_UP_THREAD_TITLE = "Catch-up";
+
 /** Panel geometry. The width is remembered across visits. */
-const PANEL_WIDTH_KEY = "redape.assistant.mail.width";
+const PANEL_WIDTH_KEY = "lunabox.assistant.mail.width";
 const DEFAULT_PANEL_WIDTH = 400;
 const MIN_PANEL_WIDTH = 320;
 const MAX_PANEL_WIDTH = 760;
@@ -82,7 +88,35 @@ function useIsDesktop() {
 
 export function MailAgentPanel() {
   const isDesktop = useIsDesktop();
-  const [open, setOpen] = useStoredBoolean("redape.assistant.mail.open", false);
+  // The persisted flag is the *desktop* preference. On a phone the panel is
+  // modal — it covers the list rather than sharing the row — so a value saved
+  // at a wide viewport must never restore it open there. Mobile keeps a
+  // session-only state that starts closed and opens only through an explicit
+  // action (the rail button, a welcome hand-off, or a catch-up).
+  //
+  // `isDesktop` is the fallback, not `false`: a desktop's first-ever visit has
+  // no stored value and should open the panel, while an explicit close ("0")
+  // still wins. Deriving that here keeps it out of an effect that would
+  // cascade a render on mount.
+  const [desktopOpen, setDesktopOpen] = useStoredBoolean(
+    "lunabox.assistant.mail.open",
+    isDesktop,
+  );
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const open = isDesktop ? desktopOpen : mobileOpen;
+  const setOpen = useCallback(
+    (next: boolean | ((current: boolean) => boolean)) => {
+      // Resolve against live media, not the render state: panel effects can run
+      // before `useIsDesktop` settles, and routing by the stale flag would
+      // write a phone open into the desktop preference on first paint.
+      if (window.matchMedia("(min-width: 768px)").matches) {
+        setDesktopOpen(next);
+      } else {
+        setMobileOpen(next);
+      }
+    },
+    [setDesktopOpen],
+  );
 
   // Panel width: `storedWidth` is the persisted value, `dragWidth` the live
   // value during a drag. Rendering off `dragWidth ?? storedWidth` keeps the
@@ -172,9 +206,20 @@ export function MailAgentPanel() {
   const [initialMessages, setInitialMessages] = useState<UIMessage[]>([]);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * The catch-up plan shown in place of the empty state when the popup hands
+   * off. Cleared as soon as the user moves to a different conversation.
+   */
+  const [catchUpPlan, setCatchUpPlan] = useState<CatchUp | null>(null);
 
   /** Guards against a slow conversation load overwriting a newer selection. */
   const loadTokenRef = useRef(0);
+
+  /**
+   * Set the moment a catch-up hand-off starts, so the first-load effect does
+   * not race it and select the most recent thread instead.
+   */
+  const catchUpTakenRef = useRef(false);
 
   /** Non-setup conversations only: the onboarding thread is not an agent chat. */
   const fetchThreads = useCallback(async (): Promise<ChatThread[]> => {
@@ -184,12 +229,23 @@ export function MailAgentPanel() {
     return payload.threads.filter((thread) => !thread.isWorkspaceSetup);
   }, []);
 
-  const createThread = useCallback(async (): Promise<ChatThread> => {
-    const response = await fetch("/api/ai/threads", { method: "POST" });
-    if (!response.ok) throw new Error("Failed to start a new conversation.");
-    const payload = (await response.json()) as { thread: ChatThread };
-    return payload.thread;
-  }, []);
+  const createThread = useCallback(
+    async (title?: string): Promise<ChatThread> => {
+      const response = await fetch("/api/ai/threads", {
+        method: "POST",
+        ...(title
+          ? {
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ title }),
+            }
+          : {}),
+      });
+      if (!response.ok) throw new Error("Failed to start a new conversation.");
+      const payload = (await response.json()) as { thread: ChatThread };
+      return payload.thread;
+    },
+    [],
+  );
 
   const loadConversation = useCallback(
     async (threadId: string): Promise<UIMessage[]> => {
@@ -211,6 +267,7 @@ export function MailAgentPanel() {
       if (threadId === activeThreadId) return;
       const token = ++loadTokenRef.current;
       setError(null);
+      setCatchUpPlan(null);
       setReady(false);
       setActiveThreadId(threadId);
       void loadConversation(threadId)
@@ -232,6 +289,7 @@ export function MailAgentPanel() {
 
   const newChat = useCallback(async () => {
     setError(null);
+    setCatchUpPlan(null);
     try {
       const thread = await createThread();
       loadTokenRef.current += 1;
@@ -248,28 +306,90 @@ export function MailAgentPanel() {
     }
   }, [createThread]);
 
-  // First load: reuse the most recent conversation, or start one.
+  /**
+   * Open the once-a-day catch-up in this sidebar: bring the panel forward,
+   * start a dedicated "Catch-up" conversation, and hand the plan to `AgentChat`
+   * so choosing an option sends a real agent turn. Runs in place on `/mail` —
+   * no navigation to the assistant page.
+   *
+   * The plan is passed in by the popup when it is on screen; when the user
+   * arrived from another route (`/mail?catchup=1`) it is fetched here.
+   */
+  const startCatchUp = useCallback(
+    async (provided?: CatchUp) => {
+      catchUpTakenRef.current = true;
+      setOpen(true);
+      setError(null);
+      try {
+        let plan = provided ?? null;
+        if (!plan) {
+          const response = await fetch("/api/v1/briefing", {
+            cache: "no-store",
+          });
+          if (response.ok) {
+            const payload = (await response.json()) as {
+              data?: { catchUp?: CatchUp };
+            };
+            plan = payload.data?.catchUp ?? null;
+          }
+        }
+
+        const thread = await createThread(CATCH_UP_THREAD_TITLE);
+        loadTokenRef.current += 1;
+        setThreads((current) => [
+          thread,
+          ...current.filter((candidate) => candidate.id !== thread.id),
+        ]);
+        setInitialMessages([]);
+        setReady(true);
+        setActiveThreadId(thread.id);
+        setCatchUpPlan(plan);
+      } catch (catchUpError) {
+        console.error("[mail-agent] catch-up hand-off failed", catchUpError);
+        setReady(true);
+        setError("Couldn't open your catch-up right now.");
+      }
+    },
+    [createThread, setOpen],
+  );
+
+  // First load. Priority: a cross-route catch-up hand-off (`/mail?catchup=1`),
+  // then the most recent conversation, then a brand-new one.
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
-        let list = await fetchThreads();
+        const params = new URLSearchParams(window.location.search);
+        if (params.get("catchup") === "1") {
+          // Drop the flag so a refresh does not reopen the catch-up.
+          params.delete("catchup");
+          const query = params.toString();
+          window.history.replaceState(
+            null,
+            "",
+            `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`,
+          );
+          await startCatchUp();
+          return;
+        }
+
+        const list = await fetchThreads();
+        if (cancelled || catchUpTakenRef.current) return;
 
         let active = list[0];
         if (!active) {
           active = await createThread();
-          list = [active];
+          if (cancelled || catchUpTakenRef.current) return;
         }
 
-        if (cancelled) return;
-        setThreads(list);
+        setThreads(list.length > 0 ? list : [active]);
         setActiveThreadId(active.id);
         const messages = await loadConversation(active.id);
-        if (cancelled) return;
+        if (cancelled || catchUpTakenRef.current) return;
         setInitialMessages(messages);
         setReady(true);
       } catch (loadError) {
-        if (cancelled) return;
+        if (cancelled || catchUpTakenRef.current) return;
         console.error("[mail-agent] failed to initialize", loadError);
         setError("The assistant is unavailable right now.");
         setReady(true);
@@ -279,7 +399,17 @@ export function MailAgentPanel() {
     return () => {
       cancelled = true;
     };
-  }, [createThread, fetchThreads, loadConversation]);
+  }, [createThread, fetchThreads, loadConversation, startCatchUp]);
+
+  // The once-a-day catch-up popup hands its plan here, so "Catch me up" opens
+  // the conversation in this sidebar instead of navigating to `/assistant`.
+  useEffect(
+    () =>
+      registerAssistantCatchUp((request) => {
+        void startCatchUp(request.catchUp);
+      }),
+    [startCatchUp],
+  );
 
   // The welcome flow asks the assistant pane to open (it is the assistant
   // surface on this screen), so listen for the cross-component signal.
@@ -300,17 +430,12 @@ export function MailAgentPanel() {
       window.removeEventListener(ASSISTANT_CLOSE_EVENT, onCloseAssistant);
   }, [setOpen]);
 
-  // Auto-open on desktop the first time this screen is seen.
-  useEffect(() => {
-    if (!window.matchMedia("(min-width: 768px)").matches) return;
-    if (window.localStorage.getItem("redape.assistant.mail.open") === null) {
-      setOpen(true);
-    }
-  }, [setOpen]);
-
   // The welcome conversation must be visible for the overlay to hand off into,
-  // even if the open event fired before this lazily loaded panel mounted.
+  // even if the open event fired before this lazily loaded panel mounted. A
+  // one-way sync from the chat provider (external state) into the panel's local
+  // open state, so the effect is the right home for it.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (showingWelcome) setOpen(true);
   }, [showingWelcome, setOpen]);
 
@@ -330,7 +455,7 @@ export function MailAgentPanel() {
   const body = showingWelcome ? (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* The workspace-setup welcome renders inside the agent panel so its
-          "Welcome to Redape" preamble is both the visible greeting and the
+          "Welcome to Lunabox" preamble is both the visible greeting and the
           halftone title's flight target. */}
       <AiChatMessageList />
       <div className="shrink-0 border-t border-border p-3">
@@ -361,6 +486,7 @@ export function MailAgentPanel() {
       onNewChat={newChat}
       onSelectConversation={selectThread}
       onAssistantTurnEnd={onAssistantTurnEnd}
+      catchUpPlan={catchUpPlan}
       emptyTitle="Your mail, handled"
       emptyDescription="Ask me to find, summarize, draft, label, archive or send. I can work across your live Gmail — sending and other irreversible actions wait for your confirmation."
     />
@@ -378,7 +504,7 @@ export function MailAgentPanel() {
         >
           <span className="flex size-10 shrink-0 items-center justify-center rounded-md border border-border">
             <Image
-              src="/assitantlogo.png"
+              src={assistantLogo}
               alt=""
               width={28}
               height={28}
@@ -453,7 +579,7 @@ export function MailAgentPanel() {
             <div className="flex min-h-0 flex-1 flex-col">
               <div className="flex h-11 shrink-0 items-center gap-2 px-2">
                 <Image
-                  src="/assitantlogo.png"
+                  src={assistantLogo}
                   alt=""
                   width={36}
                   height={36}
@@ -498,7 +624,7 @@ export function MailAgentPanel() {
         >
           <span className="flex size-10 shrink-0 items-center justify-center rounded-md border border-border">
             <Image
-              src="/assitantlogo.png"
+              src={assistantLogo}
               alt=""
               width={28}
               height={28}

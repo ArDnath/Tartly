@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { Database } from "@/lib/db";
+import { bulkSendHandler } from "@/lib/email-operator/handlers/bulk-send";
 import { followupHandler } from "@/lib/email-operator/handlers/followup";
 import { inboundEmailHandler } from "@/lib/email-operator/handlers/inbound-email";
 import { mailboxSyncHandler } from "@/lib/email-operator/handlers/mailbox-sync";
@@ -28,6 +29,7 @@ const ALL_HANDLERS: Array<{ kind: string; handler: JobHandler }> = [
   mailboxSyncHandler,
   followupHandler,
   scheduledEmailHandler,
+  bulkSendHandler,
 ];
 
 export function registerJobHandler(kind: string, handler: JobHandler): void {

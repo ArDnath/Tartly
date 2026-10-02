@@ -3,6 +3,7 @@
 import Image from "next/image";
 
 import { cn } from "@/lib/utils";
+import logo from "@/public/logo.png";
 import { useMemo, type CSSProperties } from "react";
 
 export type MatrixVariant = "scan" | "twinkle" | "orbit" | "pulse";
@@ -81,7 +82,7 @@ export function MatrixLoader({
 }
 
 /**
- * Brand lockup shown beside the loader: the Redape logo + wordmark.
+ * Brand lockup shown beside the loader: the Lunabox logo + wordmark.
  * Colours come from theme tokens so it flips with the dark/light toggle.
  */
 export function MatrixBrandMark({
@@ -94,22 +95,22 @@ export function MatrixBrandMark({
   return (
     <span className={cn("flex items-center gap-2.5", className)}>
       <Image
-        src="/logo.png"
-        alt="Redape logo"
+        src={logo}
+        alt="Lunabox logo"
         width={size}
         height={size}
         priority
         className="rounded-lg object-contain"
         style={{ width: size, height: size }}
       />
-      <span className="text-2xl font-semibold tracking-[-0.03em]">Redape</span>
+      <span className="text-2xl font-semibold tracking-[-0.03em]">Lunabox</span>
     </span>
   );
 }
 
 /**
  * Full-page boot overlay: a compact MatrixLoader centred on screen,
- * with the Redape lockup to its right and an optional label beneath.
+ * with the Lunabox lockup to its right and an optional label beneath.
  * Parent controls unmount + the `is-leaving` fade via `leaving`.
  */
 export function MatrixBootOverlay({

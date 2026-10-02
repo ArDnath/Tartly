@@ -184,6 +184,10 @@ function toOutgoing(draft: MailDraft): mailApi.OutgoingMail {
     ...(draft.bcc ? { bcc: parseAddressList(draft.bcc) } : {}),
     subject: draft.subject,
     body: draft.body,
+    ...(draft.assetIds?.length ? { assetIds: draft.assetIds } : {}),
+    ...(draft.inlineImageIds?.length
+      ? { inlineImageIds: draft.inlineImageIds }
+      : {}),
   };
 }
 

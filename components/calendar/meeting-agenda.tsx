@@ -18,6 +18,7 @@ import {
   MeetingDialog,
   type MeetingDialogMode,
 } from "@/components/calendar/meeting-dialog";
+import { MeetingBriefButton } from "@/components/calendar/meeting-brief";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -152,7 +153,7 @@ function MeetingRow({
             : "No time set"}
         </p>
 
-        {(meeting.meetLink || meeting.threadId) && !isCancelled ? (
+        {(meeting.meetLink || meeting.threadId || meeting.startAt) && !isCancelled ? (
           <div className="mt-2.5 flex flex-wrap items-center gap-2">
             {meeting.meetLink ? (
               <a
@@ -172,6 +173,12 @@ function MeetingRow({
               >
                 View thread
               </Link>
+            ) : null}
+            {meeting.startAt ? (
+              <MeetingBriefButton
+                meetingId={meeting.id}
+                subject={meeting.subject}
+              />
             ) : null}
           </div>
         ) : null}

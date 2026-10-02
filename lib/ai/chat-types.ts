@@ -6,6 +6,8 @@ export type ChatThread = {
   id: string;
   title: string | null;
   isWorkspaceSetup: boolean;
+  /** "chat" | "briefing" — the persistent morning-briefing conversation. */
+  kind?: string;
   archivedAt: string | null;
   lastMessageAt: string | null;
   createdAt: string;

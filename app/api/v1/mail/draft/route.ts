@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { apiError, ok } from "@/lib/api/http";
+import { expandSnippets } from "@/lib/ai/features/knowledge";
 import { generateMailBody } from "@/lib/mail/ai-draft";
 import { withMailUser } from "@/lib/mail/route";
 
@@ -15,11 +16,15 @@ export const POST = withMailUser(async (userId, request) => {
   const parsed = schema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) return apiError("bad_request", "Invalid request", 400);
 
+  const expanded = parsed.data.instruction
+    ? (await expandSnippets({ userId, text: parsed.data.instruction })).text
+    : undefined;
+
   const result = await generateMailBody({
     userId,
     to: parsed.data.to ?? [],
     subject: parsed.data.subject ?? "",
-    ...(parsed.data.instruction ? { instruction: parsed.data.instruction } : {}),
+    ...(expanded ? { instruction: expanded } : {}),
   });
 
   return ok(result);

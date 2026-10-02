@@ -27,7 +27,7 @@ export default async function AuthPage() {
           <GoogleSignInButton />
         </div>
         <p className="mt-16 text-center text-xs leading-relaxed text-muted-foreground">
-          By using Redape,
+          By using Lunabox,
           you agree to the Terms of Service and Data
           Processing Agreement.
         </p>

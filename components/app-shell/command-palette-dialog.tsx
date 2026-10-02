@@ -1,15 +1,16 @@
 "use client";
 
 import {
-  ChartColumn,
+  ArrowsClockwise,
+  ChartBar,
   Clock,
-  History,
-  Inbox,
-  Mail,
-  RefreshCw,
-  Settings2,
-  SquarePen,
-} from "lucide-react";
+  ClockCounterClockwise,
+  EnvelopeSimple,
+  GearSix,
+  Megaphone,
+  PencilSimpleLine,
+  Tray,
+} from "@phosphor-icons/react/ssr";
 import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
 
@@ -81,38 +82,42 @@ export function CommandPaletteDialog({
           <CommandEmpty>No matching action.</CommandEmpty>
           <CommandGroup heading="Go to">
             <CommandItem onSelect={() => go("/mail")}>
-              <Mail />
+              <EnvelopeSimple />
               Mail
             </CommandItem>
             <CommandItem onSelect={() => go("/inbox")}>
-              <Inbox />
+              <Tray />
               Inbox
             </CommandItem>
             <CommandItem onSelect={() => go("/followups")}>
               <Clock />
               Follow-ups
             </CommandItem>
-            <CommandItem onSelect={() => go("/metrics")}>
-              <ChartColumn />
+            <CommandItem onSelect={() => go("/campaigns")}>
+              <Megaphone />
+              Campaigns
+            </CommandItem>
+            <CommandItem onSelect={() => go("/activity")}>
+              <ChartBar />
               Activity
             </CommandItem>
             <CommandItem onSelect={() => go("/runs")}>
-              <History />
+              <ClockCounterClockwise />
               Runs
             </CommandItem>
-            <CommandItem onSelect={() => go("/settings/calendar")}>
-              <Settings2 />
+            <CommandItem onSelect={() => go("/settings")}>
+              <GearSix />
               Settings
             </CommandItem>
           </CommandGroup>
           <CommandSeparator />
           <CommandGroup heading="Actions">
             <CommandItem disabled={isSyncing} onSelect={() => void syncNow()}>
-              <RefreshCw className={isSyncing ? "animate-spin" : undefined} />
+              <ArrowsClockwise className={isSyncing ? "animate-spin" : undefined} />
               Sync inbox now
             </CommandItem>
             <CommandItem onSelect={composeMail}>
-              <SquarePen />
+              <PencilSimpleLine />
               Compose mail
             </CommandItem>
           </CommandGroup>

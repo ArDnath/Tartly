@@ -67,7 +67,7 @@ export async function POST(request: Request) {
     buildFallbackText: () =>
       buildFallbackSetupResponse({
         userName: session.user.name ?? null,
-        workspaceName: "Redape",
+        workspaceName: "Lunabox",
       }),
   });
 

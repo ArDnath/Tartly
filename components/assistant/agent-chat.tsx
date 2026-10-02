@@ -31,6 +31,7 @@ import {
 } from "@/components/assistant/agent-chat-actions";
 import { ApprovalDock, collectPendingApprovals } from "@/components/assistant/approval-dock";
 import { AutonomySwitch } from "@/components/assistant/mailbox-autonomy";
+import { CatchUpPlan } from "@/components/briefing/catch-up-plan";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -39,6 +40,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { ChatThread } from "@/lib/ai/chat-types";
+import type { CatchUp } from "@/lib/briefing/catchup-types";
 import { cn } from "@/lib/utils";
 
 function textOf(message: UIMessage | undefined): string {
@@ -99,6 +101,7 @@ export function AgentChat({
   showTitle = true,
   emptyTitle = "What should we do with your inbox?",
   emptyDescription = "Try “Find my latest email from John”, “Summarize my unread mail”, or “Search threads about pricing”.",
+  catchUpPlan = null,
 }: {
   conversationId: string;
   initialMessages: UIMessage[];
@@ -119,6 +122,12 @@ export function AgentChat({
   showTitle?: boolean;
   emptyTitle?: string;
   emptyDescription?: string;
+  /**
+   * The catch-up plan to show in place of the empty state. Set by the popup
+   * hand-off — in the mail sidebar (in place) or on `/assistant?catchup=1`;
+   * each option sends a real agent turn.
+   */
+  catchUpPlan?: CatchUp | null;
 }) {
   const router = useRouter();
   const [creating, setCreating] = useState(false);
@@ -354,10 +363,21 @@ export function AgentChat({
       <Conversation className="min-h-0 flex-1">
         <ConversationContent className={cn(!showTitle && "pt-12")}>
           {visibleMessages.length === 0 ? (
-            <ConversationEmptyState
-              title={emptyTitle}
-              description={emptyDescription}
-            />
+            catchUpPlan ? (
+              <CatchUpPlan
+                catchUp={catchUpPlan}
+                disabled={isBusy}
+                onSelect={(option) => {
+                  setInput("");
+                  void sendMessage({ text: option.prompt });
+                }}
+              />
+            ) : (
+              <ConversationEmptyState
+                title={emptyTitle}
+                description={emptyDescription}
+              />
+            )
           ) : (
             visibleMessages.map((message, index) => (
               <AgentMessage

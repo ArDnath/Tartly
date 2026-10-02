@@ -1,5 +1,6 @@
 import "server-only";
 
+import { refreshWritingStyleIfStale } from "@/lib/ai/features/writing-style";
 import { pool } from "@/lib/db";
 import {
   JOB_KIND_INBOUND_EMAIL,
@@ -26,6 +27,12 @@ async function handleMailboxSync(job: JobRow): Promise<void> {
 
   // 1) Pull new mail from Gmail into the mirror (the step that was missing).
   await syncMailbox(job.userId, mailboxId);
+
+  // Analyze the writing voice once after connect (and monthly after that). This
+  // runs after the sync so sent mail exists to learn from. Best-effort.
+  await refreshWritingStyleIfStale({ userId: job.userId }).catch(() => {
+    // Never let a style refresh fail the sync.
+  });
 
   // 2) Hand the newly-mirrored threads to the triage/draft flow. `Date.now()`
   // keeps a later manual sync from being deduped against an earlier run, while

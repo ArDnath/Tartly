@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { ok, apiError, withUser } from "@/lib/api/http";
+import { invalidateBriefing } from "@/lib/briefing/service";
 import { approveDraft } from "@/lib/inbox/service";
 
 const bodySchema = z.object({
@@ -23,6 +24,8 @@ export const POST = withUser<{ params: Promise<{ id: string }> }>(
       editedBody: parsed.data.editedBody ?? null,
     });
     if (!result) return apiError("not_found", "Draft not found", 404);
+    // The briefing's reply card is now stale; next read recomputes.
+    void invalidateBriefing(userId);
     return ok(result);
   },
 );

@@ -6,32 +6,49 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { InboxRow } from "@/components/inbox/inbox-row";
+import { DigestPanel } from "@/components/inbox/digest-panel";
 import { Button } from "@/components/ui/button";
 import type { InboxItem, InboxView as InboxViewName } from "@/lib/inbox/service";
+import type { DigestPayload } from "@/lib/inbox/digest-types";
 import { cn } from "@/lib/utils";
 
 const VIEW_META: Record<
   InboxViewName,
   { title: string; subtitle: string }
 > = {
-  needs_you: {
-    title: "Needs you",
+  needs_reply: {
+    title: "Needs reply",
     subtitle: "Threads waiting on a reply, a decision or a time to meet.",
   },
   waiting: {
-    title: "Waiting",
+    title: "Waiting on someone",
     subtitle: "You replied — the ball is in their court.",
   },
-  handled: {
-    title: "Handled",
-    subtitle: "FYI, invoices, newsletters and the rest of the noise.",
+  follow_up_today: {
+    title: "Follow up today",
+    subtitle: "Active follow-ups due by the end of your day.",
+  },
+  meetings: {
+    title: "Meetings",
+    subtitle: "Upcoming meetings and open meeting requests.",
+  },
+  ai_handled: {
+    title: "AI handled",
+    subtitle: "Threads the operator replied to on its own — logged and reversible.",
+  },
+  fyi: {
+    title: "FYI",
+    subtitle: "Invoices, newsletters, notifications and the rest of the noise.",
   },
 };
 
 const TABS: Array<{ value: InboxViewName; label: string }> = [
-  { value: "needs_you", label: "Needs you" },
+  { value: "needs_reply", label: "Needs reply" },
   { value: "waiting", label: "Waiting" },
-  { value: "handled", label: "Handled" },
+  { value: "follow_up_today", label: "Follow up" },
+  { value: "meetings", label: "Meetings" },
+  { value: "ai_handled", label: "AI handled" },
+  { value: "fyi", label: "FYI" },
 ];
 
 function dayBucket(iso: string | null): string {
@@ -72,9 +89,13 @@ function isTypingTarget(target: EventTarget | null): boolean {
 export function InboxView({
   view,
   items: initialItems,
+  digest = null,
+  digestEnabled = false,
 }: {
   view: InboxViewName;
   items: InboxItem[];
+  digest?: DigestPayload | null;
+  digestEnabled?: boolean;
 }) {
   const router = useRouter();
   const [items, setItems] = useState<InboxItem[]>(initialItems);
@@ -200,13 +221,13 @@ export function InboxView({
       </header>
 
       {/* Small screens lose the sidebar, so views live in the header there. */}
-      <nav className="flex shrink-0 items-center gap-1 border-b border-border px-3 py-2 md:hidden">
+      <nav className="scrollbar-none flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border px-3 py-2 md:hidden">
         {TABS.map((tab) => (
           <Link
             key={tab.value}
             href={`/inbox?view=${tab.value}`}
             className={cn(
-              "rounded-md px-2.5 py-1 text-xs transition-colors",
+              "shrink-0 whitespace-nowrap rounded-md px-2.5 py-1 text-xs transition-colors",
               view === tab.value
                 ? "bg-accent text-foreground"
                 : "text-muted-foreground hover:text-foreground",
@@ -216,6 +237,8 @@ export function InboxView({
           </Link>
         ))}
       </nav>
+
+      <DigestPanel initial={digest} enabled={digestEnabled} />
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {items.length === 0 ? (
@@ -257,7 +280,7 @@ export function InboxView({
 
 function EmptyState({ view }: { view: InboxViewName }) {
   const copy: Record<InboxViewName, { title: string; body: string }> = {
-    needs_you: {
+    needs_reply: {
       title: "You're all caught up",
       body: "Nothing needs a reply right now. New mail gets triaged, drafted and scheduled automatically.",
     },
@@ -265,8 +288,20 @@ function EmptyState({ view }: { view: InboxViewName }) {
       title: "Nothing waiting",
       body: "Threads you've replied to — or that have an active follow-up — show up here.",
     },
-    handled: {
-      title: "Nothing handled yet",
+    follow_up_today: {
+      title: "No follow-ups due",
+      body: "Enabled follow-ups appear here on the day they're due.",
+    },
+    meetings: {
+      title: "No upcoming meetings",
+      body: "Booked meetings and open meeting requests land here.",
+    },
+    ai_handled: {
+      title: "Nothing handled on autopilot",
+      body: "Threads the operator replied to on its own are listed here for a seven-day window.",
+    },
+    fyi: {
+      title: "Nothing here yet",
       body: "FYI, invoices and newsletters land here once they're triaged.",
     },
   };

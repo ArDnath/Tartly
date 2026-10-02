@@ -2,8 +2,7 @@ import "server-only";
 
 import { z } from "zod";
 
-import { AI_CLASSIFIER_MODEL_ID } from "@/lib/ai/provider";
-import { generateStructured } from "@/lib/ai/structured";
+import { generateObject } from "@/lib/ai/generate";
 import { defineStep } from "@/lib/engine/step";
 import { loadThreadContext } from "@/lib/email-operator/thread-context";
 import { requireThreadId } from "./helpers";
@@ -79,11 +78,14 @@ export const classifyIntentStep = defineStep({
     const subject = context?.thread.subject ?? null;
     const body = (context?.latestInbound?.bodyText ?? context?.latestInbound?.snippet ?? "").slice(0, 6_000);
 
-    const ai = await generateStructured({
+    const ai = await generateObject({
       schema: intentResultSchema,
+      role: "fast",
+      feature: "classify-intent",
       system: SYSTEM_PROMPT,
       prompt: `Subject: ${subject ?? "(none)"}\n\nBody:\n${body}`,
-      modelId: ctx.input.model ?? AI_CLASSIFIER_MODEL_ID,
+      hardening: { trust: "untrusted", level: "compact" },
+      maxOutputTokens: 200,
       userId: ctx.userId,
     });
 

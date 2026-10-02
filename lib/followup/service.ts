@@ -13,6 +13,7 @@ import {
   threads,
 } from "@/lib/db/schema";
 import { nextDeliverableTime, isUnreachableAddress } from "@/lib/followup/rules";
+import { generateFollowupDraft } from "@/lib/ai/features/followup-draft";
 import { JOB_KIND_FOLLOWUP } from "@/lib/email-operator/job-kinds";
 import { enqueueJob } from "@/lib/queue/queue";
 
@@ -156,6 +157,51 @@ export async function pauseEnrollment({
   return updated[0] ?? null;
 }
 
+/**
+ * Push the next evaluation out by `days` (clamped to the working window).
+ * "Tomorrow" on a briefing card is a one-day snooze; the enrollment stays
+ * active, so the cadence continues.
+ */
+export async function snoozeEnrollment({
+  userId,
+  enrollmentId,
+  days = 1,
+  now = new Date(),
+}: {
+  userId: string;
+  enrollmentId: string;
+  days?: number;
+  now?: Date;
+}): Promise<EnrollmentRow | null> {
+  const enrollmentRows = await db
+    .select()
+    .from(followupEnrollments)
+    .where(
+      and(
+        eq(followupEnrollments.id, enrollmentId),
+        eq(followupEnrollments.userId, userId),
+      ),
+    )
+    .limit(1);
+  const enrollment = enrollmentRows[0];
+  if (!enrollment) return null;
+
+  const boundedDays = Math.min(Math.max(Math.trunc(days), 1), 30);
+  const window = await deliverableWindow(userId);
+  const next = nextDeliverableTime(addUtcDays(now, boundedDays), window);
+
+  const updated = await db
+    .update(followupEnrollments)
+    .set({
+      status: "active",
+      nextEvalAt: next,
+      updatedAt: now,
+    })
+    .where(eq(followupEnrollments.id, enrollment.id))
+    .returning();
+  return updated[0] ?? null;
+}
+
 export type FollowupListItem = {
   id: string;
   threadId: string;
@@ -195,17 +241,6 @@ export async function listFollowups(userId: string): Promise<FollowupListItem[]>
   }));
 }
 
-function buildNudgeBody(subject: string | null): string {
-  return [
-    "Just following up on my previous note.",
-    subject ? `Re: ${subject}` : "",
-    "",
-    "Did you get a chance to look? Happy to jump on a quick call if that's easier.",
-  ]
-    .filter(Boolean)
-    .join("\n");
-}
-
 /**
  * Processes one due enrollment: drafts a nudge, advances the attempt count and
  * schedules the next one (or completes). Never sends directly — the nudge is a
@@ -235,15 +270,11 @@ export async function processFollowupEnrollment(
     return { status: "stopped", attempts: enrollment.attempts };
   }
 
-  const threadRows = await db
-    .select({ subject: threads.subject })
-    .from(threads)
-    .where(eq(threads.id, enrollment.threadId))
-    .limit(1);
-  const subject = threadRows[0]?.subject ?? null;
-
   const attempts = enrollment.attempts + 1;
-  const body = buildNudgeBody(subject);
+  const { body, version } = await generateFollowupDraft({
+    userId: enrollment.userId,
+    threadId: enrollment.threadId,
+  });
 
   const pending = await db
     .select({ id: drafts.id })
@@ -254,13 +285,17 @@ export async function processFollowupEnrollment(
     .limit(1);
 
   if (pending[0]) {
-    await db.update(drafts).set({ body }).where(eq(drafts.id, pending[0].id));
+    await db
+      .update(drafts)
+      .set({ body, pipelineVersion: version })
+      .where(eq(drafts.id, pending[0].id));
   } else {
     await db.insert(drafts).values({
       id: nanoid(),
       userId: enrollment.userId,
       threadId: enrollment.threadId,
       body,
+      pipelineVersion: version,
       status: "pending",
     });
   }

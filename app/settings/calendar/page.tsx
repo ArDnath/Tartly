@@ -1,5 +1,5 @@
-import { PageHeader } from "@/components/app-shell/page-header";
 import { CalendarSettingsForm } from "@/components/settings/calendar-settings-form";
+import { SettingsPage } from "@/components/settings/settings-page";
 import {
   DEFAULT_CALENDAR_SETTINGS,
   getCalendarSettings,
@@ -22,14 +22,11 @@ export default async function CalendarSettingsPage() {
     : DEFAULT_CALENDAR_SETTINGS;
 
   return (
-    <div className="flex h-full flex-col">
-      <PageHeader
-        title="Calendar"
-        subtitle="When your assistant may book time on your behalf."
-      />
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6">
-        <CalendarSettingsForm initial={initial} />
-      </div>
-    </div>
+    <SettingsPage
+      title="Calendar"
+      subtitle="When your assistant may book time on your behalf."
+    >
+      <CalendarSettingsForm initial={initial} />
+    </SettingsPage>
   );
 }

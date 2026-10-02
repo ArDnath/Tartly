@@ -3,17 +3,17 @@ import type { Metadata } from "next";
 import { LegalPage } from "@/components/marketing/legal-page";
 
 export const metadata: Metadata = {
-  title: "Privacy Policy — Redape",
-  description: "How Redape collects, uses, and protects your data.",
+  title: "Privacy Policy — Lunabox",
+  description: "How Lunabox collects, uses, and protects your data.",
 };
 
 export default function PrivacyPage() {
   return (
     <LegalPage title="Privacy Policy" updated="September 27, 2026">
       <p>
-        This Privacy Policy explains how Redape (&ldquo;we&rdquo;) collects,
+        This Privacy Policy explains how Lunabox (&ldquo;we&rdquo;) collects,
         uses, and protects information when you use the Service. By using
-        Redape, you agree to the practices described here.
+        Lunabox, you agree to the practices described here.
       </p>
 
       <h2>1. Information we collect</h2>
@@ -100,7 +100,7 @@ export default function PrivacyPage() {
       <h2>10. Contact</h2>
       <p>
         Questions about this policy or your data? Reach us at{" "}
-        <a href="mailto:privacy@redape.app">privacy@redape.app</a>.
+        <a href="mailto:privacy@lunabox.app">privacy@lunabox.app</a>.
       </p>
     </LegalPage>
   );

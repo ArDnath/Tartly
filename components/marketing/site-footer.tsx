@@ -15,7 +15,7 @@ export function SiteFooter({ className }: { className?: string }) {
         <div className="max-w-sm">
           <Brand />
           <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-            Redape is an AI email operator that triages your inbox, drafts
+            Lunabox is an AI email operator that triages your inbox, drafts
             replies, schedules meetings, and handles follow-ups.
           </p>
         </div>
@@ -32,14 +32,14 @@ export function SiteFooter({ className }: { className?: string }) {
               </Link>
             ))}
             <a
-              href="mailto:support@redape.app"
+              href="mailto:support@lunabox.app"
               className="rounded-md transition-colors outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
             >
               Contact
             </a>
           </nav>
           <p className="text-muted-foreground">
-            © {new Date().getFullYear()} Redape. All rights reserved.
+            © {new Date().getFullYear()} Lunabox. All rights reserved.
           </p>
         </div>
       </div>

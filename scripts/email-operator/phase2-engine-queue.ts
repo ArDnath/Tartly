@@ -56,14 +56,29 @@ export async function run(): Promise<void> {
   try {
     section("phase 2 — graph traversal");
     const graph = buildInboundEmailGraph();
-    assert(graph.nodes.length === 12, "default inbound graph has 12 nodes");
+    assert(graph.nodes.length === 16, "default inbound graph has 16 nodes");
+    const applyRulesNode = graph.nodes.find(
+      (node) => node.type === "apply-rules",
+    )!;
     assert(
-      nextNode(graph, graph.nodes[3], { isMeeting: true })?.type ===
+      nextNode(graph, applyRulesNode, { action: "none" })?.type === "log-trace",
+      "action=none skips drafting straight to log-trace",
+    );
+    assert(
+      nextNode(graph, applyRulesNode, { action: "draft" })?.type ===
+        "extract-commitments",
+      "action=draft runs commitment extraction",
+    );
+    const meetingNode = graph.nodes.find(
+      (node) => node.type === "detect-meeting-intent",
+    )!;
+    assert(
+      nextNode(graph, meetingNode, { isMeeting: true })?.type ===
         "find-free-slots",
       "meeting branch routes to find-free-slots",
     );
     assert(
-      nextNode(graph, graph.nodes[3], { isMeeting: false })?.type ===
+      nextNode(graph, meetingNode, { isMeeting: false })?.type ===
         "draft-reply",
       "non-meeting branch routes to draft-reply",
     );

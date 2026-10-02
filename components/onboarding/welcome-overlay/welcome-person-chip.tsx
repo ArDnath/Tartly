@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import logo from "@/public/logo.png";
 
 type WelcomePersonChipProps = {
   name: string;
@@ -25,7 +26,7 @@ export const WelcomePersonChip = ({
   className,
 }: WelcomePersonChipProps) => {
   const avatarSize = size === "lg" ? "size-8" : "size-5";
-  const avatarImage = useBrandLogo ? "/logo.png" : image;
+  const avatarImage = useBrandLogo ? logo.src : image;
 
   return (
     <span className={cn("inline-flex items-center gap-2", className)}>

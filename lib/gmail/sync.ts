@@ -180,6 +180,7 @@ export async function upsertParsedMessage({
       bodyText,
       bodyHtml: parsed.bodyHtml,
       snippet: parsed.snippet,
+      unsubscribe: parsed.unsubscribe,
       sentAt: parsed.sentAt,
     })
     .onConflictDoUpdate({
@@ -188,6 +189,7 @@ export async function upsertParsedMessage({
         bodyText,
         bodyHtml: parsed.bodyHtml,
         snippet: parsed.snippet,
+        unsubscribe: parsed.unsubscribe,
       },
     })
     .returning({ id: messages.id });

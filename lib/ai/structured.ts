@@ -1,17 +1,22 @@
 import "server-only";
 
-import { generateObject } from "ai";
 import type { ZodType } from "zod";
 
-import { isBudgetDisabled, tryConsumeAiBudget } from "@/lib/ai/budget";
-import { getModel } from "@/lib/ai/provider";
+import { generateObject } from "@/lib/ai/generate";
+import {
+  AI_CLASSIFIER_MODEL_ID,
+  AI_DRAFT_MODEL_ID,
+  AI_REASONING_MODEL_ID,
+} from "@/lib/ai/provider";
+import type { ModelRole } from "@/lib/ai/model-provider";
 
 /**
- * Structured generation with a graceful offline path.
+ * @deprecated Structured generation with a null fallback.
  *
- * Returns `null` when no provider is configured (or the model call fails), so
- * every step that uses it must have a deterministic heuristic fallback. That is
- * what keeps the whole pipeline runnable without an AI key.
+ * Kept for back-compat only. New code should call `generateObject` from
+ * `lib/ai/generate.ts` with an explicit `role`, `feature` and `hardening`
+ * level. This shim infers the role from a legacy `modelId` and labels the
+ * ledger entry "structured".
  */
 export async function generateStructured<T>({
   schema,
@@ -27,22 +32,20 @@ export async function generateStructured<T>({
   /** When set, each call consumes one unit of the user's daily AI budget. */
   userId?: string;
 }): Promise<T | null> {
-  const model = getModel(modelId);
-  if (!model) return null;
+  return generateObject({
+    schema,
+    role: roleForModelId(modelId),
+    feature: "structured",
+    ...(userId ? { userId } : {}),
+    system,
+    prompt,
+  });
+}
 
-  if (userId && !isBudgetDisabled()) {
-    const allowed = await tryConsumeAiBudget({ userId });
-    if (!allowed) {
-      console.warn(`[ai/structured] daily budget exhausted for ${userId}`);
-      return null;
-    }
-  }
-
-  try {
-    const { object } = await generateObject({ model, schema, system, prompt });
-    return object as T;
-  } catch (error) {
-    console.error("[ai/structured] generation failed", error);
-    return null;
-  }
+function roleForModelId(modelId: string | undefined): ModelRole {
+  if (!modelId) return "standard";
+  if (modelId === AI_CLASSIFIER_MODEL_ID) return "fast";
+  if (modelId === AI_REASONING_MODEL_ID) return "reasoning";
+  if (modelId === AI_DRAFT_MODEL_ID) return "standard";
+  return "standard";
 }

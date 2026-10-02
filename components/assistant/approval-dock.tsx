@@ -91,11 +91,22 @@ export function ApprovalDock({
     ).then((results) => {
       if (cancelled) return;
       setSettled((current) => {
+        let changed = false;
         const next = { ...current };
         for (const result of results) {
-          if (result?.status && TERMINAL.has(result.status)) next[result.id] = true;
+          if (
+            result?.status &&
+            TERMINAL.has(result.status) &&
+            !next[result.id]
+          ) {
+            next[result.id] = true;
+            changed = true;
+          }
         }
-        return next;
+        // Return the same reference when nothing settled: a fresh object here
+        // would count as a state change on every probe and re-render the dock
+        // for no reason.
+        return changed ? next : current;
       });
     });
     return () => {

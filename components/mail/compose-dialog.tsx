@@ -1,20 +1,23 @@
 "use client";
 
 import * as React from "react";
+import Image from "next/image";
 import {
+  Image as ImageIcon,
   LoaderCircle,
   Maximize2,
   Minimize2,
   Paperclip,
   Send,
-  Sparkles,
   Trash2,
   X,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import assistantLogo from "@/public/assitantlogo.png";
+import { ClickPowerUp } from "@/components/evil-buttons/click-powerup";
 import { useMailStore } from "@/components/mail/mail-store";
-import { errorMessage, generateMailDraft } from "@/lib/mail/client";
+import { assistCompose, errorMessage } from "@/lib/mail/client";
 import { mailInitials, parseAddressList } from "@/lib/mail/format";
 import type { MailDraft } from "@/lib/mail/types";
 
@@ -86,6 +89,18 @@ function RecipientField({
 }
 
 /**
+ * Split a reply draft into the part the user is writing and the quoted
+ * original. The quoted block starts with the attribution the reader inserts
+ * (`\n\n---\nOn … wrote:`), so the AI can write a reply without clobbering it.
+ */
+function splitQuoted(body: string): { text: string; quote: string } {
+  const marker = "\n\n---\nOn ";
+  const index = body.indexOf(marker);
+  if (index === -1) return { text: body, quote: "" };
+  return { text: body.slice(0, index), quote: body.slice(index) };
+}
+
+/**
  * The composer form. Mounted only while the dialog is open, so lazy state
  * initializers seed it from `initial` (a reply/forward draft) — no seeding
  * effect, and each open starts from a clean slate.
@@ -120,8 +135,43 @@ function ComposeForm({
   const [showBcc, setShowBcc] = React.useState(Boolean(initial?.bcc));
   const [expanded, setExpanded] = React.useState(false);
   const [aiDrafted, setAiDrafted] = React.useState(false);
-  const [drafting, setDrafting] = React.useState(false);
+  const [writing, setWriting] = React.useState(false);
   const [draftError, setDraftError] = React.useState<string | null>(null);
+  const [aiOpen, setAiOpen] = React.useState(false);
+  const [aiPrompt, setAiPrompt] = React.useState("");
+  const [assets, setAssets] = React.useState<
+    Array<{ id: string; filename: string; kind: string }>
+  >([]);
+  const [showAssets, setShowAssets] = React.useState(false);
+  const [attachedIds, setAttachedIds] = React.useState<string[]>(
+    () => initial?.assetIds ?? [],
+  );
+  const [inlineIds, setInlineIds] = React.useState<string[]>(
+    () => initial?.inlineImageIds ?? [],
+  );
+
+  React.useEffect(() => {
+    let active = true;
+    fetch("/api/v1/assets", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((payload: { data?: { assets?: Array<{ id: string; filename: string; kind: string }> } }) => {
+        if (active && payload.data?.assets) setAssets(payload.data.assets);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const toggleId = (
+    id: string,
+    setter: React.Dispatch<React.SetStateAction<string[]>>,
+  ) =>
+    setter((current) =>
+      current.includes(id)
+        ? current.filter((value) => value !== id)
+        : [...current, id],
+    );
 
   const commit = (
     draft: string,
@@ -141,26 +191,51 @@ function ComposeForm({
     bcc: [...bcc, ...parseAddressList(bccDraft)].join(", "),
     subject,
     body,
+    ...(attachedIds.length ? { assetIds: attachedIds } : {}),
+    ...(inlineIds.length ? { inlineImageIds: inlineIds } : {}),
   });
 
-  const bodyEmpty = body.trim().length === 0;
   const canSend = to.length > 0 || parseAddressList(toDraft).length > 0;
 
-  const runAiDraft = async () => {
-    setDrafting(true);
+  /**
+   * "Write with AI": the user describes the email or reply, the model streams
+   * the body. A quoted reply is preserved and the new text is written above it.
+   * Never sends.
+   */
+  const runAiWrite = async () => {
+    if (writing) return;
+    const instruction = aiPrompt.trim();
+    const { text: existing, quote } = splitQuoted(body);
+
+    setWriting(true);
     setDraftError(null);
+    setAiOpen(false);
+
+    let streamed = "";
     try {
-      const generated = await generateMailDraft({
-        to: [...to, ...parseAddressList(toDraft)],
-        subject,
-      });
-      setBody(generated);
-      setAiDrafted(true);
+      await assistCompose(
+        {
+          action: "write",
+          body: existing,
+          ...(instruction ? { instruction } : {}),
+          subject,
+          to: [...to, ...parseAddressList(toDraft)],
+        },
+        {
+          onChunk: (full) => {
+            streamed = full;
+            setBody(quote ? `${full}${quote}` : full);
+          },
+        },
+      );
+      // A no-op fallback (e.g. no model) leaves the draft untouched.
+      if (!streamed) setBody(body);
+      else setAiDrafted(true);
     } catch (error) {
-      // Never clear what the user typed when the model is unavailable.
-      setDraftError(errorMessage(error, "The assistant couldn't draft that"));
+      setBody(body);
+      setDraftError(errorMessage(error, "The assistant couldn't write that"));
     } finally {
-      setDrafting(false);
+      setWriting(false);
     }
   };
 
@@ -318,24 +393,92 @@ function ComposeForm({
                 aria-label="Message body"
                 className="scrollbar-none min-h-[190px] w-full flex-1 resize-none bg-transparent py-1 text-[13px] leading-[1.5] text-foreground outline-none placeholder:text-muted-foreground"
               />
-
-              {bodyEmpty && (
-                <button
-                  type="button"
-                  onClick={runAiDraft}
-                  disabled={drafting}
-                  className="absolute bottom-2 left-0 flex items-center gap-2 rounded-lg border border-border bg-card px-2.5 py-1.5 text-[13px] font-medium text-foreground shadow-row transition-colors hover:bg-secondary disabled:opacity-60"
-                >
-                  {drafting ? (
-                    <LoaderCircle className="size-4 animate-spin" aria-hidden />
-                  ) : (
-                    <Sparkles className="size-4" aria-hidden />
-                  )}
-                  {drafting ? "Drafting…" : "Draft with AI"}
-                </button>
-              )}
             </div>
           </div>
+
+        </div>
+
+        {/* Always-visible AI action, kept out of the scroll area. */}
+        <div className="shrink-0 px-5 pt-1 pb-2">
+          <ClickPowerUp
+            plain
+            onClick={() => setAiOpen((value) => !value)}
+            disabled={writing}
+            aria-expanded={aiOpen}
+            aria-controls="compose-ai-prompt"
+            accentColor="#8a43e1"
+            className="self-start rounded-md px-3 py-1.5 text-[12px] tracking-normal normal-case"
+          >
+            {writing ? (
+              <span className="flex items-center gap-2">
+                <LoaderCircle className="size-4 animate-spin" aria-hidden />
+                Writing…
+              </span>
+            ) : (
+              <span className="flex items-center gap-2">
+                <Image
+                  src={assistantLogo}
+                  alt=""
+                  width={16}
+                  height={16}
+                  className="size-4 shrink-0 object-contain"
+                />
+                Write with AI
+              </span>
+            )}
+          </ClickPowerUp>
+
+          {aiOpen && !writing && (
+            <div
+              id="compose-ai-prompt"
+              className="mt-2 rounded-lg border border-border bg-secondary/40 p-3"
+            >
+              <label
+                htmlFor="compose-ai-prompt-input"
+                className="text-[12px] font-medium text-foreground"
+              >
+                Describe the email or reply
+              </label>
+              <textarea
+                id="compose-ai-prompt-input"
+                autoFocus
+                value={aiPrompt}
+                onChange={(event) => setAiPrompt(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    void runAiWrite();
+                  }
+                  if (event.key === "Escape") setAiOpen(false);
+                }}
+                placeholder="e.g. Reply to Sarah thanking her and confirming Tuesday at 3pm."
+                aria-label="Describe the email or reply"
+                className="mt-2 min-h-[56px] w-full resize-none rounded-md border border-border bg-card p-2 text-[13px] leading-[1.5] text-foreground outline-none placeholder:text-muted-foreground"
+              />
+              <div className="mt-2 flex items-center justify-between gap-2">
+                <span className="text-[11px] text-muted-foreground">
+                  Enter to write · Shift+Enter for a new line
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setAiOpen(false)}
+                    className="h-8 rounded-lg px-3 text-[12px] font-medium text-foreground transition-colors hover:bg-accent"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void runAiWrite()}
+                    disabled={writing}
+                    className="h-8 rounded-lg bg-primary px-3 text-[12px] font-medium text-primary-foreground transition-opacity disabled:opacity-50"
+                  >
+                    Generate
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {files.length > 0 && (
@@ -361,6 +504,96 @@ function ComposeForm({
             ))}
           </div>
         )}
+
+        {(attachedIds.length > 0 || inlineIds.length > 0) && (
+          <div className="flex shrink-0 flex-wrap gap-2 px-5 pb-2">
+            {assets
+              .filter((asset) => attachedIds.includes(asset.id))
+              .map((asset) => (
+                <span
+                  key={`attached-${asset.id}`}
+                  className="flex items-center gap-1.5 rounded-md bg-mail-chip px-2 py-1 text-[12px] text-mail-chip-foreground"
+                >
+                  <Paperclip className="size-3" aria-hidden />
+                  {asset.filename}
+                  <button
+                    type="button"
+                    aria-label={`Remove ${asset.filename}`}
+                    onClick={() => toggleId(asset.id, setAttachedIds)}
+                  >
+                    <X className="size-3" aria-hidden />
+                  </button>
+                </span>
+              ))}
+            {assets
+              .filter((asset) => inlineIds.includes(asset.id))
+              .map((asset) => (
+                <span
+                  key={`inline-${asset.id}`}
+                  className="flex items-center gap-1.5 rounded-md bg-mail-chip px-2 py-1 text-[12px] text-mail-chip-foreground"
+                >
+                  <ImageIcon className="size-3" aria-hidden />
+                  Inline: {asset.filename}
+                  <button
+                    type="button"
+                    aria-label={`Remove inline ${asset.filename}`}
+                    onClick={() => toggleId(asset.id, setInlineIds)}
+                  >
+                    <X className="size-3" aria-hidden />
+                  </button>
+                </span>
+              ))}
+          </div>
+        )}
+
+        {showAssets ? (
+          <div className="absolute bottom-16 left-5 right-5 z-40 max-h-64 overflow-y-auto rounded-lg border border-border bg-card p-2 shadow-lg">
+            {assets.length === 0 ? (
+              <p className="p-2 text-[12px] text-muted-foreground">
+                No assets yet. Add images or files in Settings → Assets.
+              </p>
+            ) : (
+              <ul className="flex flex-col">
+                {assets.map((asset) => {
+                  const attached = attachedIds.includes(asset.id);
+                  const inline = inlineIds.includes(asset.id);
+                  return (
+                    <li
+                      key={asset.id}
+                      className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-accent"
+                    >
+                      <span className="min-w-0 flex-1 truncate text-[12px] text-foreground">
+                        {asset.filename}
+                      </span>
+                      {asset.kind === "image" ? (
+                        <button
+                          type="button"
+                          onClick={() => toggleId(asset.id, setInlineIds)}
+                          className={cn(
+                            "rounded-md border border-border px-2 py-0.5 text-[11px]",
+                            inline && "border-mail-recipient text-mail-recipient",
+                          )}
+                        >
+                          {inline ? "Inline ✓" : "Inline"}
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => toggleId(asset.id, setAttachedIds)}
+                        className={cn(
+                          "rounded-md border border-border px-2 py-0.5 text-[11px]",
+                          attached && "border-mail-recipient text-mail-recipient",
+                        )}
+                      >
+                        {attached ? "Attached ✓" : "Attach"}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        ) : null}
 
         <footer className="flex shrink-0 items-center justify-between gap-2 border-t border-black/10 bg-mail-compose-chrome px-5 py-3">
           <div className="flex items-center gap-1.5">
@@ -394,6 +627,19 @@ function ComposeForm({
                 }}
               />
             </label>
+
+            <button
+              type="button"
+              onClick={() => setShowAssets((value) => !value)}
+              aria-pressed={showAssets}
+              className={cn(
+                "flex h-9 items-center justify-center gap-2 rounded-lg px-3 text-[13px] font-medium text-foreground transition-colors hover:bg-accent",
+                showAssets && "bg-accent",
+              )}
+            >
+              <ImageIcon className="size-4" aria-hidden />
+              Assets
+            </button>
 
             <button
               type="button"

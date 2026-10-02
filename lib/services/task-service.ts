@@ -3,7 +3,7 @@ import "server-only";
 import { z } from "zod";
 
 import { AuthenticationError, ValidationError } from "@/lib/agent/errors";
-import { generateStructured } from "@/lib/ai/structured";
+import { generateObject } from "@/lib/ai/generate";
 
 /**
  * TaskService — pulls action items out of an email or thread.
@@ -87,11 +87,15 @@ export class TaskService {
     const heuristic = extractTasksHeuristic(text);
     if (!input.useModel) return { tasks: heuristic, method: "heuristic" };
 
-    const refined = await generateStructured({
+    const refined = await generateObject({
       schema: MODEL_TASK_SCHEMA,
+      role: "fast",
+      feature: "extract-tasks",
       system:
         "Extract concrete action items from the email text. Return only actions someone must take, each with a short due hint when one is stated. Do not invent deadlines.",
       prompt: text.slice(0, 8_000),
+      hardening: { trust: "untrusted", level: "compact" },
+      maxOutputTokens: 600,
       userId: input.userId,
     });
     if (!refined) return { tasks: heuristic, method: "heuristic" };

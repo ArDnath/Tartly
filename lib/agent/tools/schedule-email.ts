@@ -61,7 +61,7 @@ function buildScheduleEmailTool(
   return defineTool({
     name: "schedule_email",
     description:
-      "Prepare an email to be sent later. Calling this does NOT schedule or send anything: it creates a confirmation card the user must approve, and only then is it queued for the chosen time. Use sendAt with a full ISO 8601 timestamp.",
+      "Prepare an email to be sent later. Calling this does NOT schedule or send anything: it creates a confirmation card the user must approve, and only then is it queued for the chosen time. Use sendAt with a full ISO 8601 timestamp. If the user has not given an unambiguous time — and none was fixed earlier in this thread — ask when it should go out instead of guessing.",
     risk: "EXTERNAL_SIDE_EFFECT",
     inputSchema,
     authorize(ctx) {

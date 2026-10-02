@@ -14,6 +14,7 @@ import {
 } from "@/components/onboarding/onboarding-step-layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import logo from "@/public/logo.png";
 
 const MAX_AVATAR_BYTES = 1_000_000;
 
@@ -67,8 +68,8 @@ export const CreateProfileStep = () => {
                 />
               ) : (
                 <Image
-                  src="/logo.png"
-                  alt="Redape logo"
+                  src={logo}
+                  alt="Lunabox logo"
                   width={48}
                   height={48}
                   className="size-full object-cover"

@@ -4,16 +4,23 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
 import { AppSidebar, type SidebarUser } from "@/components/app-shell/app-sidebar";
-import type { InboxCounts, InboxView } from "@/lib/inbox/service";
+import {
+  normalizeView,
+  type InboxCounts,
+  type InboxView,
+} from "@/lib/inbox/views";
 import { cn } from "@/lib/utils";
 
 const VIEWS: Array<{ value: InboxView; label: string }> = [
-  { value: "needs_you", label: "Needs you" },
-  { value: "waiting", label: "Waiting" },
-  { value: "handled", label: "Handled" },
+  { value: "needs_reply", label: "Needs reply" },
+  { value: "waiting", label: "Waiting on someone" },
+  { value: "follow_up_today", label: "Follow up today" },
+  { value: "meetings", label: "Meetings" },
+  { value: "ai_handled", label: "AI handled" },
+  { value: "fyi", label: "FYI" },
 ];
 
-/** Inbox-specific sidebar: the three triage views, each with a live count. */
+/** Inbox-specific sidebar: six mutually-exclusive buckets, each with a count. */
 export function InboxSidebar({
   counts,
   user,
@@ -22,7 +29,8 @@ export function InboxSidebar({
   user?: SidebarUser;
 }) {
   const searchParams = useSearchParams();
-  const active = (searchParams.get("view") as InboxView | null) ?? "needs_you";
+  const active =
+    normalizeView(searchParams.get("view")) ?? "needs_reply";
 
   return (
     <AppSidebar user={user}>

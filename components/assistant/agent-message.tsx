@@ -10,17 +10,30 @@ import {
 import { BrainIcon, ShieldAlertIcon } from "lucide-react";
 import { memo } from "react";
 
+import { AssetLibraryCard, AssetSavedCard } from "@/components/assistant/cards/asset-card";
+import { CampaignCard, CampaignStatusCard } from "@/components/assistant/cards/campaign-card";
 import { ContactCard } from "@/components/assistant/cards/contact-card";
+import { AiCostCard } from "@/components/assistant/cards/ai-cost-card";
 import { EmailActionResultCard } from "@/components/assistant/cards/email-action-result-card";
 import { EmailDraftCard } from "@/components/assistant/cards/email-draft-card";
 import { EmailPreviewCard } from "@/components/assistant/cards/email-preview-card";
 import { EmailSearchResults } from "@/components/assistant/cards/email-search-results";
 import { EmailThreadCard } from "@/components/assistant/cards/email-thread-card";
+import { KnowledgeCard } from "@/components/assistant/cards/knowledge-card";
 import { MailboxActionCard } from "@/components/assistant/cards/mailbox-action-card";
 import { ResearchCard } from "@/components/assistant/cards/research-card";
+import { RuleCard } from "@/components/assistant/cards/rule-card";
+import {
+  SenderProfileCard,
+  UnsubscribeResultCard,
+} from "@/components/assistant/cards/sender-profile-card";
 import { TaskCard } from "@/components/assistant/cards/task-card";
+import { ThreadSummaryCard } from "@/components/assistant/cards/thread-summary-card";
+import { SuppressionCard } from "@/components/assistant/cards/suppression-card";
+import { VoiceDraftCard } from "@/components/assistant/cards/voice-draft-card";
 import { asRecord, asString } from "@/components/assistant/cards/shared";
 import { ToolStep } from "@/components/assistant/tool-step";
+import { BriefingCard } from "@/components/briefing/briefing-card";
 import { ChainOfThoughtStep } from "@/components/ai-elements/chain-of-thought";
 import { ThinkingReasoning } from "@/components/ai-elements/thinking-reasoning";
 import {
@@ -28,11 +41,31 @@ import {
   MessageContent,
   MessageResponse,
 } from "@/components/ai-elements/message";
+import type { ChatBriefingPart } from "@/lib/db/schema";
 
 type ToolPart = ToolUIPart | DynamicToolUIPart;
 type MessagePart = UIMessage["parts"][number];
 type ReasoningPart = Extract<MessagePart, { type: "reasoning" }>;
 type TracePart = ReasoningPart | ToolPart;
+
+/**
+ * Tools whose result belongs on the chain of thought, not in the transcript.
+ *
+ * A search is one narrative: the query the model ran and the hits it found.
+ * Rendering the hits as a detached card further down the conversation splits
+ * that narrative in two, so these artifacts are attached to the step that
+ * produced them instead. Write/confirmation artifacts still belong in the
+ * transcript — they are outcomes the user acts on, not reasoning.
+ */
+const CHAIN_ARTIFACT_TOOLS: ReadonlySet<string> = new Set([
+  "search_emails",
+  "search_web",
+  "open_web_page",
+  "research_person",
+  "research_company",
+  "search_contacts",
+  "search_knowledge",
+]);
 
 /** Stable empty set so messages without live approvals keep their memo. */
 const EMPTY_APPROVAL_IDS: ReadonlySet<string> = new Set();
@@ -51,9 +84,11 @@ const EMPTY_APPROVAL_IDS: ReadonlySet<string> = new Set();
 function TracePanel({
   parts,
   isStreaming,
+  liveApprovalIds,
 }: {
   parts: TracePart[];
   isStreaming: boolean;
+  liveApprovalIds: ReadonlySet<string>;
 }) {
   return (
     <ThinkingReasoning isStreaming={isStreaming}>
@@ -79,11 +114,18 @@ function TracePanel({
           );
         }
 
+        const toolName = getToolName(part);
+        const artifact = CHAIN_ARTIFACT_TOOLS.has(toolName)
+          ? toolArtifact(toolName, part, liveApprovalIds)
+          : null;
+
         return (
           <ToolStep
             key={`tool:${index}`}
             part={part}
             showConnector={!isLast}
+            isStreaming={isStreaming}
+            artifact={artifact}
           />
         );
       })}
@@ -130,6 +172,37 @@ function toolArtifact(
       return <ResearchCard output={part.output} />;
     case "extract_tasks":
       return <TaskCard output={part.output} />;
+    case "search_knowledge":
+      return <KnowledgeCard output={part.output} />;
+    case "get_ai_cost":
+      return <AiCostCard output={part.output} />;
+    case "summarize_thread":
+      return <ThreadSummaryCard output={part.output} />;
+    case "create_rule":
+      return <RuleCard output={part.output} />;
+    case "get_sender_profile":
+      return <SenderProfileCard output={part.output} />;
+    case "unsubscribe_sender": {
+      if (asString(asRecord(part.output)?.status) === "confirmation_required") {
+        const pendingActionId = asString(asRecord(part.output)?.pendingActionId);
+        return pendingActionId && liveApprovalIds.has(pendingActionId) ? (
+          <PendingApprovalNote />
+        ) : null;
+      }
+      return <UnsubscribeResultCard output={part.output} />;
+    }
+    case "draft_in_my_voice":
+      return <VoiceDraftCard output={part.output} />;
+    case "list_assets":
+      return <AssetLibraryCard output={part.output} />;
+    case "add_asset":
+      return <AssetSavedCard output={part.output} />;
+    case "start_campaign":
+      return <CampaignCard output={part.output} />;
+    case "get_campaign_status":
+      return <CampaignStatusCard output={part.output} />;
+    case "add_suppression":
+      return <SuppressionCard output={part.output} />;
     case "create_draft":
     case "update_draft":
       return <EmailDraftCard toolName={toolName} output={part.output} />;
@@ -200,22 +273,36 @@ export const AgentMessage = memo(function AgentMessage({
     <Message from={message.role}>
       <MessageContent>
         {traceParts.length > 0 ? (
-          <TracePanel parts={traceParts} isStreaming={isStreaming} />
+          <TracePanel
+            parts={traceParts}
+            isStreaming={isStreaming}
+            liveApprovalIds={liveApprovalIds}
+          />
         ) : null}
 
         {message.parts.map((part, index) => {
           const key = `${message.id}:${index}`;
+
+          if ((part as { type?: string }).type === "briefing") {
+            return (
+              <div key={key}>
+                <BriefingCard part={part as unknown as ChatBriefingPart} />
+              </div>
+            );
+          }
 
           if (part.type === "text") {
             return <MessageResponse key={key}>{part.text}</MessageResponse>;
           }
 
           if (isToolUIPart(part)) {
-            const artifact = toolArtifact(
-              getToolName(part),
-              part,
-              liveApprovalIds,
-            );
+            // Search/research hits already render on the chain-of-thought rail
+            // above; rendering them again here would detach the result from the
+            // step that produced it.
+            const toolName = getToolName(part);
+            if (CHAIN_ARTIFACT_TOOLS.has(toolName)) return null;
+
+            const artifact = toolArtifact(toolName, part, liveApprovalIds);
             return artifact ? <div key={key}>{artifact}</div> : null;
           }
 

@@ -50,7 +50,7 @@ function buildCreateFollowupTool(
   return defineTool({
     name: "create_followup",
     description:
-      "Start a gentle follow-up cadence on a conversation: after a few days it prepares a nudge draft for the user to approve. Nothing is sent automatically. Use it when the user asks to follow up or bump a thread.",
+      "Start a gentle follow-up cadence on a conversation: after a few days it prepares a nudge draft for the user to approve. Nothing is sent automatically. Use it when the user asks to follow up or bump a thread. Pass afterDays for an explicit wait; if the user left the timing vague — and no timing was fixed earlier in this thread — ask before starting.",
     risk: "WRITE",
     inputSchema,
     authorize(ctx) {

@@ -1,14 +1,17 @@
 import { InboxView } from "@/components/inbox/inbox-view";
 import {
   listInbox,
+  normalizeView,
   type InboxView as InboxViewName,
 } from "@/lib/inbox/service";
+import { getLatestDigest } from "@/lib/ai/features/digest";
+import { isDigestEnabled } from "@/lib/env";
 import { requireSession } from "@/lib/session";
 
 function parseView(value: string | string[] | undefined): InboxViewName {
   const raw = Array.isArray(value) ? value[0] : value;
-  if (raw === "waiting" || raw === "handled") return raw;
-  return "needs_you";
+  // Legacy `?view=needs_you|handled` deep links resolve through the aliases.
+  return normalizeView(raw) ?? "needs_reply";
 }
 
 /**
@@ -25,7 +28,17 @@ export default async function InboxPage({
   const params = await searchParams;
   const view = parseView(params.view);
 
-  const items = await listInbox({ userId: session.user.id, view });
+  const [items, digest] = await Promise.all([
+    listInbox({ userId: session.user.id, view }),
+    getLatestDigest(session.user.id),
+  ]);
 
-  return <InboxView view={view} items={items} />;
+  return (
+    <InboxView
+      view={view}
+      items={items}
+      digest={digest}
+      digestEnabled={isDigestEnabled()}
+    />
+  );
 }

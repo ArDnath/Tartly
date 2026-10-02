@@ -219,3 +219,22 @@ export function createRunTracer(): {
 
   return { sink, trace };
 }
+
+/**
+ * Persist the latest context-compaction summary onto the conversation. Best
+ * effort: a failure to record observability must never break a turn.
+ */
+export async function saveThreadCompaction(input: {
+  conversationId: string;
+  summary: string;
+}): Promise<void> {
+  if (!input.summary.trim()) return;
+  try {
+    await db
+      .update(agentChatThread)
+      .set({ compactionSummary: input.summary.slice(0, 8_000) })
+      .where(eq(agentChatThread.id, input.conversationId));
+  } catch (error) {
+    console.warn("[agent] failed to persist compaction summary", error);
+  }
+}

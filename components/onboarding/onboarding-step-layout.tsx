@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 
 import { ONBOARDING_CONTENT_BLOCK_WIDTH } from "@/lib/onboarding/constants";
 import { cn } from "@/lib/utils";
+import logo from "@/public/logo.png";
 
 const CONTENT_WIDTH_STYLE = { width: ONBOARDING_CONTENT_BLOCK_WIDTH };
 
@@ -49,8 +50,8 @@ export const OnboardingStepHeading = ({
   <OnboardingContentBlock className="gap-4">
     <div className="flex justify-center">
       <Image
-        src="/logo.png"
-        alt="Redape"
+        src={logo}
+        alt="Lunabox"
         width={32}
         height={32}
         className="pointer-events-none size-8 rounded-md"

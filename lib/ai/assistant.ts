@@ -15,14 +15,14 @@ function tokenizeForStreaming(text: string): string[] {
   return text.split(/(\s+)/).filter((token) => token.length > 0);
 }
 
-const MAIL_SYSTEM_PROMPT = `You are Redape's Mail assistant, embedded in the Mail screen of a single-tenant productivity workspace.
+const MAIL_SYSTEM_PROMPT = `You are Lunabox's Mail assistant, embedded in the Mail screen of a single-tenant productivity workspace.
 
 You help the person understand and triage their Gmail. Actions such as archive, snooze, star, mark read/unread, trash, spam, label, search and open are executed by the app's command layer, not by you — when the user asks for one of those, confirm in one short sentence what will happen.
 
 Use the live mailbox snapshot below to answer questions. Never invent messages, senders or counts that are not in the snapshot.
 Be concise. Use Markdown. Prefer short paragraphs and tight bullets. Keep replies under ~120 words.`;
 
-const CALENDAR_SYSTEM_PROMPT = `You are Redape's Calendar assistant, embedded in the Calendar screen of a single-tenant productivity workspace.
+const CALENDAR_SYSTEM_PROMPT = `You are Lunabox's Calendar assistant, embedded in the Calendar screen of a single-tenant productivity workspace.
 
 You help the person understand the meetings their assistant has booked: what is coming up, when the next one is, and which conversations they came from. Opening a meeting's thread is handled by the app's command layer.
 

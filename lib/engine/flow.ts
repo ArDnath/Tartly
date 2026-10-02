@@ -35,6 +35,13 @@ export type FlowGraph = {
 
 export const INBOUND_EMAIL_FLOW_NAME = "inbound-email";
 
+/**
+ * Bumped whenever the default graph changes. `seedDefaultFlows` refreshes an
+ * existing row whose stored graph predates the current version, so a shipped
+ * gate takes effect for users seeded before it (flows have no editor UI).
+ */
+export const INBOUND_EMAIL_FLOW_VERSION = 2;
+
 /** The default intelligent-inbox pipeline (see plan §5.4 / §7). */
 export function buildInboundEmailGraph(): FlowGraph {
   return {
@@ -42,6 +49,9 @@ export function buildInboundEmailGraph(): FlowGraph {
       { id: "t", type: "triage" },
       { id: "c", type: "classify-intent" },
       { id: "l", type: "load-context" },
+      { id: "i", type: "sender-intel" },
+      { id: "u", type: "apply-rules" },
+      { id: "cm", type: "extract-commitments" },
       { id: "m", type: "detect-meeting-intent" },
       { id: "s", type: "find-free-slots", config: { count: 3, horizonDays: 7 } },
       { id: "p", type: "propose-times", config: { maxOptions: 3 } },
@@ -50,12 +60,20 @@ export function buildInboundEmailGraph(): FlowGraph {
       { id: "e", type: "egress" },
       { id: "x", type: "send-email" },
       { id: "f", type: "schedule-followup", config: { afterDays: 3 } },
+      { id: "um", type: "update-memory" },
       { id: "r", type: "log-trace" },
     ],
     edges: [
       { from: "t", to: "c" },
       { from: "c", to: "l" },
-      { from: "l", to: "m" },
+      { from: "l", to: "i" },
+      { from: "i", to: "u" },
+      // Action gate: `none` (fyi/invoice/newsletter) skips drafting entirely and
+      // goes straight to logging; anything draft-worthy also extracts promises.
+      // Conditions are mutually exclusive, so the first match is deterministic.
+      { from: "u", to: "cm", when: { field: "action", notEquals: "none" } },
+      { from: "u", to: "r", when: { field: "action", equals: "none" } },
+      { from: "cm", to: "m" },
       { from: "m", to: "s", when: { field: "isMeeting", truthy: true } },
       { from: "m", to: "d", when: { field: "isMeeting", notEquals: true } },
       { from: "s", to: "p" },
@@ -65,7 +83,9 @@ export function buildInboundEmailGraph(): FlowGraph {
       { from: "e", to: "x", when: { field: "decision", equals: "send" } },
       { from: "e", to: "f", when: { field: "decision", equals: "draft" } },
       { from: "x", to: "f" },
-      { from: "f", to: "r" },
+      // Auto-memory (opt-in) observes the settled exchange before logging.
+      { from: "f", to: "um" },
+      { from: "um", to: "r" },
     ],
   };
 }
@@ -121,7 +141,29 @@ export async function seedDefaultFlows(userId: string): Promise<FlowRow> {
     )
     .limit(1);
 
-  if (existing[0]) return existing[0];
+  if (existing[0]) {
+    // The graph has no editor UI, so a shipped change (a new node such as
+    // `extract-commitments`) must be applied to already-seeded rows or it would
+    // never take effect. Refresh only when the stored graph is missing a node
+    // type the current version adds — never clobber a purely identical row.
+    const stored = existing[0].graph as unknown as Partial<FlowGraph>;
+    const storedTypes = new Set(
+      (stored.nodes ?? []).map((node) => node.type),
+    );
+    const current = buildInboundEmailGraph();
+    const needsRefresh = current.nodes.some(
+      (node) => !storedTypes.has(node.type),
+    );
+    if (needsRefresh) {
+      const refreshed = await db
+        .update(flows)
+        .set({ graph: current as unknown as Record<string, unknown> })
+        .where(eq(flows.id, existing[0].id))
+        .returning();
+      return refreshed[0] ?? existing[0];
+    }
+    return existing[0];
+  }
 
   const inserted = await db
     .insert(flows)

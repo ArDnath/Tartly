@@ -3,6 +3,20 @@
  * Pure module (no `server-only`) so it can be unit-tested directly.
  */
 
+export type InlineImage = {
+  /** Content-ID referenced from the HTML as `cid:<id>`. */
+  cid: string;
+  filename: string;
+  mimeType: string;
+  content: Buffer;
+};
+
+export type Attachment = {
+  filename: string;
+  mimeType: string;
+  content: Buffer;
+};
+
 export type OutboundEmail = {
   from: string;
   to: string[];
@@ -14,7 +28,16 @@ export type OutboundEmail = {
   /** Threading headers so replies land in the existing Gmail conversation. */
   inReplyTo?: string;
   references?: string[];
+  /** Inline images rendered via `cid:` in the HTML part. */
+  inlineImages?: InlineImage[];
+  /** Regular file attachments. */
+  attachments?: Attachment[];
+  /** Extra headers, e.g. `List-Unsubscribe`. CR/LF are stripped. */
+  headers?: Record<string, string>;
 };
+
+/** Gmail rejects a raw message above ~25 MB (base64-encoded). */
+export const GMAIL_MAX_MESSAGE_BYTES = 25 * 1024 * 1024;
 
 /** Encodes a header value as RFC 2047 only when it contains non-ASCII. */
 export function encodeRfc2047(value: string): string {
@@ -69,12 +92,99 @@ export function textToHtml(text: string): string {
   return `<div>${paragraphs}</div>`;
 }
 
+function escapeQuotes(value: string): string {
+  return value.replace(/"/g, "'");
+}
+
+/** Standard base64 with 76-column wrapping, as RFC 2045 expects. */
+function base64Body(content: Buffer): string {
+  return content.toString("base64").replace(/(.{76})/g, "$1\r\n");
+}
+
+function uniqueBoundary(prefix: string): string {
+  return `${prefix}_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+}
+
+/** One MIME entity: its header lines and its encoded body. */
+type MimeEntity = { headers: string[]; body: string };
+
+/** Render a nested entity (its headers appear after the boundary line). */
+function entityToString(entity: MimeEntity): string {
+  return [...entity.headers, "", entity.body].join("\r\n");
+}
+
+function partEntity(
+  contentType: string,
+  content: Buffer,
+  extraHeaders: string[] = [],
+): MimeEntity {
+  return {
+    headers: [
+      `Content-Type: ${contentType}`,
+      "Content-Transfer-Encoding: base64",
+      ...extraHeaders,
+    ],
+    body: base64Body(content),
+  };
+}
+
+/** Packs entities under a boundary, with a terminating close marker. */
+function packMultipart(boundary: string, entities: MimeEntity[]): string {
+  return (
+    entities.map((entity) => `--${boundary}\r\n${entityToString(entity)}`).join("\r\n") +
+    `\r\n--${boundary}--`
+  );
+}
+
 /**
- * Builds an RFC 2822 message. When both `text` and `html` are present the
- * message is `multipart/alternative`; otherwise it is a single-part body.
+ * The text/HTML entity. `multipart/alternative` when an explicit HTML body is
+ * present, otherwise a single `text/plain` part.
+ */
+function alternativeEntity(email: OutboundEmail): MimeEntity {
+  if (email.html) {
+    const boundary = uniqueBoundary("alt");
+    return {
+      headers: [`Content-Type: multipart/alternative; boundary="${boundary}"`],
+      body: packMultipart(boundary, [
+        partEntity("text/plain; charset=UTF-8", Buffer.from(email.text ?? "", "utf8")),
+        partEntity("text/html; charset=UTF-8", Buffer.from(email.html, "utf8")),
+      ]),
+    };
+  }
+  return partEntity(
+    "text/plain; charset=UTF-8",
+    Buffer.from(email.text ?? "", "utf8"),
+  );
+}
+
+function inlinePart(image: InlineImage): MimeEntity {
+  return partEntity(
+    `${image.mimeType}; name="${escapeQuotes(image.filename)}"`,
+    image.content,
+    [
+      `Content-ID: <${image.cid}>`,
+      `Content-Disposition: inline; filename="${escapeQuotes(image.filename)}"`,
+    ],
+  );
+}
+
+function attachmentPart(attachment: Attachment): MimeEntity {
+  return partEntity(
+    `${attachment.mimeType}; name="${escapeQuotes(attachment.filename)}"`,
+    attachment.content,
+    [
+      `Content-Disposition: attachment; filename="${escapeQuotes(attachment.filename)}"`,
+    ],
+  );
+}
+
+/**
+ * Builds an RFC 2822 message. Composes `multipart/alternative` (text + HTML),
+ * `multipart/related` (inline images with `Content-ID`) and `multipart/mixed`
+ * (file attachments) only when the message actually needs them, matching the
+ * nesting Gmail expects.
  */
 export function buildMime(email: OutboundEmail): string {
-  const boundary = `redape_${Math.random().toString(36).slice(2)}`;
   const headers: string[] = [
     foldHeader("From", email.from),
     foldHeader("To", email.to.join(", ")),
@@ -89,33 +199,43 @@ export function buildMime(email: OutboundEmail): string {
   if (email.references?.length) {
     headers.push(foldHeader("References", email.references.join(" ")));
   }
-
-  const html = email.html ?? (email.text ? null : undefined);
-  if (html) {
-    headers.push(
-      `Content-Type: multipart/alternative; boundary="${boundary}"`,
-    );
-    return [
-      ...headers,
-      "",
-      `--${boundary}`,
-      "Content-Type: text/plain; charset=UTF-8",
-      "Content-Transfer-Encoding: base64",
-      "",
-      toBase64Url(email.text),
-      `--${boundary}`,
-      "Content-Type: text/html; charset=UTF-8",
-      "Content-Transfer-Encoding: base64",
-      "",
-      toBase64Url(html),
-      `--${boundary}--`,
-      "",
-    ].join("\r\n");
+  for (const [name, value] of Object.entries(email.headers ?? {})) {
+    // Never allow header injection via a crafted newline.
+    const safeName = name.replace(/[\r\n:]/g, "").trim();
+    const safeValue = value.replace(/[\r\n]+/g, " ").trim();
+    if (safeName && safeValue) headers.push(foldHeader(safeName, safeValue));
   }
 
-  headers.push("Content-Type: text/plain; charset=UTF-8");
-  headers.push("Content-Transfer-Encoding: base64");
-  return [...headers, "", toBase64Url(email.text), ""].join("\r\n");
+  const inlineImages = email.inlineImages ?? [];
+  const attachments = email.attachments ?? [];
+
+  let entity = alternativeEntity(email);
+
+  if (inlineImages.length > 0) {
+    const related = uniqueBoundary("rel");
+    entity = {
+      headers: [`Content-Type: multipart/related; boundary="${related}"`],
+      body: packMultipart(related, [entity, ...inlineImages.map(inlinePart)]),
+    };
+  }
+
+  if (attachments.length > 0) {
+    const mixed = uniqueBoundary("mix");
+    entity = {
+      headers: [`Content-Type: multipart/mixed; boundary="${mixed}"`],
+      body: packMultipart(mixed, [entity, ...attachments.map(attachmentPart)]),
+    };
+  }
+
+  // The outer entity's Content-Type header belongs in the message header block
+  // (a single part) so the blank line before the body stays a single separator.
+  const message = [...headers, ...entity.headers, "", entity.body, ""].join("\r\n");
+  if (Buffer.byteLength(message, "utf8") > GMAIL_MAX_MESSAGE_BYTES) {
+    throw new Error(
+      "This message is too large to send (over Gmail's 25 MB limit). Remove an attachment and try again.",
+    );
+  }
+  return message;
 }
 
 /** Convenience wrapper producing the Gmail `messages.send` request body. */

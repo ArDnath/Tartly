@@ -16,6 +16,7 @@
  */
 :root {
   color-scheme: dark;
+  caret-color: var(--canvas-foreground);
   --canvas: #1b1b1b;
   --canvas-foreground: #f4f4f5;
   --background: #1b1b1b;
@@ -54,6 +55,13 @@
   /* Star glyph on mail rows/reader. */
   --warning: #f8b84e;
   --warning-foreground: #171715;
+
+  /* Activity dashboard — the one warm moment on an otherwise neutral surface,
+     mirroring the reference board's accent card. Used for the peak-activity
+     bead matrix, never as general decoration. */
+  --activity-accent: #f2b4cb;
+  --activity-accent-soft: #f7d2e0;
+  --activity-accent-ink: #2b1622;
 
   /* Mail client — re-anchored on the #1B1B1B dark canvas. */
   --mail-surface: var(--card); /* #222222 */
@@ -121,12 +129,23 @@
   --sidebar-accent-foreground: #f4f4f5;
   --sidebar-border: rgba(255, 255, 255, 0.08);
   --sidebar-ring: #52525b;
+  --activity-accent: #f2b4cb;
+  --activity-accent-soft: #f7d2e0;
+  --activity-accent-ink: #2b1622;
 }
 
 body {
   background-color: var(--canvas);
   color: var(--canvas-foreground);
   font-family: var(--font-sans);
+}
+
+/* Browser surfaces belong to the palette: a neutral text selection and a
+   foreground caret keep the dark canvas coherent instead of dropping the
+   platform's blue highlight into the UI. */
+::selection {
+  background: color-mix(in oklab, var(--canvas-foreground) 22%, transparent);
+  color: var(--canvas-foreground);
 }
 
 @theme inline {
@@ -136,6 +155,9 @@ body {
   --color-canvas-foreground: var(--canvas-foreground);
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
+  --color-activity-accent: var(--activity-accent);
+  --color-activity-accent-soft: var(--activity-accent-soft);
+  --color-activity-accent-ink: var(--activity-accent-ink);
   --color-mail-surface: var(--mail-surface);
   --color-mail-rail: var(--mail-rail);
   --color-mail-rail-active: var(--mail-rail-active);
@@ -237,7 +259,7 @@ body {
   }
 
   /* Actionable surface. The mail client's "Compose mail" button uses the
-     light-on-dark primary instead (Redape primary is light), but this ramp is
+     light-on-dark primary instead (Lunabox primary is light), but this ramp is
      kept for surfaces that want a raised dark gradient. */
   .surface-primary-gradient {
     background-image: linear-gradient(180deg, #2e2e2e 0%, #262626 100%);
@@ -293,6 +315,30 @@ body {
   box-shadow:
     0 12px 24px -14px rgba(0, 0, 0, 0.9),
     0 2px 6px -4px rgba(0, 0, 0, 0.55);
+}
+
+/* Catch-up popup texture: a warm "sand" panel. A fine grain (SVG noise) sits
+   over two soft dune gradients; every layer is low-alpha so the glassmorphic
+   `backdrop-blur` behind the dialog still reads through. Only `background-image`
+   is set — the dialog keeps its translucent `bg-popover` colour. */
+@utility bg-catchup-texture {
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='s'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23s)' opacity='0.32'/%3E%3C/svg%3E"),
+    radial-gradient(
+      140% 120% at 8% -20%,
+      rgba(232, 213, 176, 0.12),
+      transparent 58%
+    ),
+    radial-gradient(
+      130% 120% at 110% 120%,
+      rgba(206, 178, 128, 0.1),
+      transparent 62%
+    );
+  background-size:
+    160px 160px,
+    100% 100%,
+    100% 100%;
+  background-repeat: repeat, no-repeat, no-repeat;
 }
 
 /*

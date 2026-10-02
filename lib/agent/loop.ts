@@ -17,6 +17,18 @@ import type { ZodType } from "zod";
 
 import type { AgentContext } from "@/lib/agent/context";
 import type { ConfirmationHandler } from "@/lib/agent/confirmation";
+import {
+  compactMessages,
+  shouldCompact,
+  trimToolResults,
+} from "@/lib/agent/compaction";
+import {
+  ACTIVATE_TOOLS_TOOL_NAME,
+  planActiveToolNames,
+  toolNamesInGroup,
+  type ToolGroup,
+} from "@/lib/agent/tool-groups";
+import { createActivateToolsDefinition } from "@/lib/agent/activate-tools";
 import { AppError, ToolExecutionError, toSafeError } from "@/lib/agent/errors";
 import type { AppErrorCode } from "@/lib/agent/errors";
 import {
@@ -29,6 +41,7 @@ import {
   type AnyToolDefinition,
   type ToolRegistry,
 } from "@/lib/agent/registry";
+import { isProgressiveToolsEnabled } from "@/lib/env";
 
 /**
  * The bounded agent loop.
@@ -81,7 +94,11 @@ export interface AgentBudget {
   maxSegments: number;
   /** Absolute step ceiling across all segments of a turn. */
   maxTotalSteps: number;
+  /** Prompt+completion token ceiling for a turn (0 = uncapped). */
+  maxTokensPerRun: number;
 }
+
+export const DEFAULT_AGENT_MAX_TOKENS_PER_RUN = 200_000;
 
 function clampInt(
   value: string | undefined,
@@ -121,7 +138,24 @@ export function resolveAgentBudget(
     1,
     1_000,
   );
-  return { stepsPerSegment, maxSegments, maxTotalSteps };
+  const maxTokensPerRun = clampInt(
+    env.AGENT_MAX_TOKENS_PER_RUN,
+    DEFAULT_AGENT_MAX_TOKENS_PER_RUN,
+    0,
+    10_000_000,
+  );
+  return { stepsPerSegment, maxSegments, maxTotalSteps, maxTokensPerRun };
+}
+
+/** True once a turn has spent its token budget. `0` means uncapped. */
+export function isTokenBudgetExhausted({
+  totalTokens,
+  maxTokensPerRun,
+}: {
+  totalTokens: number;
+  maxTokensPerRun: number;
+}): boolean {
+  return maxTokensPerRun > 0 && totalTokens >= maxTokensPerRun;
 }
 
 export interface AgentRunSummary {
@@ -157,9 +191,24 @@ export interface RunAgentOptions {
   maxSteps?: number;
   /** Offset added to emitted step numbers when running as a continuation. */
   stepOffset?: number;
+  /** Persists a compaction summary so a reload can rehydrate the bound. */
+  onCompact?: (result: {
+    summary: string;
+    compactedCount: number;
+  }) => void | Promise<void>;
   onFinish?: (summary: AgentRunSummary) => void | Promise<void>;
   onAbort?: () => void | Promise<void>;
   onError?: (error: unknown) => void | Promise<void>;
+  /**
+   * Progressive tool disclosure (§5.3). When true, only core tools are active
+   * until the model calls `activate_tools`. Defaults to the env gate.
+   */
+  progressiveTools?: boolean;
+  /**
+   * Per-turn activation state, shared across continuation segments so a group
+   * unlocked in one segment stays unlocked in the next. Created when omitted.
+   */
+  activatedGroups?: Set<ToolGroup>;
 }
 
 /** Instantiate the AI SDK tool set, wrapping each definition with policy. */
@@ -409,6 +458,17 @@ export function runAgent(options: RunAgentOptions) {
   const events = options.events ?? noopAgentEvents;
   let currentStep = options.stepOffset ?? 0;
 
+  // §5.3 — progressive tool disclosure. Off by default (env gate); when on, the
+  // model sees only core tools plus the `activate_tools` control tool until it
+  // unlocks a group.
+  const progressiveTools =
+    options.progressiveTools ?? isProgressiveToolsEnabled();
+  const activatedGroups = options.activatedGroups ?? new Set<ToolGroup>();
+  const registryToolNames = registry.list().map((definition) => definition.name);
+  const selectableToolNames = progressiveTools
+    ? [...registryToolNames, ACTIVATE_TOOLS_TOOL_NAME]
+    : registryToolNames;
+
   const tools = buildToolSet({
     ctx,
     registry,
@@ -422,12 +482,78 @@ export function runAgent(options: RunAgentOptions) {
       : {}),
   });
 
+  if (progressiveTools) {
+    const definition = createActivateToolsDefinition({
+      activate: (groups) => {
+        const unlocked: ToolGroup[] = [];
+        for (const group of groups) {
+          if (group !== "core" && !activatedGroups.has(group)) {
+            activatedGroups.add(group);
+            unlocked.push(group);
+          }
+        }
+        return {
+          activated: unlocked,
+          nowAvailable: unlocked.flatMap((group) =>
+            toolNamesInGroup(group, selectableToolNames),
+          ),
+        };
+      },
+    });
+    tools[ACTIVATE_TOOLS_TOOL_NAME] = createAiTool({
+      description: definition.description,
+      inputSchema: definition.inputSchema as ZodType,
+      execute: async (input: unknown, { toolCallId, abortSignal: callSignal }) =>
+        executeToolDefinition({
+          definition,
+          ctx,
+          rawInput: input,
+          toolCallId,
+          events,
+          step: currentStep,
+          ...(callSignal ? { abortSignal: callSignal } : {}),
+        }),
+    });
+  }
+
   return streamText({
     model,
     system,
     messages,
     tools,
     stopWhen: stepCountIs(options.maxSteps ?? MAX_AGENT_STEPS_PER_SEGMENT),
+    // Bound the context on every step: trim stale tool results, and (rarely)
+    // compact the history once it crosses the token threshold. Also recompute
+    // the active tool set so a group unlocked on the previous step is visible.
+    prepareStep: async ({ messages: stepMessages }) => {
+      let nextMessages = stepMessages;
+      if (shouldCompact(stepMessages)) {
+        const compacted = await compactMessages({
+          messages: stepMessages,
+          userId: ctx.userId,
+        });
+        if (compacted.compactedCount > 0) {
+          await options.onCompact?.({
+            summary: compacted.summary,
+            compactedCount: compacted.compactedCount,
+          });
+          nextMessages = trimToolResults(compacted.compactedMessages);
+        } else {
+          nextMessages = trimToolResults(stepMessages);
+        }
+      } else {
+        nextMessages = trimToolResults(stepMessages);
+      }
+
+      const activeTools = planActiveToolNames({
+        allToolNames: selectableToolNames,
+        activatedGroups: [...activatedGroups],
+        progressive: progressiveTools,
+      });
+      return activeTools
+        ? { messages: nextMessages, activeTools }
+        : { messages: nextMessages };
+    },
     ...(abortSignal ? { abortSignal } : {}),
     onStepStart: () => {
       currentStep += 1;
@@ -516,12 +642,19 @@ export interface StreamAgentTurnOptions {
   originalMessages?: UIMessage[];
   /** Client-safe error text for the UI stream. */
   onStreamError?: (error: unknown) => string;
+  /** Persists a compaction summary (best-effort). */
+  onCompact?: (result: {
+    summary: string;
+    compactedCount: number;
+  }) => void | Promise<void>;
   /** Called exactly once when the whole turn settles. */
   onFinish?: (summary: AgentTurnSummary) => void | Promise<void>;
   onError?: (error: unknown) => void | Promise<void>;
   /** Persistence hook: receives the fully merged assistant message. */
   onEnd?: UIMessageStreamOnEndCallback<UIMessage>;
   budget?: AgentBudget;
+  /** Progressive tool disclosure (§5.3). Defaults to the env gate. */
+  progressiveTools?: boolean;
 }
 
 export function streamAgentTurn(
@@ -530,6 +663,9 @@ export function streamAgentTurn(
   const budget = options.budget ?? resolveAgentBudget();
   const events = options.events ?? noopAgentEvents;
   const conversation: ModelMessage[] = [...options.messages];
+  const progressiveTools =
+    options.progressiveTools ?? isProgressiveToolsEnabled();
+  const activatedGroups = new Set<ToolGroup>();
   let currentStep = 0;
   let segments = 0;
   let promptTokens = 0;
@@ -565,7 +701,10 @@ export function streamAgentTurn(
             events,
             maxSteps: budget.stepsPerSegment,
             stepOffset: currentStep,
+            progressiveTools,
+            activatedGroups,
             ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
+            ...(options.onCompact ? { onCompact: options.onCompact } : {}),
             ...(options.onConfirmationRequired
               ? { onConfirmationRequired: options.onConfirmationRequired }
               : {}),
@@ -599,6 +738,18 @@ export function streamAgentTurn(
           finishReason = await result.finishReason;
           const responseMessages = await result.responseMessages;
           conversation.push(...responseMessages);
+
+          // The token budget is a hard ceiling independent of the step count:
+          // a few huge tool results must not blow past a single turn's cost.
+          if (
+            isTokenBudgetExhausted({
+              totalTokens: promptTokens + outputTokens,
+              maxTokensPerRun: budget.maxTokensPerRun,
+            })
+          ) {
+            status = "limit_reached";
+            break;
+          }
 
           // The model stopped by choice (not the step budget): the task is done.
           if (finishReason !== "tool-calls") break;

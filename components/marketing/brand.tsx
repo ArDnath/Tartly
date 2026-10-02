@@ -1,9 +1,10 @@
 import Image from "next/image";
 
 import { cn } from "@/lib/utils";
+import logo from "@/public/logo.png";
 
 /**
- * Shared Redape lockup (logo + wordmark). Server-rendered so the public
+ * Shared Lunabox lockup (logo + wordmark). Server-rendered so the public
  * landing and legal pages stay light.
  */
 export function Brand({
@@ -18,8 +19,8 @@ export function Brand({
   return (
     <span className={cn("flex items-center gap-2.5", className)}>
       <Image
-        src="/logo.png"
-        alt="Redape logo"
+        src={logo}
+        alt="Lunabox logo"
         width={size}
         height={size}
         priority
@@ -32,7 +33,7 @@ export function Brand({
           wordmarkClassName ?? "text-lg",
         )}
       >
-        Redape
+        Lunabox
       </span>
     </span>
   );

@@ -160,6 +160,9 @@ export interface OutgoingMail {
   body: string;
   threadId?: string;
   inReplyTo?: string;
+  /** Phase 6: library assets to attach / inline. */
+  assetIds?: string[];
+  inlineImageIds?: string[];
 }
 
 export async function sendMail(mail: OutgoingMail): Promise<string> {
@@ -207,4 +210,72 @@ export function errorMessage(
 ): string {
   if (error instanceof Error && error.message) return error.message;
   return fallback;
+}
+
+// --------------------------------------------------------------------------
+// Smart compose (streaming)
+// --------------------------------------------------------------------------
+export type ComposeAssistAction =
+  | "complete"
+  | "rewrite"
+  | "shorten"
+  | "formal"
+  | "casual"
+  | "bulletize"
+  | "translate"
+  | "write";
+
+export interface ComposeAssistRequest {
+  action: ComposeAssistAction;
+  body: string;
+  selection?: string;
+  subject?: string;
+  to?: string[];
+  targetLanguage?: string;
+  /** The user's free-form description, for the `write` action. */
+  instruction?: string;
+}
+
+/**
+ * Stream a compose suggestion. `onChunk` receives the growing text so the UI can
+ * render tokens as they arrive. Never sends anything — the caller decides what
+ * to do with the returned text.
+ */
+export async function assistCompose(
+  input: ComposeAssistRequest,
+  {
+    onChunk,
+    signal,
+  }: { onChunk?: (text: string, delta: string) => void; signal?: AbortSignal } = {},
+): Promise<string> {
+  const response = await fetch("/api/v1/mail/assist", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+    ...(signal ? { signal } : {}),
+  });
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as
+      | ApiEnvelope<unknown>
+      | null;
+    throw new Error(
+      payload?.error?.message || `Request failed (${response.status})`,
+    );
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) return "";
+
+  const decoder = new TextDecoder();
+  let text = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const delta = decoder.decode(value, { stream: true });
+    if (!delta) continue;
+    text += delta;
+    onChunk?.(text, delta);
+  }
+  return text;
 }

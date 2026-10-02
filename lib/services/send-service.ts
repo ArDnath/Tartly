@@ -7,6 +7,10 @@ import {
   ValidationError,
 } from "@/lib/agent/errors";
 import { sendEmail } from "@/lib/gmail/send";
+import {
+  buildHtmlWithImages,
+  resolveOutboundAssets,
+} from "@/lib/assets/outbound";
 import { allowMailSend } from "@/lib/mail/rate-limit";
 import { profile } from "@/lib/mail/service";
 import { gmailEmailProvider } from "@/lib/providers/email/gmail-provider";
@@ -77,6 +81,9 @@ export class SendService {
     bcc?: string[];
     subject?: string;
     body: string;
+    /** Phase 6: asset ids attached, and images rendered inline. */
+    assetIds?: string[];
+    inlineImageIds?: string[];
   }): Promise<SendResult> {
     const userId = this.requireUser(input.userId);
     const idempotencyKey = this.requireConfirmedAction(input.idempotencyKey);
@@ -94,6 +101,10 @@ export class SendService {
       bcc,
       subject,
       body,
+      ...(input.assetIds?.length ? { assetIds: input.assetIds } : {}),
+      ...(input.inlineImageIds?.length
+        ? { inlineImageIds: input.inlineImageIds }
+        : {}),
     });
   }
 
@@ -177,6 +188,8 @@ export class SendService {
     body: string;
     threadId?: string;
     inReplyTo?: string;
+    assetIds?: string[];
+    inlineImageIds?: string[];
   }): Promise<SendResult> {
     if (!(await this.allowSend(input.userId))) {
       throw new RateLimitError(
@@ -191,6 +204,17 @@ export class SendService {
       );
     }
 
+    // Phase 6: resolve assets to bytes at send time so delivered mail is durable.
+    const assets =
+      input.assetIds?.length || input.inlineImageIds?.length
+        ? await resolveOutboundAssets({
+            userId: input.userId,
+            inlineImageIds: input.inlineImageIds ?? [],
+            attachmentIds: input.assetIds ?? [],
+          })
+        : null;
+    const html = assets ? buildHtmlWithImages(input.body, assets.htmlImages) : null;
+
     const result = await this.send({
       userId: input.userId,
       idempotencyKey: input.idempotencyKey,
@@ -202,6 +226,13 @@ export class SendService {
         ...(input.bcc.length ? { bcc: input.bcc } : {}),
         subject: input.subject,
         text: input.body,
+        ...(html ? { html } : {}),
+        ...(assets?.inlineImages.length
+          ? { inlineImages: assets.inlineImages }
+          : {}),
+        ...(assets?.attachments.length
+          ? { attachments: assets.attachments }
+          : {}),
         ...(input.inReplyTo
           ? { inReplyTo: input.inReplyTo, references: [input.inReplyTo] }
           : {}),

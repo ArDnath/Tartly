@@ -1,26 +1,27 @@
 "use client";
 
 import * as React from "react";
+import type { Icon } from "@phosphor-icons/react";
 import {
   Bell,
-  CalendarDays,
-  ChartColumn,
-  ChevronDown,
-  CircleAlert,
-  CircleCheck,
+  CalendarDots,
+  CaretDown,
+  ChartBar,
+  CheckCircle,
   Clock,
   Command,
   FileText,
-  LogOut,
+  GearSix,
+  MagnifyingGlass,
+  Megaphone,
+  PaperPlaneTilt,
+  PencilSimpleLine,
   Plus,
-  Search,
-  Send,
-  Settings2,
-  SquarePen,
+  SignOut,
   Star,
   Trash,
-  type LucideIcon,
-} from "lucide-react";
+  WarningCircle,
+} from "@phosphor-icons/react/ssr";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
@@ -46,6 +47,7 @@ import { useMailStore } from "@/components/mail/mail-store";
 import { countDestinations } from "@/lib/mail/filter";
 import type { MailFilter, MailView } from "@/lib/mail/types";
 import { cn } from "@/lib/utils";
+import logo from "@/public/logo.png";
 
 /** Signed-in user shown at the top of the rail. */
 export type SidebarUser = {
@@ -61,22 +63,23 @@ export type SidebarUser = {
 const NAV_ITEMS: Array<{
   href: string;
   label: string;
-  icon: LucideIcon;
+  icon: Icon;
   /** Route prefix that marks the item active. */
   match: string;
 }> = [
   {
     href: "/calendar",
     label: "Calendar",
-    icon: CalendarDays,
+    icon: CalendarDots,
     match: "/calendar",
   },
   { href: "/followups", label: "Follow-ups", icon: Clock, match: "/followups" },
-  { href: "/metrics", label: "Activity", icon: ChartColumn, match: "/metrics" },
+  { href: "/campaigns", label: "Campaigns", icon: Megaphone, match: "/campaigns" },
+  { href: "/activity", label: "Activity", icon: ChartBar, match: "/activity" },
   {
-    href: "/settings/calendar",
+    href: "/settings",
     label: "Settings",
-    icon: Settings2,
+    icon: GearSix,
     match: "/settings",
   },
 ];
@@ -88,7 +91,7 @@ const NAV_ITEMS: Array<{
 const MAIL_ROWS: Array<{
   view: MailView;
   label: string;
-  icon: LucideIcon;
+  icon: Icon;
   /** Sent / Done / Trash / Spam carry no count in the design. */
   showCount: boolean;
 }> = [
@@ -96,10 +99,10 @@ const MAIL_ROWS: Array<{
   { view: "reminders", label: "Reminders", icon: Bell, showCount: true },
   { view: "scheduled", label: "Scheduled", icon: Clock, showCount: true },
   { view: "drafts", label: "Drafts", icon: FileText, showCount: true },
-  { view: "sent", label: "Sent", icon: Send, showCount: false },
-  { view: "done", label: "Done", icon: CircleCheck, showCount: false },
+  { view: "sent", label: "Sent", icon: PaperPlaneTilt, showCount: false },
+  { view: "done", label: "Done", icon: CheckCircle, showCount: false },
   { view: "trash", label: "Trash", icon: Trash, showCount: false },
-  { view: "spam", label: "Spam", icon: CircleAlert, showCount: false },
+  { view: "spam", label: "Spam", icon: WarningCircle, showCount: false },
 ];
 
 /** Opens the command palette (mounted once in `AppShell`). */
@@ -119,7 +122,7 @@ function RailRow({
   active,
   onClick,
 }: {
-  icon?: LucideIcon;
+  icon?: Icon;
   label: string;
   count?: number;
   active?: boolean;
@@ -183,7 +186,7 @@ function SectionToggle({
       <span className="text-[13px] font-medium text-muted-foreground">
         {label}
       </span>
-      <ChevronDown
+      <CaretDown
         className={cn(
           "size-3.5 text-muted-foreground transition-transform",
           !open && "-rotate-90",
@@ -251,15 +254,15 @@ function BrandHeader() {
   return (
     <div className="flex h-14 shrink-0 items-center gap-2.5 px-4">
       <Image
-        src="/logo.png"
-        alt="Redape"
-        width={32}
-        height={32}
+        src={logo}
+        alt="Lunabox"
+        width={40}
+        height={40}
         priority
-        className="size-8 shrink-0 rounded-[9px] object-contain"
+        className="size-10 shrink-0 rounded-[11px] border-2 border-white object-contain"
       />
       <span className="text-[15px] font-bold tracking-tight text-foreground">
-        Redape
+        Lunabox
       </span>
     </div>
   );
@@ -295,7 +298,7 @@ function SidebarUserMenu({ user }: { user?: SidebarUser }) {
             <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground">
               {name}
             </span>
-            <LogOut
+            <SignOut
               className="size-3.5 shrink-0 text-muted-foreground"
               aria-hidden
             />
@@ -315,7 +318,7 @@ function SidebarUserMenu({ user }: { user?: SidebarUser }) {
           disabled={isSigningOut}
           onClick={() => void signOut()}
         >
-          <LogOut className="size-3.5" />
+          <SignOut className="size-3.5" />
           {isSigningOut ? "Signing out…" : "Sign out"}
         </DropdownMenuItem>
       </DropdownMenuContent>
@@ -397,8 +400,8 @@ export function AppSidebar({
 
       <div className="scrollbar-none flex min-h-0 flex-1 flex-col overflow-y-auto pb-3">
         <div className="flex flex-col gap-0.5 px-2.5">
-          <RailRow icon={SquarePen} label="Compose" onClick={compose} />
-          <RailRow icon={Search} label="Search" onClick={search} />
+          <RailRow icon={PencilSimpleLine} label="Compose" onClick={compose} />
+          <RailRow icon={MagnifyingGlass} label="Search" onClick={search} />
         </div>
 
         <nav

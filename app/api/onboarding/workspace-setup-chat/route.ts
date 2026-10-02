@@ -25,7 +25,7 @@ export async function POST(request: Request) {
       userId: session.user.id,
       userName: session.user.name ?? null,
       userEmail: session.user.email,
-      workspaceName: "Redape",
+      workspaceName: "Lunabox",
       companyContext: parsed.data.companyContext,
       personContext: parsed.data.personContext,
     });

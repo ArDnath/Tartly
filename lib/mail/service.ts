@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 
 import { defaultGmailTransport, gmailJson, type GmailTransport } from "@/lib/gmail/client";
 import { buildRawMessage } from "@/lib/gmail/mime";
-import { decodeBase64Url, decodeRfc2047 } from "@/lib/gmail/parse";
+import { decodeBase64Url, decodeRfc2047, parseUnsubscribeHeaders } from "@/lib/gmail/parse";
 
 /**
  * Live Gmail pass-through for the mail client.
@@ -94,6 +94,12 @@ export interface MailMessage {
   /** The RFC 2822 Message-ID this message replies to, when present. */
   inReplyTo?: string;
   attachments?: MailAttachment[];
+  unsubscribe?: {
+    url?: string;
+    mailto?: string;
+    oneClick: boolean;
+    listId?: string;
+  };
 }
 
 // --------------------------------------------------------------------------
@@ -296,6 +302,18 @@ function toMailMessage(
         }
       : {}),
     ...(attachments.length > 0 ? { attachments } : {}),
+    ...(() => {
+      const parsed = parseUnsubscribeHeaders(headers);
+      if (!parsed) return {};
+      return {
+        unsubscribe: {
+          ...(parsed.url ? { url: parsed.url } : {}),
+          ...(parsed.mailto ? { mailto: parsed.mailto } : {}),
+          oneClick: parsed.oneClick,
+          ...(parsed.listId ? { listId: parsed.listId } : {}),
+        },
+      };
+    })(),
   };
 }
 

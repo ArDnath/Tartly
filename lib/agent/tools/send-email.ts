@@ -47,6 +47,20 @@ const inputSchema = z.object({
     .min(1)
     .max(MAX_SEND_BODY_CHARS)
     .describe("The plain-text body of the email."),
+  assetIds: z
+    .array(z.string())
+    .max(20)
+    .optional()
+    .describe(
+      "Optional ids from list_assets to attach as files. Only ids returned by list_assets.",
+    ),
+  inlineImageIds: z
+    .array(z.string())
+    .max(20)
+    .optional()
+    .describe(
+      "Optional image ids from list_assets to render inline in the message body.",
+    ),
 });
 
 export type SendEmailInput = z.infer<typeof inputSchema>;
@@ -70,6 +84,10 @@ function buildSendEmailTool(sender: SendService): AnyToolDefinition {
         ...(input.bcc?.length ? { bcc: input.bcc } : {}),
         ...(input.subject !== undefined ? { subject: input.subject } : {}),
         body: input.body,
+        ...(input.assetIds?.length ? { assetIds: input.assetIds } : {}),
+        ...(input.inlineImageIds?.length
+          ? { inlineImageIds: input.inlineImageIds }
+          : {}),
       });
 
       return {

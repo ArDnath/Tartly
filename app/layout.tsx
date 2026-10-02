@@ -18,18 +18,18 @@ const siteUrl = (
 ).replace(/\/$/, "");
 
 const appDescription =
-  "Redape is an AI email operator that connects to your Gmail and Google Calendar (only with the permissions you approve) to triage your inbox, draft replies, schedule meetings, and handle follow-ups.";
+  "Lunabox is an AI email operator that connects to your Gmail and Google Calendar (only with the permissions you approve) to triage your inbox, draft replies, schedule meetings, and handle follow-ups.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
-  applicationName: "Redape",
+  applicationName: "Lunabox",
   title: {
-    default: "Redape — Your AI email operator",
+    default: "Lunabox — Your AI email operator",
     template: "%s",
   },
   description: appDescription,
   keywords: [
-    "Redape",
+    "Lunabox",
     "AI email operator",
     "email triage",
     "AI email assistant",
@@ -37,14 +37,14 @@ export const metadata: Metadata = {
     "Google Calendar",
     "inbox management",
   ],
-  authors: [{ name: "Redape", url: siteUrl }],
-  creator: "Redape",
-  publisher: "Redape",
+  authors: [{ name: "Lunabox", url: siteUrl }],
+  creator: "Lunabox",
+  publisher: "Lunabox",
   category: "productivity",
   alternates: { canonical: "/" },
   openGraph: {
-    siteName: "Redape",
-    title: "Redape — Your AI email operator",
+    siteName: "Lunabox",
+    title: "Lunabox — Your AI email operator",
     description:
       "Triage your inbox, draft replies, schedule meetings, and handle follow-ups with an AI email operator that works in your inbox.",
     url: "/",
@@ -52,7 +52,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary",
-    title: "Redape — Your AI email operator",
+    title: "Lunabox — Your AI email operator",
     description:
       "Triage your inbox, draft replies, schedule meetings, and handle follow-ups with an AI email operator.",
   },
@@ -71,7 +71,7 @@ export const metadata: Metadata = {
 
 /**
  * Organization + WebSite + SoftwareApplication structured data. Lets Google
- * associate the "Redape" name, logo and homepage with the OAuth consent
+ * associate the "Lunabox" name, logo and homepage with the OAuth consent
  * screen branding for this app.
  */
 const structuredData = {
@@ -80,22 +80,22 @@ const structuredData = {
     {
       "@type": "Organization",
       "@id": `${siteUrl}/#organization`,
-      name: "Redape",
+      name: "Lunabox",
       url: siteUrl,
       logo: `${siteUrl}/logo.png`,
-      email: "support@redape.app",
+      email: "support@lunabox.app",
     },
     {
       "@type": "WebSite",
       "@id": `${siteUrl}/#website`,
-      name: "Redape",
+      name: "Lunabox",
       url: siteUrl,
       publisher: { "@id": `${siteUrl}/#organization` },
     },
     {
       "@type": "SoftwareApplication",
       "@id": `${siteUrl}/#app`,
-      name: "Redape",
+      name: "Lunabox",
       applicationCategory: "BusinessApplication",
       operatingSystem: "Web",
       url: siteUrl,

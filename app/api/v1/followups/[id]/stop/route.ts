@@ -1,4 +1,5 @@
 import { ok, apiError, withUser } from "@/lib/api/http";
+import { invalidateBriefing } from "@/lib/briefing/service";
 import { stopEnrollment } from "@/lib/followup/service";
 
 export const POST = withUser<{ params: Promise<{ id: string }> }>(
@@ -10,6 +11,7 @@ export const POST = withUser<{ params: Promise<{ id: string }> }>(
       reason: "manual",
     });
     if (!stopped) return apiError("not_found", "Enrollment not found", 404);
+    void invalidateBriefing(userId);
     return ok({ stopped: true });
   },
 );

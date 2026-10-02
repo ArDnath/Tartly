@@ -286,15 +286,15 @@ export async function run(): Promise<void> {
       .where(eq(mailboxes.id, mailbox.id));
 
     section("phase 3 — inbox service");
-    const needsYou = await listInbox({ userId, view: "needs_you" });
+    const needsYou = await listInbox({ userId, view: "needs_reply" });
     const listed = needsYou.find((item) => item.threadId === threadId);
-    assert(Boolean(listed), "thread appears in needs_you");
+    assert(Boolean(listed), "thread appears in needs_reply");
     assert(listed?.hasPendingDraft === true, "list flags the pending draft");
     assert(
-      (await listInbox({ userId, view: "handled" })).every(
+      (await listInbox({ userId, view: "fyi" })).every(
         (item) => item.threadId !== threadId,
       ),
-      "thread is not in handled",
+      "thread is not in fyi",
     );
 
     const detail = await getThreadDetail({ userId, threadId });
@@ -336,33 +336,47 @@ export async function run(): Promise<void> {
 
     section("phase 3 — inbox counts");
     assert(
-      matchesView("needs_you", { category: "meeting_request", action: null }),
-      "meeting requests count as needs-you",
+      matchesView("needs_reply", { category: "meeting_request", action: null }),
+      "meeting requests count as needs-reply",
     );
     assert(
-      matchesView("needs_you", { category: null, action: null }),
-      "untriaged threads count as needs-you",
+      matchesView("needs_reply", { category: null, action: null }),
+      "untriaged threads count as needs-reply",
     );
     assert(
-      !matchesView("needs_you", { category: "newsletter", action: null }),
-      "newsletters do not count as needs-you",
+      !matchesView("needs_reply", { category: "newsletter", action: null }),
+      "newsletters do not count as needs-reply",
     );
     assert(
       matchesView("waiting", { category: "awaiting_reply", action: null }),
       "awaiting_reply counts as waiting",
     );
     assert(
-      matchesView("handled", { category: "invoice", action: "none" }),
-      "invoices count as handled",
+      matchesView("fyi", { category: "invoice", action: "none" }),
+      "invoices count as fyi",
+    );
+    assert(
+      matchesView("follow_up_today", {
+        category: "awaiting_reply",
+        action: null,
+        hasDueFollowup: true,
+      }),
+      "a due follow-up wins over waiting",
     );
     const counts = await getInboxCounts(userId);
-    assert(counts.needs_you >= 1, "counts include the triaged thread");
+    assert(counts.needs_reply >= 1, "counts include the triaged thread");
     assert(
-      counts.needs_you + counts.waiting + counts.handled >= 1,
+      counts.needs_reply +
+        counts.follow_up_today +
+        counts.meetings +
+        counts.waiting +
+        counts.ai_handled +
+        counts.fyi >=
+        1,
       "counts bucket every triaged thread",
     );
     assert(
-      (await getInboxCounts("someone-else")).needs_you === 0,
+      (await getInboxCounts("someone-else")).needs_reply === 0,
       "counts are user-scoped",
     );
   } finally {

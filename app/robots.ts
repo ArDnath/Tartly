@@ -22,7 +22,7 @@ export default function robots(): MetadataRoute.Robots {
         "/calendar",
         "/assistant",
         "/followups",
-        "/metrics",
+        "/activity",
         "/settings",
         "/runs",
         "/dev-profile",

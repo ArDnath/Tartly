@@ -25,6 +25,17 @@ export function createMailRowMenuHandle(): MailRowMenuHandle {
 export function MailRowMenu({ handle }: { handle: MailRowMenuHandle }) {
   const setRead = useMailStore((state) => state.setRead);
   const markSpam = useMailStore((state) => state.markSpam);
+  const archive = useMailStore((state) => state.archive);
+
+  const unsubscribe = async (message: MailMessage) => {
+    await fetch("/api/v1/mail/unsubscribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ senderEmail: message.from.email, archiveThread: false }),
+    }).catch(() => null);
+    archive([message.id]);
+    handle.close();
+  };
 
   return (
     <PopoverPrimitive.Root handle={handle}>
@@ -62,6 +73,13 @@ export function MailRowMenu({ handle }: { handle: MailRowMenuHandle }) {
                     className="rounded-md px-2 py-1.5 text-left text-[13px] transition-colors hover:bg-accent"
                   >
                     {message.box === "spam" ? "Not spam" : "Report spam"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void unsubscribe(message)}
+                    className="rounded-md px-2 py-1.5 text-left text-[13px] transition-colors hover:bg-accent"
+                  >
+                    Unsubscribe &amp; archive
                   </button>
                 </>
               )}

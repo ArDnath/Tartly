@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Local Vercel build output (generated bundles) is not source.
+    ".vercel/**",
     // Vendored AI Elements registry components. They are excluded from
     // tsconfig too and target a newer React Compiler lint ruleset than this
     // app; linting them only produces noise about third-party code.

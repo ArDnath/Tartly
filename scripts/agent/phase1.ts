@@ -346,6 +346,13 @@ async function runInjectionTest(): Promise<void> {
 async function runLiveLoopTest(): Promise<void> {
   section("live agent loop (tool calling)");
 
+  // Opt-in: costs tokens and depends on an external gateway. The scripted
+  // runtime evals already cover tool selection and execution deterministically.
+  if (process.env.AGENT_EVAL_LIVE !== "true") {
+    console.log("  skip  set AGENT_EVAL_LIVE=true to run against a live model");
+    return;
+  }
+
   const provider = getModelProvider();
   if (!provider.isConfigured()) {
     console.log("  skip  OPENCODE_API_KEY not set");

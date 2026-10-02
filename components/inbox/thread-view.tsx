@@ -7,6 +7,8 @@ import { useState } from "react";
 
 import { DraftCard } from "@/components/inbox/draft-card";
 import { MeetingCard } from "@/components/inbox/meeting-card";
+import { ThreadSummary } from "@/components/inbox/thread-summary";
+import { ScopedAutonomySwitch } from "@/components/assistant/scoped-autonomy";
 import { Button } from "@/components/ui/button";
 import type { ThreadDetail } from "@/lib/inbox/service";
 import { cn } from "@/lib/utils";
@@ -81,6 +83,27 @@ export function ThreadView({ detail }: { detail: ThreadDetail }) {
     .reverse()
     .find((message) => message.direction === "inbound");
 
+  const unsubscribe = () =>
+    run(
+      () =>
+        fetch("/api/v1/mail/unsubscribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            senderEmail: lastInbound?.from ?? detail.senderProfile?.email,
+            threadId: detail.thread.id,
+          }),
+        }),
+      "Unsubscribe requested.",
+    );
+
+  const showUnsubscribe =
+    detail.senderProfile &&
+    (detail.senderProfile.unsubscribeMethod ||
+      detail.senderProfile.category === "Newsletters" ||
+      detail.senderProfile.category === "Marketing" ||
+      detail.senderProfile.coldEmailScore >= 70);
+
   return (
     <div className="flex h-full flex-col">
       <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-5">
@@ -94,15 +117,57 @@ export function ThreadView({ detail }: { detail: ThreadDetail }) {
         <h1 className="min-w-0 flex-1 truncate text-[14px] font-semibold tracking-tight text-foreground">
           {detail.thread.subject ?? "(no subject)"}
         </h1>
+        {detail.senderProfile ? (
+          <span
+            className={cn(
+              "shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider",
+              detail.senderProfile.coldEmailScore >= 70
+                ? "border-foreground/30 text-foreground"
+                : "border-border text-muted-foreground",
+            )}
+            title={
+              detail.senderProfile.coldEmailScore >= 70
+                ? "Flagged as cold outreach"
+                : undefined
+            }
+          >
+            {detail.senderProfile.coldEmailScore >= 70
+              ? "Cold"
+              : detail.senderProfile.category}
+          </span>
+        ) : null}
         {detail.state?.category ? (
-          <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          <span
+            className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground"
+            title={detail.state.reason ?? undefined}
+          >
             {detail.state.category.replace(/_/g, " ")}
           </span>
+        ) : null}
+        <ScopedAutonomySwitch threadId={detail.thread.id} />
+        {showUnsubscribe ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={unsubscribe}
+            disabled={isBusy}
+            className="shrink-0 text-muted-foreground"
+          >
+            Unsubscribe
+          </Button>
         ) : null}
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-3xl flex-col px-6 py-5">
+          <div className="pb-4">
+            <ThreadSummary
+              threadId={detail.thread.id}
+              canSummarize={detail.canSummarize}
+            />
+          </div>
+
           {detail.messages.length === 0 ? (
             <div className="flex flex-col items-center gap-2 py-16 text-center">
               <InboxIcon className="size-4 text-muted-foreground" />

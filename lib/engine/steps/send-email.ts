@@ -86,7 +86,7 @@ export const sendEmailStep = defineStep({
     if (draftId) {
       await db
         .update(drafts)
-        .set({ status: "sent", decidedAt: new Date() })
+        .set({ status: "sent", sentBy: "ai", decidedAt: new Date() })
         .where(eq(drafts.id, draftId));
     }
 

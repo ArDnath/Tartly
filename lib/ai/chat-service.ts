@@ -35,6 +35,7 @@ function toChatThread(row: AgentChatThreadRow): ChatThread {
     id: row.id,
     title: row.title,
     isWorkspaceSetup: row.isWorkspaceSetup,
+    kind: row.kind,
     archivedAt: row.archivedAt ? row.archivedAt.toISOString() : null,
     lastMessageAt: row.lastMessageAt ? row.lastMessageAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
@@ -56,13 +57,19 @@ export async function listChatThreads(
     )
     .orderBy(desc(agentChatThread.updatedAt));
 
-  return rows.map(toChatThread);
+  // The briefing conversation is retired: its old rows stay in the database
+  // (historical messages still rehydrate) but are hidden from the thread list,
+  // which is now only the user's own agent conversations.
+  return rows.map(toChatThread).filter((thread) => thread.kind !== "briefing");
 }
 
-export async function createChatThread(userId: string): Promise<ChatThread> {
+export async function createChatThread(
+  userId: string,
+  { title = null }: { title?: string | null } = {},
+): Promise<ChatThread> {
   const inserted = await db
     .insert(agentChatThread)
-    .values({ id: nanoid(), userId, title: null })
+    .values({ id: nanoid(), userId, title })
     .returning();
 
   return toChatThread(inserted[0]);

@@ -5,7 +5,7 @@ Decisions locked with the user:
 
 1. **Placement** — add a full Gmail-style mail client at **`/mail`**; keep the AI triage inbox at `/inbox`.
 2. **Data source** — the mail client reads **live from Gmail** (no mirror). Triage/meetings/follow-ups keep using the Postgres mirror.
-3. **Theme** — **adapt** topple's `mail-*` tokens to the existing Redape dark base (`#1b1b1b`).
+3. **Theme** — **adapt** topple's `mail-*` tokens to the existing Lunabox dark base (`#1b1b1b`).
 
 Source of the UI: `/home/ariyaman/Dev/fight/topple/apps/web/src/features/mail/**` + `apps/api/src/services/gmail.service.ts`.
 
@@ -246,7 +246,7 @@ do not replace with `dangerouslySetInnerHTML`.
 ### C4. Compose
 Port `ComposeDialog` as-is (chips, Cc/Bcc, expand, save-draft, "Draft with AI"). Replace
 `generateMailDraft` (orchestrator) with `POST /api/v1/mail/draft` (B4). Adapt the send button styling to
-the Redape tokens (below).
+the Lunabox tokens (below).
 
 ---
 
@@ -295,7 +295,7 @@ Register them in `@theme inline` (`--color-mail-*`) exactly as topple does, so `
 ### D3. Adapt component classes
 Replace light-only assumptions while porting:
 - Compose "Compose mail" button: `surface-primary-gradient … text-white` → `bg-primary text-primary-foreground`
-  (Redape primary is light-on-dark).
+  (Lunabox primary is light-on-dark).
 - `bg-card`/`border-border`/`text-foreground` already map; keep them.
 - Keep `rounded-[10px]` card frame so the client reads as one surface inside `AppShell`.
 
@@ -329,7 +329,7 @@ lightweight `in:unread` count), or reuse the triage `counts.unread`.
 ## Part F — `.env` and keys runbook (get running & testing)
 
 > `.env.example` currently contains a **real Neon password and a real Google client secret** (flagged in
-> `docs/plans/redape-whatsapp-email-infra.md`). Rotate both and scrub the file before pushing. Never commit
+> `docs/plans/lunabox-whatsapp-email-infra.md`). Rotate both and scrub the file before pushing. Never commit
 > real values.
 
 ### F1. Required for the app to boot

@@ -26,17 +26,33 @@ const USAGE = {
   outputTokens: { total: 5, text: 5, reasoning: 0 },
 };
 
-export function scriptedModel(turns: ScriptedTurn[]) {
+export interface ScriptedModelOptions {
+  /**
+   * Called before each turn with the names of the tools the model was offered.
+   * Used to assert progressive tool disclosure actually shrinks the request.
+   */
+  onStep?: (offeredToolNames: string[]) => void;
+}
+
+export function scriptedModel(
+  turns: ScriptedTurn[],
+  options: ScriptedModelOptions = {},
+) {
   if (turns.length === 0) throw new Error("scriptedModel needs at least one turn");
   let index = 0;
 
   return new MockLanguageModelV4({
     modelId: "scripted-eval",
-    doStream: async () => {
+    doStream: async (params: { tools?: Array<{ name?: string }> }) => {
       // After the script runs out, repeat the final turn so a bounded-loop test
       // actually reaches the cap instead of stopping early.
       const turn = turns[Math.min(index, turns.length - 1)]!;
       index += 1;
+      options.onStep?.(
+        (params.tools ?? [])
+          .map((tool) => tool.name ?? "")
+          .filter((name) => name.length > 0),
+      );
 
       const chunks: Array<Record<string, unknown>> = [
         { type: "stream-start", warnings: [] },

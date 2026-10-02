@@ -15,3 +15,10 @@ export const JOB_KIND_MAILBOX_SYNC = "mailbox_sync";
  * action's server-derived idempotency key, so a double-fire sends once.
  */
 export const JOB_KIND_SCHEDULED_EMAIL = "scheduled_email";
+/**
+ * One throttled batch of a bulk campaign (Phase 7). The handler claims a bounded
+ * batch of pending recipients, sends each through the idempotent `sendEmail`
+ * path, then re-enqueues itself with a delay until the campaign is done or
+ * paused. No long-lived worker.
+ */
+export const JOB_KIND_BULK_SEND = "bulk_send";

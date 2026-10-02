@@ -2,7 +2,8 @@ import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 
 import { AppShell } from "@/components/app-shell/app-shell";
-import { SettingsSidebar } from "@/components/settings/settings-sidebar";
+import { AppSidebar } from "@/components/app-shell/app-sidebar";
+import { SettingsNav } from "@/components/settings/settings-nav";
 import { getOrCreateOnboardingState } from "@/lib/onboarding/server";
 import { ONBOARDING_STATUS } from "@/lib/onboarding/types";
 import { requireSession } from "@/lib/session";
@@ -22,7 +23,7 @@ export default async function SettingsLayout({
   return (
     <AppShell
       sidebar={
-        <SettingsSidebar
+        <AppSidebar
           user={{
             name: session.user.name,
             image: state.avatarUrl ?? session.user.image ?? null,
@@ -30,7 +31,10 @@ export default async function SettingsLayout({
         />
       }
     >
-      {children}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col lg:flex-row">
+        <SettingsNav />
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>
+      </div>
     </AppShell>
   );
 }

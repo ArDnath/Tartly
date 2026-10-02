@@ -122,6 +122,19 @@ export const auth = betterAuth({
       refreshCache: false,
     },
   },
+  /**
+   * Auth endpoint rate limiting. Uses the Redis secondary storage already
+   * configured above (single shared counter across serverless instances).
+   * Better Auth's built-in special rules keep the sign-in/OTP paths far
+   * stricter than the global ceiling, blunting credential-stuffing and OTP
+   * abuse without any extra code.
+   */
+  rateLimit: {
+    enabled: true,
+    window: 60,
+    max: 100,
+    storage: "secondary-storage",
+  },
   account: {
     storeStateStrategy: "cookie",
     storeAccountCookie: true,

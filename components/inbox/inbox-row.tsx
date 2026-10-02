@@ -134,6 +134,11 @@ export const InboxRow = memo(function InboxRow({
           <span className="min-w-0 flex-1 truncate text-[12px] leading-relaxed text-muted-foreground">
             {item.snippet ?? ""}
           </span>
+          {item.isColdEmail ? (
+            <span className="shrink-0 rounded border border-border px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-foreground/70">
+              Cold
+            </span>
+          ) : null}
           {label ? (
             <span className="shrink-0 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/80">
               {label}

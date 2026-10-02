@@ -35,6 +35,7 @@ export function ThinkingReasoning({
   const [elapsed, setElapsed] = useState<number | undefined>(undefined);
   const startRef = useRef<number | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
+  const streamRef = useRef<HTMLDivElement>(null);
   const [fade, setFade] = useState({ top: false, bottom: true });
 
   // Measure the thinking phase so the settled label can say how long it took.
@@ -49,7 +50,8 @@ export function ThinkingReasoning({
     }
   }, [isStreaming]);
 
-  // While streaming, keep the newest work in view.
+  // While streaming, keep the newest work in view. This only writes the DOM,
+  // so it can run whenever the content changes without risking an update loop.
   useEffect(() => {
     if (!isStreaming) return;
     const el = viewportRef.current;
@@ -57,18 +59,29 @@ export function ThinkingReasoning({
     el.scrollTop = el.scrollHeight;
   }, [isStreaming, children]);
 
-  // Recompute the edge fades as the work grows, so short content is not faded.
+  // Recompute the edge fades from the real box. Measuring off a
+  // ResizeObserver — rather than `children`, which is a fresh React node on
+  // every parent render — keeps this effect off the render path. With no
+  // dependency that can change every render, it cannot drive an update loop.
   useEffect(() => {
     const el = viewportRef.current;
+    const stream = streamRef.current;
     if (!el) return;
-    setFade((prev) => {
+
+    const measure = () => {
       const top = el.scrollTop > 1;
       const bottom = el.scrollTop + el.clientHeight < el.scrollHeight - 1;
-      return prev.top === top && prev.bottom === bottom
-        ? prev
-        : { top, bottom };
-    });
-  }, [children]);
+      setFade((prev) =>
+        prev.top === top && prev.bottom === bottom ? prev : { top, bottom },
+      );
+    };
+
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    if (stream) observer.observe(stream);
+    return () => observer.disconnect();
+  }, []);
 
   const done = !isStreaming;
   const expanded = done ? open : true;
@@ -76,19 +89,20 @@ export function ThinkingReasoning({
   const onScroll = () => {
     const el = viewportRef.current;
     if (!el) return;
-    setFade({
-      top: el.scrollTop > 1,
-      bottom: el.scrollTop + el.clientHeight < el.scrollHeight - 1,
-    });
+    const top = el.scrollTop > 1;
+    const bottom = el.scrollTop + el.clientHeight < el.scrollHeight - 1;
+    setFade((prev) =>
+      prev.top === top && prev.bottom === bottom ? prev : { top, bottom },
+    );
   };
 
   const toggle = () => {
     const next = !open;
+    setOpen(next);
     if (next) {
       setFade({ top: false, bottom: true });
       if (viewportRef.current) viewportRef.current.scrollTop = 0;
     }
-    setOpen(next);
   };
 
   // A soft fade at the edges of the capped viewport. While live only the bottom
@@ -150,7 +164,9 @@ export function ThinkingReasoning({
             style={{ WebkitMaskImage: mask, maskImage: mask }}
             onScroll={expanded ? onScroll : undefined}
           >
-            <div className={styles.trStream}>{children}</div>
+            <div ref={streamRef} className={styles.trStream}>
+              {children}
+            </div>
           </div>
         </div>
       </div>

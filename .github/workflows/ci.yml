@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Non-secret placeholders that satisfy the Zod env schema (`lib/env.ts`) so the
+# build and the DB-backed smoke suite can run without production credentials.
+env:
+  DATABASE_URL: postgresql://postgres:postgres@localhost:5432/app
+  BETTER_AUTH_SECRET: ci-secret-ci-secret-ci-secret
+  BETTER_AUTH_URL: http://localhost:3000
+  NEXT_PUBLIC_BETTER_AUTH_URL: http://localhost:3000
+  GOOGLE_CLIENT_ID: ci-google-client-id
+  GOOGLE_CLIENT_SECRET: ci-google-client-secret
+  UPSTASH_REDIS_REST_URL: https://upstash.invalid
+  UPSTASH_REDIS_REST_TOKEN: ci-upstash-token
+
+jobs:
+  verify:
+    name: Typecheck · Lint · Test · Build
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: app
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Apply database migrations
+        run: npm run db:migrate
+
+      - name: Smoke & eval suite
+        run: npm test
+
+      - name: Production build
+        run: npm run build
+
+      # Non-blocking on day one: advisory transitive CVEs should be triaged,
+      # not block every PR. Tighten to blocking once the tree is clean.
+      - name: Dependency audit (advisory)
+        continue-on-error: true
+        run: npm audit --audit-level=high

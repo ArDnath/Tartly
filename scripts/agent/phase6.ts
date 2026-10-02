@@ -384,7 +384,12 @@ async function runContinuationTests(): Promise<void> {
     system: "test",
     messages: [{ role: "user", content: "Summarise my week and keep going." }],
     registry,
-    budget: { stepsPerSegment: 1, maxSegments: 8, maxTotalSteps: 50 },
+    budget: {
+      stepsPerSegment: 1,
+      maxSegments: 8,
+      maxTotalSteps: 50,
+      maxTokensPerRun: 0,
+    },
     events: (event) => {
       events.push(event);
       if (event.type === "TOOL_STARTED") toolExecutions += 1;
@@ -439,7 +444,12 @@ async function runContinuationTests(): Promise<void> {
     system: "test",
     messages: [{ role: "user", content: "Never stop." }],
     registry,
-    budget: { stepsPerSegment: 1, maxSegments: 2, maxTotalSteps: 2 },
+    budget: {
+      stepsPerSegment: 1,
+      maxSegments: 2,
+      maxTotalSteps: 2,
+      maxTokensPerRun: 0,
+    },
     onFinish: (turnSummary) => {
       capped = turnSummary;
     },

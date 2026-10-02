@@ -2,7 +2,7 @@ import "server-only";
 
 import type { NextRequest } from "next/server";
 
-import { apiError, withUser } from "@/lib/api/http";
+import { apiError, withUser, type UserRouteOptions } from "@/lib/api/http";
 import { GmailApiError, GmailAuthError } from "@/lib/gmail/client";
 
 /**
@@ -17,8 +17,32 @@ export function withMailUser<Ctx = unknown>(
     request: NextRequest,
     context: Ctx,
   ) => Promise<Response>,
+): (request: NextRequest, context: Ctx) => Promise<Response>;
+export function withMailUser<Ctx = unknown>(
+  options: UserRouteOptions,
+  handler: (
+    userId: string,
+    request: NextRequest,
+    context: Ctx,
+  ) => Promise<Response>,
+): (request: NextRequest, context: Ctx) => Promise<Response>;
+export function withMailUser<Ctx = unknown>(
+  optionsOrHandler:
+    | UserRouteOptions
+    | ((userId: string, request: NextRequest, context: Ctx) => Promise<Response>),
+  maybeHandler?: (
+    userId: string,
+    request: NextRequest,
+    context: Ctx,
+  ) => Promise<Response>,
 ) {
-  return withUser<Ctx>(async (userId, request, context) => {
+  const options: UserRouteOptions =
+    typeof optionsOrHandler === "function" ? {} : optionsOrHandler;
+  const handler =
+    typeof optionsOrHandler === "function" ? optionsOrHandler : maybeHandler;
+  if (!handler) throw new Error("withMailUser requires a handler");
+
+  return withUser<Ctx>(options, async (userId, request, context) => {
     try {
       return await handler(userId, request, context);
     } catch (error) {

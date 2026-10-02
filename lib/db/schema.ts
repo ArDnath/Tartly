@@ -136,9 +136,22 @@ export const agentChatThread = pgTable(
     title: text("title"),
     // Marks the deterministic onboarding "workspace setup" thread.
     isWorkspaceSetup: boolean("is_workspace_setup").notNull().default(false),
+    /**
+     * "chat" | "briefing". The briefing thread is the persistent morning-brief
+     * conversation; a partial unique index keeps exactly one per user.
+     */
+    kind: text("kind").notNull().default("chat"),
     // Archive marker (Twenty uses `deletedAt` for the same purpose).
     archivedAt: timestamp("archived_at"),
     lastMessageAt: timestamp("last_message_at"),
+    /**
+     * Bounded-context compaction (A3). `compactionSummary` is the framed
+     * historical summary the model sees in place of the compacted messages;
+     * `compactedBefore` is the id of the oldest message still kept verbatim, so
+     * a later turn can tell what the summary already covers.
+     */
+    compactionSummary: text("compaction_summary"),
+    compactedBefore: text("compacted_before"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at")
       .defaultNow()
@@ -147,7 +160,13 @@ export const agentChatThread = pgTable(
   },
   // The sidebar lists a user's threads newest-first; Postgres does not index
   // FK columns automatically.
-  (t) => [index("agent_chat_thread_user_updated_idx").on(t.userId, t.updatedAt)],
+  (t) => [
+    index("agent_chat_thread_user_updated_idx").on(t.userId, t.updatedAt),
+    // One persistent briefing thread per user.
+    uniqueIndex("agent_chat_thread_briefing_unique")
+      .on(t.userId)
+      .where(sql`${t.kind} = 'briefing'`),
+  ],
 );
 
 /**
@@ -170,10 +189,52 @@ export type ChatToolPart = {
   output?: unknown;
   errorText?: string;
 };
+
+/**
+ * A single actionable card inside the morning briefing. One part per card, so
+ * the transcript renders (and rehydrates) them exactly like tool artifacts.
+ * `brief` is structural on purpose: it keeps this server-adjacent schema free
+ * of `server-only` imports while still typing the meeting card.
+ */
+export type ChatBriefingPart = {
+  type: "briefing";
+  kind: "reply" | "followup" | "promise" | "meeting";
+  threadId?: string;
+  draftId?: string;
+  enrollmentId?: string;
+  commitmentId?: string;
+  meetingId?: string;
+  title: string;
+  subtitle?: string;
+  summary?: string;
+  /** Prepared draft text, when a draft is ready to send. */
+  body?: string;
+  brief?: {
+    summary: string;
+    attendees: string[];
+    lastTouch: string | null;
+    talkingPoints: string[];
+    openItems: string[];
+    objective?: string | null;
+    agenda?: string[];
+    outstandingQuestions?: string[];
+    lastProposal?: string | null;
+    relevantEmails?: Array<{
+      threadId: string;
+      subject: string | null;
+      when: string | null;
+    }>;
+    source: "model" | "heuristic";
+    generatedAt: string;
+  };
+  actions: Array<"send" | "edit" | "tomorrow" | "ignore" | "view_brief">;
+};
+
 export type ChatMessagePart =
   | ChatTextPart
   | ChatReasoningPart
-  | ChatToolPart;
+  | ChatToolPart
+  | ChatBriefingPart;
 
 export const agentChatMessage = pgTable(
   "agent_chat_message",
@@ -437,6 +498,24 @@ export const threads = pgTable(
   ],
 );
 
+/**
+ * The unsubscribe-relevant headers of one message (Phase 2).
+ *
+ * Captured at parse time so sender intelligence can classify bulk/newsletter
+ * mail deterministically — with no model call — and so the unsubscribe action
+ * knows the exact mechanism without re-reading Gmail. Headers only; never bodies.
+ */
+export type MessageUnsubscribeInfo = {
+  /** A `http(s)://` one-click endpoint, when present. */
+  url?: string;
+  /** A `mailto:` unsubscribe address, when present. */
+  mailto?: string;
+  /** `List-Unsubscribe-Post: List-Unsubscribe=One-Click` (RFC 8058). */
+  oneClick: boolean;
+  listId?: string;
+  precedence?: string;
+};
+
 export const messages = pgTable(
   "messages",
   {
@@ -452,6 +531,8 @@ export const messages = pgTable(
     bodyText: text("body_text"),
     bodyHtml: text("body_html"),
     snippet: text("snippet"),
+    /** Bulk-mail headers (List-Unsubscribe / List-Id / Precedence). */
+    unsubscribe: jsonb("unsubscribe").$type<MessageUnsubscribeInfo | null>(),
     sentAt: timestamp("sent_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
@@ -492,8 +573,20 @@ export const threadStates = pgTable("thread_states", {
     .primaryKey()
     .references(() => threads.id, { onDelete: "cascade" }),
   category: text("category").notNull(),
+  /** Importance score 0–100 (also the sort priority of the inbox). */
   priority: integer("priority").notNull().default(0),
   action: text("action").notNull(),
+  /** One short, user-facing line: *why* triage decided this ("matched because…"). */
+  reason: text("reason"),
+  /** Pipeline version that produced this row, for attribution (Phase 2). */
+  triageVersion: text("triage_version"),
+  /**
+   * Phase 4 Reply Zero: whether the ball is in the user's court. "needs_reply"
+   * (they must answer), "awaiting_them" (waiting on the other side), or "none"
+   * (FYI/no reply needed). Null until computed. AI-assisted with a deterministic
+   * heuristic fallback.
+   */
+  replyStatus: text("reply_status"),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .defaultNow()
     .$onUpdate(() => new Date())
@@ -757,6 +850,90 @@ export const followupEnrollments = pgTable(
 );
 
 /* -------------------------------------------------------------------------- */
+/*  Commitments (promises)                                                     */
+/* -------------------------------------------------------------------------- */
+
+export const COMMITMENT_DIRECTIONS = ["we_owe", "they_owe"] as const;
+export const COMMITMENT_STATUSES = [
+  "open",
+  "fulfilled",
+  "cancelled",
+  "expired",
+] as const;
+export type CommitmentDirection = (typeof COMMITMENT_DIRECTIONS)[number];
+export type CommitmentStatus = (typeof COMMITMENT_STATUSES)[number];
+
+/**
+ * A promise made in a thread, in either direction. `we_owe` is something the
+ * user promised to do ("I'll send the deck"); `they_owe` is something the other
+ * side promised. Overdue rows surface a chaser/reminder draft — never a send.
+ */
+export const commitments = pgTable(
+  "commitments",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    threadId: text("thread_id").references(() => threads.id, {
+      onDelete: "set null",
+    }),
+    contactEmail: text("contact_email"),
+    direction: text("direction").$type<CommitmentDirection>().notNull(),
+    description: text("description").notNull(),
+    dueAt: timestamp("due_at", { withTimezone: true }),
+    /** "open" | "fulfilled" | "cancelled" | "expired". */
+    status: text("status").$type<CommitmentStatus>().notNull().default("open"),
+    sourceMessageId: text("source_message_id").references(() => messages.id, {
+      onDelete: "set null",
+    }),
+    confidence: text("confidence"),
+    /** Last nudge attempt, so the chaser job is idempotent + bounded. */
+    nudgedAt: timestamp("nudged_at", { withTimezone: true }),
+    nudgeCount: integer("nudge_count").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (t) => [
+    index("commitments_user_status_idx").on(t.userId, t.status, t.dueAt),
+    index("commitments_thread_idx").on(t.threadId),
+    index("commitments_contact_idx").on(t.userId, t.contactEmail),
+  ],
+);
+
+/* -------------------------------------------------------------------------- */
+/*  Per-thread settings (autonomy)                                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Per-thread autonomy override. `null` means "inherit contact → mailbox"; an
+ * explicit `copilot` / `autopilot` wins in both directions (it steers the
+ * background inbound operator as well as manual drafting).
+ */
+export const threadSettings = pgTable(
+  "thread_settings",
+  {
+    threadId: text("thread_id")
+      .primaryKey()
+      .references(() => threads.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    autonomy: text("autonomy"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (t) => [index("thread_settings_user_idx").on(t.userId)],
+);
+
+/* -------------------------------------------------------------------------- */
 /*  Email operator — copilot drafts                                            */
 /* -------------------------------------------------------------------------- */
 
@@ -774,8 +951,23 @@ export const drafts = pgTable(
     runId: text("run_id").references(() => flowRuns.id, { onDelete: "set null" }),
     body: text("body").notNull(),
     editedBody: text("edited_body"),
+    /**
+     * Model-reported confidence for an AI draft (LOW|MEDIUM|HIGH). Null for
+     * non-AI drafts or legacy rows. Below the user's threshold the row is kept
+     * but `suppressed`, so the "Needs you" queue stays trustworthy.
+     */
+    confidence: text("confidence"),
+    suppressed: boolean("suppressed").notNull().default(false),
+    /** Prompt/routing version that produced the draft, for attribution. */
+    pipelineVersion: text("pipeline_version"),
     /** "pending" | "sent" | "discarded". */
     status: text("status").notNull().default("pending"),
+    /**
+     * Who caused the send: `"user"` for a manual approval/click, `"ai"` when
+     * the background operator sent on its own. Null until sent. Powers the
+     * "AI handled" inbox bucket.
+     */
+    sentBy: text("sent_by").$type<"user" | "ai" | null>(),
     decidedAt: timestamp("decided_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
@@ -784,6 +976,786 @@ export const drafts = pgTable(
   (t) => [
     index("drafts_thread_status_idx").on(t.threadId, t.status),
     index("drafts_user_status_idx").on(t.userId, t.status),
+  ],
+);
+
+/* -------------------------------------------------------------------------- */
+/*  AI upgrade — cross-feature usage ledger                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One model call, across every feature (A4/A8). `agent_runs` remains the
+ * agent-specific trace; this is the cost/observability ledger the platform-wide
+ * budget and the `/activity` cost board read.
+ */
+export const aiUsageEvents = pgTable(
+  "ai_usage_events",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    /** Feature label for attribution, e.g. "triage", "draft-reply". */
+    feature: text("feature").notNull(),
+    provider: text("provider").notNull(),
+    model: text("model").notNull(),
+    role: text("role").notNull(),
+    promptTokens: integer("prompt_tokens").notNull().default(0),
+    completionTokens: integer("completion_tokens").notNull().default(0),
+    cachedTokens: integer("cached_tokens").notNull().default(0),
+    totalTokens: integer("total_tokens").notNull().default(0),
+    /** Cost estimate in millionths of a dollar (integer micro-USD). */
+    estimatedCostMicros: integer("estimated_cost_micros").notNull().default(0),
+    latencyMs: integer("latency_ms").notNull().default(0),
+    ok: boolean("ok").notNull().default(true),
+    errorCode: text("error_code"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("ai_usage_events_user_created_idx").on(t.userId, t.createdAt),
+    index("ai_usage_events_feature_created_idx").on(t.feature, t.createdAt),
+  ],
+);
+
+/* -------------------------------------------------------------------------- */
+/*  Phase 1 — voice, memory, knowledge, snippets                               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Per-user assistant configuration: the learned/explicit writing style, the
+ * draft-confidence gate, and the per-user capability toggles.
+ */
+export const assistantSettings = pgTable("assistant_settings", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  /** Structured style profile learned from sent mail (see analyzeWritingStyle). */
+  writingStyle: jsonb("writing_style").$type<WritingStyleProfile | null>(),
+  /** Human-readable style guide, injected verbatim into the draft prompt. */
+  learnedWritingStyle: text("learned_writing_style"),
+  /** Explicit style the user typed; overrides the learned one when set. */
+  explicitWritingStyle: text("explicit_writing_style"),
+  /** Bumped whenever the style pipeline changes, so quality is attributable. */
+  styleVersion: integer("style_version").notNull().default(1),
+  styleAnalyzedAt: timestamp("style_analyzed_at", { withTimezone: true }),
+  /** "all" | "standard" | "high" — the minimum confidence a draft must meet. */
+  draftConfidence: text("draft_confidence").notNull().default("all"),
+  voiceEnabled: boolean("voice_enabled").notNull().default(true),
+  memoryEnabled: boolean("memory_enabled").notNull().default(true),
+  knowledgeEnabled: boolean("knowledge_enabled").notNull().default(true),
+  /** Phase 2: sender intelligence master switch (cold email + categories). */
+  senderIntelEnabled: boolean("sender_intel_enabled").notNull().default(true),
+  /** What to do with a cold-email verdict: "label" | "archive" | "none". */
+  coldEmailAction: text("cold_email_action").notNull().default("label"),
+  /** Auto-archive newsletters/marketing on arrival (deterministic signal only). */
+  autoArchiveNoise: boolean("auto_archive_noise").notNull().default(false),
+  /** Phase 4: meeting briefs are opt-out. */
+  meetingBriefsEnabled: boolean("meeting_briefs_enabled").notNull().default(true),
+  /** Phase 4: digest cadence — "off" | "daily" | "weekly". */
+  digestFrequency: text("digest_frequency").notNull().default("off"),
+  /** Last time a digest was generated for this user (cron throttle). */
+  digestLastGeneratedAt: timestamp("digest_last_generated_at", {
+    withTimezone: true,
+  }),
+  /* --- Morning briefing, commitments & auto-memory --- */
+  /** The interactive morning-briefing thread ships on; opt out here. */
+  briefingEnabled: boolean("briefing_enabled").notNull().default(true),
+  /** Local hour (0-23) the daily cron posts the briefing. */
+  briefingHour: integer("briefing_hour").notNull().default(8),
+  /** Promise tracking (both directions) ships on. */
+  commitmentsEnabled: boolean("commitments_enabled").notNull().default(true),
+  /**
+   * Opt-in: learn durable memories from every exchange (not just draft edits).
+   * Off by default — it costs a model call per handled thread.
+   */
+  memoryAutoExtract: boolean("memory_auto_extract").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+});
+
+export type WritingStyleProfile = {
+  typicalLength: string;
+  formality: string;
+  commonGreeting: string;
+  notableTraits: string[];
+  examples: string[];
+};
+
+export const REPLY_MEMORY_KINDS = ["FACT", "PREFERENCE", "PROCEDURE"] as const;
+export const REPLY_MEMORY_SCOPES = ["GLOBAL", "SENDER", "DOMAIN", "TOPIC"] as const;
+
+export type ReplyMemoryKind = (typeof REPLY_MEMORY_KINDS)[number];
+export type ReplyMemoryScope = (typeof REPLY_MEMORY_SCOPES)[number];
+
+/**
+ * A durable preference/fact/procedure learned from how the user edited an AI
+ * draft. Never one-off logistics — see the durability rules in the extractor.
+ * Always user-visible and deletable; provenance links back to the source draft.
+ */
+export const replyMemories = pgTable(
+  "reply_memories",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<ReplyMemoryKind>().notNull(),
+    scopeType: text("scope_type").$type<ReplyMemoryScope>().notNull(),
+    /** Scope target: sender email, domain, or short topic; "" for GLOBAL. */
+    scopeValue: text("scope_value").notNull().default(""),
+    content: text("content").notNull(),
+    sourceDraftId: text("source_draft_id").references(() => drafts.id, {
+      onDelete: "set null",
+    }),
+    sourceThreadId: text("source_thread_id").references(() => threads.id, {
+      onDelete: "set null",
+    }),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (t) => [
+    index("reply_memories_user_scope_idx").on(t.userId, t.scopeType, t.scopeValue),
+    index("reply_memories_user_created_idx").on(t.userId, t.createdAt),
+  ],
+);
+
+/** A user-authored fact the assistant should use when drafting. */
+export const knowledgeEntries = pgTable(
+  "knowledge_entries",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    content: text("content").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("knowledge_entries_user_title_unique").on(t.userId, t.title),
+    index("knowledge_entries_user_created_idx").on(t.userId, t.createdAt),
+  ],
+);
+
+/** A reusable reply fragment expanded from `{{snippet:shortcut}}`. */
+export const snippets = pgTable(
+  "snippets",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    shortcut: text("shortcut").notNull(),
+    content: text("content").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("snippets_user_shortcut_unique").on(t.userId, t.shortcut),
+    index("snippets_user_created_idx").on(t.userId, t.createdAt),
+  ],
+);
+
+/* -------------------------------------------------------------------------- */
+/*  Phase 2 — inbox intelligence                                               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The sender taxonomy. A closed set so a classification can never invent a
+ * category (and so the UI has stable labels). `Cold Outreach` is the one the
+ * cold-email blocker cares about; the bulk categories feed noise archiving.
+ */
+export const SENDER_CATEGORIES = [
+  "Personal",
+  "Work",
+  "Financial",
+  "Receipts",
+  "Newsletters",
+  "Marketing",
+  "Notifications",
+  "Cold Outreach",
+  "Other",
+] as const;
+
+export type SenderCategory = (typeof SENDER_CATEGORIES)[number];
+
+/** Categories that are safe to auto-archive when the user opts in. */
+export const NOISE_CATEGORIES: SenderCategory[] = ["Newsletters", "Marketing"];
+
+/** "active" (normal) | "allowed" (user whitelisted) | "blocked". */
+export type SenderProfileStatus = "active" | "allowed" | "blocked";
+
+/**
+ * What we know about one sender address. Populated deterministically from
+ * headers first, then enriched by at most one cheap model call *per new
+ * sender*. Cached forever after; re-categorization is opt-in.
+ */
+export const senderProfiles = pgTable(
+  "sender_profiles",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    /** Lowercased address. */
+    email: text("email").notNull(),
+    domain: text("domain").notNull().default(""),
+    category: text("category").$type<SenderCategory>().notNull().default("Other"),
+    /** Category confidence 0–100. */
+    confidence: integer("confidence").notNull().default(0),
+    /** Probability the sender is cold outreach, 0–100 (≥70 ⇒ cold). */
+    coldEmailScore: integer("cold_email_score").notNull().default(0),
+    /** Probability the sender is bulk marketing, 0–100. */
+    marketingScore: integer("marketing_score").notNull().default(0),
+    unsubscribeUrl: text("unsubscribe_url"),
+    /** "one-click" | "mailto" | null. */
+    unsubscribeMethod: text("unsubscribe_method"),
+    status: text("status").$type<SenderProfileStatus>().notNull().default("active"),
+    /** Whether a model (not just heuristics) produced this profile. */
+    modelEnriched: boolean("model_enriched").notNull().default(false),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("sender_profiles_user_email_unique").on(t.userId, t.email),
+    index("sender_profiles_user_domain_idx").on(t.userId, t.domain),
+    index("sender_profiles_user_category_idx").on(t.userId, t.category),
+  ],
+);
+
+/**
+ * A generic, user-scoped cache for computed AI artifacts (thread summaries,
+ * meeting briefs, sender categories, …). One table rather than one per artifact:
+ * the shape is homogeneous and every read is `(userId, type, key)`, so it stays
+ * a single index. Never cached on a page render — written at compute time only.
+ */
+export const aiCache = pgTable(
+  "ai_cache",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    /** Artifact namespace, e.g. "thread-summary". */
+    cacheType: text("cache_type").notNull(),
+    /** Content hash / natural key within the type. */
+    cacheKey: text("cache_key").notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("ai_cache_user_type_key_unique").on(
+      t.userId,
+      t.cacheType,
+      t.cacheKey,
+    ),
+    index("ai_cache_expiry_idx").on(t.expiresAt),
+  ],
+);
+
+/** Audit trail of every unsubscribe we attempted, for idempotency + trust. */
+export const unsubscribeAttempts = pgTable(
+  "unsubscribe_attempts",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    senderEmail: text("sender_email").notNull(),
+    /** "one-click" | "mailto" | "none". */
+    method: text("method").notNull(),
+    /** "succeeded" | "queued" | "failed" | "no-mechanism". */
+    status: text("status").notNull(),
+    messageId: text("message_id"),
+    detail: jsonb("detail").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("unsubscribe_attempts_user_sender_idx").on(t.userId, t.senderEmail),
+    index("unsubscribe_attempts_user_created_idx").on(t.userId, t.createdAt),
+  ],
+);
+
+/* -------------------------------------------------------------------------- */
+/*  Phase 3 — plain-English automation rules                                   */
+/* -------------------------------------------------------------------------- */
+
+/** The v1 action set: only things the existing engine/mail client can do. */
+export const RULE_ACTION_TYPES = [
+  "LABEL",
+  "ARCHIVE",
+  "MARK_READ",
+  "STAR",
+  "MARK_SPAM",
+  "MOVE_FOLDER",
+  "DRAFT_REPLY",
+  "FORWARD",
+  "SEND",
+  "NOTIFY",
+  "ADD_TO_DIGEST",
+] as const;
+
+export type RuleActionType = (typeof RULE_ACTION_TYPES)[number];
+
+/** Reversible actions the engine applies directly (no confirmation needed). */
+export const SAFE_RULE_ACTIONS: RuleActionType[] = [
+  "LABEL",
+  "ARCHIVE",
+  "MARK_READ",
+  "STAR",
+  "MARK_SPAM",
+  "MOVE_FOLDER",
+];
+
+/** Actions that only shape a draft; `egress` remains the single send gate. */
+export const DRAFT_RULE_ACTIONS: RuleActionType[] = ["DRAFT_REPLY", "SEND"];
+
+export type RuleAction = {
+  type: RuleActionType;
+  /** Action-specific fields; only the relevant keys are ever set. */
+  fields: {
+    label?: string;
+    folder?: string;
+    instruction?: string;
+    to?: string;
+    message?: string;
+    digest?: string;
+  };
+  delayMinutes?: number;
+};
+
+export type RuleCondition = {
+  logic: "AND" | "OR";
+  /** A semantic condition evaluated by the `fast` model, or null. */
+  ai: string | null;
+  from: string | null;
+  to: string | null;
+  subject: string | null;
+  /** Sender categories (Phase 2) or triage categories to match. */
+  categories: string[];
+  /** Learned/simple boolean guards. */
+  hasUnsubscribe?: boolean;
+  coldEmail?: boolean;
+};
+
+export type RuleSource = "user" | "ai" | "learned";
+
+export const automationRules = pgTable(
+  "automation_rules",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** The user's original English instruction (provenance for AI rules). */
+    instruction: text("instruction"),
+    enabled: boolean("enabled").notNull().default(true),
+    /** Lower runs first. */
+    priority: integer("priority").notNull().default(100),
+    condition: jsonb("condition").$type<RuleCondition>().notNull(),
+    actions: jsonb("actions").$type<RuleAction[]>().notNull().default([]),
+    source: text("source").$type<RuleSource>().notNull().default("user"),
+    /** Compiler version that produced this rule (attribution). */
+    version: text("version"),
+    createdBy: text("created_by").notNull().default("user"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (t) => [
+    index("automation_rules_user_enabled_idx").on(t.userId, t.enabled, t.priority),
+  ],
+);
+
+/** One rule's evaluation of one thread — the "why was this handled this way?". */
+export const ruleExecutions = pgTable(
+  "rule_executions",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    ruleId: text("rule_id")
+      .notNull()
+      .references(() => automationRules.id, { onDelete: "cascade" }),
+    threadId: text("thread_id").references(() => threads.id, {
+      onDelete: "cascade",
+    }),
+    messageId: text("message_id"),
+    /** "matched" | "applied" | "skipped" | "error". */
+    status: text("status").notNull().default("matched"),
+    /** Human-readable reason shown in the rules history. */
+    reason: text("reason"),
+    matchMetadata: jsonb("match_metadata")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("rule_executions_user_created_idx").on(t.userId, t.createdAt),
+    index("rule_executions_rule_created_idx").on(t.ruleId, t.createdAt),
+    index("rule_executions_thread_idx").on(t.threadId),
+  ],
+);
+
+/* -------------------------------------------------------------------------- */
+/*  Phase 4 — digests (communication superpowers)                              */
+/* -------------------------------------------------------------------------- */
+
+export const DIGEST_GROUPS = ["needs_you", "waiting", "handled", "noise"] as const;
+export type DigestGroup = (typeof DIGEST_GROUPS)[number];
+
+/**
+ * One generated inbox digest. The narrative summary is stored alongside the
+ * deterministic per-thread items, so the panel renders without a model and the
+ * counts always match the inbox view.
+ */
+export const digests = pgTable(
+  "digests",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    /** "daily" | "weekly". */
+    kind: text("kind").notNull().default("daily"),
+    /** "ready" | "emailed" | "failed". */
+    status: text("status").notNull().default("ready"),
+    periodStart: timestamp("period_start", { withTimezone: true }).notNull(),
+    periodEnd: timestamp("period_end", { withTimezone: true }).notNull(),
+    /** One-paragraph narrative ("what needs you this week"). */
+    headline: text("headline"),
+    summary: text("summary"),
+    /** "model" | "heuristic" — whether a model produced the narrative. */
+    source: text("source").notNull().default("heuristic"),
+    threadCount: integer("thread_count").notNull().default(0),
+    noiseCount: integer("noise_count").notNull().default(0),
+    generatedAt: timestamp("generated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    emailedAt: timestamp("emailed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("digests_user_generated_idx").on(t.userId, t.generatedAt),
+  ],
+);
+
+/** One thread's line in a digest, with its deterministic group. */
+export const digestItems = pgTable(
+  "digest_items",
+  {
+    id: text("id").primaryKey(),
+    digestId: text("digest_id")
+      .notNull()
+      .references(() => digests.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    threadId: text("thread_id").references(() => threads.id, {
+      onDelete: "set null",
+    }),
+    group: text("group").$type<DigestGroup>().notNull(),
+    title: text("title").notNull(),
+    snippet: text("snippet"),
+    reason: text("reason"),
+    priority: integer("priority").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("digest_items_digest_idx").on(t.digestId),
+    index("digest_items_user_created_idx").on(t.userId, t.createdAt),
+  ],
+);
+
+/* -------------------------------------------------------------------------- */
+/*  Phase 6 — assets (images & files)                                          */
+/* -------------------------------------------------------------------------- */
+
+export const ASSET_KINDS = ["image", "file"] as const;
+export type AssetKind = (typeof ASSET_KINDS)[number];
+
+/**
+ * A user-owned image or file, content-addressed under a per-user prefix so
+ * identical uploads dedupe. Bytes live in object storage (`lib/assets/storage`);
+ * this row is the metadata + ownership record. Soft-delete only: already-sent
+ * mail carries its own copy of the bytes (copied into the MIME message at send
+ * time), so deleting an asset can never break a delivered message.
+ */
+export const assets = pgTable(
+  "assets",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<AssetKind>().notNull().default("file"),
+    filename: text("filename").notNull(),
+    mimeType: text("mime_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull().default(0),
+    width: integer("width"),
+    height: integer("height"),
+    /** Storage driver key, e.g. `assets/<userId>/<sha256>`. */
+    storageKey: text("storage_key").notNull(),
+    /** Content hash; identical bytes never store twice for a user. */
+    sha256: text("sha256").notNull(),
+    altText: text("alt_text"),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("assets_user_sha_unique").on(t.userId, t.sha256),
+    index("assets_user_created_idx").on(t.userId, t.createdAt),
+  ],
+);
+
+/**
+ * Where an asset is referenced (a draft, rule, or campaign template). Best-effort
+ * bookkeeping for safe cleanup; not required for sending.
+ */
+export const assetUsages = pgTable(
+  "asset_usages",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    assetId: text("asset_id")
+      .notNull()
+      .references(() => assets.id, { onDelete: "cascade" }),
+    /** "draft" | "rule" | "campaign" | "template". */
+    context: text("context").notNull(),
+    referenceId: text("reference_id"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("asset_usages_asset_idx").on(t.assetId),
+    index("asset_usages_user_created_idx").on(t.userId, t.createdAt),
+  ],
+);
+
+/* -------------------------------------------------------------------------- */
+/*  Phase 7 — bulk outreach (mail merge + reply automation)                    */
+/* -------------------------------------------------------------------------- */
+
+export const CAMPAIGN_STATUSES = [
+  "draft",
+  "scheduled",
+  "sending",
+  "paused",
+  "done",
+  "cancelled",
+] as const;
+export type CampaignStatus = (typeof CAMPAIGN_STATUSES)[number];
+
+export const CAMPAIGN_RECIPIENT_STATUSES = [
+  "pending",
+  "sending",
+  "sent",
+  "failed",
+  "skipped",
+  "replied",
+  "unsubscribed",
+  "bounced",
+] as const;
+export type CampaignRecipientStatus = (typeof CAMPAIGN_RECIPIENT_STATUSES)[number];
+
+/** `{{name}}`-style merge fields plus `{{AI: …}}` prompt blocks. */
+export type CampaignTemplate = {
+  subject: string;
+  body: string;
+  /** Asset ids rendered inline under the merged body. */
+  inlineImageIds?: string[];
+  /** Asset ids attached to every message. */
+  attachmentIds?: string[];
+};
+
+export type CampaignSendWindow = {
+  /** Local hour the window opens (0-23). */
+  startHour: number;
+  /** Local hour the window closes (0-23). */
+  endHour: number;
+  timeZone: string;
+};
+
+export const bulkCampaigns = pgTable(
+  "bulk_campaigns",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    status: text("status").$type<CampaignStatus>().notNull().default("draft"),
+    template: jsonb("template").$type<CampaignTemplate>().notNull(),
+    senderName: text("sender_name"),
+    replyTo: text("reply_to"),
+    /** Recipients per hour, clamped to Gmail limits at send time. */
+    throttlePerHour: integer("throttle_per_hour").notNull().default(50),
+    sendWindow: jsonb("send_window").$type<CampaignSendWindow | null>(),
+    /** "off" | "drafts" (default) | "autopilot". */
+    replyPolicy: text("reply_policy").notNull().default("drafts"),
+    /** Optional CAN-SPAM physical address appended to every message. */
+    footerAddress: text("footer_address"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (t) => [
+    index("bulk_campaigns_user_created_idx").on(t.userId, t.createdAt),
+    index("bulk_campaigns_user_status_idx").on(t.userId, t.status),
+  ],
+);
+
+export const bulkRecipients = pgTable(
+  "bulk_recipients",
+  {
+    id: text("id").primaryKey(),
+    campaignId: text("campaign_id")
+      .notNull()
+      .references(() => bulkCampaigns.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    name: text("name"),
+    /** The mapped source row (for arbitrary merge fields). */
+    rowData: jsonb("row_data").$type<Record<string, string>>().notNull().default({}),
+    status: text("status")
+      .$type<CampaignRecipientStatus>()
+      .notNull()
+      .default("pending"),
+    gmailMessageId: text("gmail_message_id"),
+    threadId: text("thread_id"),
+    attempts: integer("attempts").notNull().default(0),
+    lastError: text("last_error"),
+    /** The personalized body actually sent (post AI-block fill). */
+    personalizedBody: text("personalized_body"),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("bulk_recipients_campaign_email_unique").on(t.campaignId, t.email),
+    index("bulk_recipients_campaign_status_idx").on(t.campaignId, t.status),
+    index("bulk_recipients_user_created_idx").on(t.userId, t.createdAt),
+  ],
+);
+
+/** Append-only audit trail for a campaign (send, pause, reply, unsubscribe…). */
+export const campaignEvents = pgTable(
+  "campaign_events",
+  {
+    id: text("id").primaryKey(),
+    campaignId: text("campaign_id")
+      .notNull()
+      .references(() => bulkCampaigns.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    recipientId: text("recipient_id").references(() => bulkRecipients.id, {
+      onDelete: "set null",
+    }),
+    type: text("type").notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("campaign_events_campaign_created_idx").on(t.campaignId, t.createdAt),
+    index("campaign_events_user_created_idx").on(t.userId, t.createdAt),
+  ],
+);
+
+export const suppressionList = pgTable(
+  "suppression_list",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    /** "unsubscribe" | "bounce" | "manual" | "existing_contact" | "complaint". */
+    reason: text("reason").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("suppression_list_user_email_unique").on(t.userId, t.email),
+    index("suppression_list_user_created_idx").on(t.userId, t.createdAt),
   ],
 );
 
@@ -814,5 +1786,25 @@ export const schema = {
   meetings,
   followupSequences,
   followupEnrollments,
+  commitments,
+  threadSettings,
   drafts,
+  aiUsageEvents,
+  assistantSettings,
+  replyMemories,
+  knowledgeEntries,
+  snippets,
+  senderProfiles,
+  aiCache,
+  unsubscribeAttempts,
+  automationRules,
+  ruleExecutions,
+  digests,
+  digestItems,
+  assets,
+  assetUsages,
+  bulkCampaigns,
+  bulkRecipients,
+  campaignEvents,
+  suppressionList,
 };

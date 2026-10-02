@@ -79,6 +79,17 @@ export interface MailMessage {
   /** Renders the red "Draft N" marker beside the sender. */
   draftCount?: number;
   attachments?: MailAttachment[];
+  /**
+   * Bulk-mail unsubscribe headers on the message (Phase 2). Present only when
+   * the sender advertised a List-Unsubscribe mechanism; drives the reader's
+   * "Unsubscribe" action. Never rendered as raw content.
+   */
+  unsubscribe?: {
+    url?: string;
+    mailto?: string;
+    oneClick: boolean;
+    listId?: string;
+  };
 }
 
 /** Predicates the filter popover can stack on top of the active view. */
@@ -105,6 +116,10 @@ export interface MailDraft {
   bcc: string;
   subject: string;
   body: string;
+  /** Phase 6: library assets to attach as files. */
+  assetIds?: string[];
+  /** Phase 6: library images to render inline. */
+  inlineImageIds?: string[];
 }
 
 /** A page of the default mailbox, fetched on the server to hydrate the store. */

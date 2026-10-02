@@ -34,6 +34,17 @@ const envSchema = z.object({
     .enum(["development", "test", "production"])
     .default("development"),
 
+  /* --- Operational hardening (Phase A) --- */
+
+  // Minimum level emitted by the structured logger. Defaults to `info` in
+  // production and `debug` elsewhere.
+  LOG_LEVEL: z.enum(["debug", "info", "warn", "error", "fatal"]).optional(),
+  // Per-user requests/minute applied to authenticated API routes by default.
+  API_RATE_LIMIT_PER_MIN: z.coerce.number().int().positive().optional(),
+  // Stricter per-user limits for expensive routes (agent runs, uploads).
+  AGENT_RATE_LIMIT_PER_MIN: z.coerce.number().int().positive().optional(),
+  ASSET_RATE_LIMIT_PER_MIN: z.coerce.number().int().positive().optional(),
+
   /* --- Email operator (optional until the feature is enabled) --- */
 
   // Vercel cron auth. Required once the cron routes are deployed.
@@ -82,6 +93,121 @@ const envSchema = z.object({
   OPENCODE_SESSION_ID: z.string().min(1).optional(),
   // "false" for models that reject response_format JSON schemas.
   AI_STRUCTURED_OUTPUTS: z.enum(["true", "false"]).optional(),
+
+  /* --- AI upgrade: model chains, fallback provider (all optional) --- */
+
+  // Ordered fallback candidates per role, comma-separated `provider:model`.
+  // Example: `opencode:space-bunny-free,fallback:gpt-4o-mini`. Unset falls back
+  // to the single model configured for that role.
+  AI_MODEL_FAST_CHAIN: z.string().min(1).optional(),
+  AI_MODEL_STANDARD_CHAIN: z.string().min(1).optional(),
+  AI_MODEL_REASONING_CHAIN: z.string().min(1).optional(),
+  // A second OpenAI-compatible gateway used by `provider:fallback` entries.
+  AI_PROVIDER_FALLBACK_ID: z.string().min(1).optional(),
+  AI_PROVIDER_FALLBACK_BASE_URL: z.string().url().optional(),
+  AI_PROVIDER_FALLBACK_API_KEY: z.string().min(1).optional(),
+
+  /* --- AI upgrade: cost & reliability --- */
+
+  // Platform-wide daily ceiling (in AI calls) across all users. Blank = no cap.
+  AI_GLOBAL_DAILY_BUDGET: z.coerce.number().int().positive().optional(),
+  // Compact the agent conversation once its estimated tokens exceed this.
+  AGENT_CONTEXT_TOKEN_THRESHOLD: z.coerce.number().int().positive().optional(),
+  // Hard ceiling on a single agent turn's prompt+completion tokens.
+  AGENT_MAX_TOKENS_PER_RUN: z.coerce.number().int().positive().optional(),
+  // Progressive agent tool disclosure: start with core tools only and let the
+  // model unlock the rest via `activate_tools`. Opt-in (blank = off) because it
+  // changes which tools the model sees.
+  AGENT_PROGRESSIVE_TOOLS: z.enum(["true", "false"]).optional(),
+  // Provider circuit breaker: open after N consecutive failures for M ms.
+  AI_CIRCUIT_FAILURE_THRESHOLD: z.coerce.number().int().positive().optional(),
+  AI_CIRCUIT_OPEN_MS: z.coerce.number().int().positive().optional(),
+
+  /* --- Phase 1 feature gates (blank falls back to the shipped default) --- */
+
+  // Voice/memory/knowledge ship enabled by default once a model is configured;
+  // set to "false" to hard-disable. (Later, riskier phases default to off.)
+  ASSISTANT_VOICE_ENABLED: z.enum(["true", "false"]).optional(),
+  ASSISTANT_MEMORY_ENABLED: z.enum(["true", "false"]).optional(),
+  ASSISTANT_KNOWLEDGE_ENABLED: z.enum(["true", "false"]).optional(),
+
+  /* --- Phase 2 feature gates (blank falls back to the shipped default) --- */
+
+  // Sender intelligence is cached (one call per new sender) and reversible, so
+  // it ships on; set to "false" to hard-disable the whole subsystem.
+  SENDER_INTELLIGENCE_ENABLED: z.enum(["true", "false"]).optional(),
+  COLD_EMAIL_BLOCKER_ENABLED: z.enum(["true", "false"]).optional(),
+  SENDER_CATEGORIZATION_ENABLED: z.enum(["true", "false"]).optional(),
+  // Thread summaries cost a model call; only ever generated on user request.
+  THREAD_SUMMARY_ENABLED: z.enum(["true", "false"]).optional(),
+
+  /* --- Phase 3 feature gate (blank falls back to the shipped default) --- */
+
+  // Plain-English rules: reversible config + deterministic-first evaluation.
+  RULES_ENABLED: z.enum(["true", "false"]).optional(),
+
+  /* --- Phase 4 feature gates (blank falls back to the shipped default) --- */
+
+  // Smart compose: streaming, never auto-sends, hard token cap.
+  COMPOSE_ASSIST_ENABLED: z.enum(["true", "false"]).optional(),
+  // AI follow-up drafts: style-aware, deterministic nudge body fallback.
+  FOLLOWUP_AI_ENABLED: z.enum(["true", "false"]).optional(),
+  // Meeting briefs: cached per (event, attendees, day); one standard call.
+  MEETING_BRIEFS_ENABLED: z.enum(["true", "false"]).optional(),
+  // Digest: one batched call per generated digest; cached until next period.
+  DIGEST_ENABLED: z.enum(["true", "false"]).optional(),
+  // AI thread status for Reply Zero; deterministic heuristic fallback.
+  REPLY_STATUS_ENABLED: z.enum(["true", "false"]).optional(),
+
+  /* --- Morning briefing, commitments & auto-memory (all optional) --- */
+
+  // Interactive morning briefing thread + daily warm.
+  BRIEFING_ENABLED: z.enum(["true", "false"]).optional(),
+  // Promise/commitment extraction and overdue nudges.
+  COMMITMENTS_ENABLED: z.enum(["true", "false"]).optional(),
+  // Learn memories from every exchange (per-user setting still gates it, and
+  // that setting defaults off).
+  ASSISTANT_AUTO_MEMORY_ENABLED: z.enum(["true", "false"]).optional(),
+
+  /* --- Phase 5 feature gates --- */
+
+  // Weekly inbox insights report (one standard call, cached).
+  INSIGHTS_ENABLED: z.enum(["true", "false"]).optional(),
+  // Translate a draft/thread into another language.
+  TRANSLATE_ENABLED: z.enum(["true", "false"]).optional(),
+  // Ask-inbox hybrid search. Only enable once the eval evidence gate passes.
+  SEMANTIC_SEARCH_ENABLED: z.enum(["true", "false"]).optional(),
+
+  /* --- Phase 6 assets (images & files) --- */
+
+  ASSETS_ENABLED: z.enum(["true", "false"]).optional(),
+  // "vercel-blob" (default) | "s3".
+  ASSET_STORAGE_DRIVER: z.string().min(1).optional(),
+  // @vercel/blob read/write token (Vercel injects it as BLOB_READ_WRITE_TOKEN).
+  BLOB_READ_WRITE_TOKEN: z.string().min(1).optional(),
+  // S3-compatible adapter (R2, MinIO, AWS). All required together for "s3".
+  S3_BUCKET: z.string().min(1).optional(),
+  S3_REGION: z.string().min(1).optional(),
+  S3_ACCESS_KEY_ID: z.string().min(1).optional(),
+  S3_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+  S3_ENDPOINT: z.string().url().optional(),
+  // Per-asset size cap and allowed MIME globs (comma-separated).
+  ASSET_MAX_BYTES: z.coerce.number().int().positive().optional(),
+  ASSET_ALLOWED_MIME: z.string().min(1).optional(),
+  // Vercel Blob access level. Defaults to "private": objects are only reachable
+  // through the authenticated `/api/v1/assets/[id]/raw` proxy. Set "public" only
+  // for a Blob store provisioned as public-access.
+  ASSET_BLOB_ACCESS: z.enum(["public", "private"]).optional(),
+
+  /* --- Phase 7 bulk campaigns --- */
+
+  CAMPAIGNS_ENABLED: z.enum(["true", "false"]).optional(),
+  CAMPAIGN_MAX_RECIPIENTS: z.coerce.number().int().positive().optional(),
+  CAMPAIGN_BATCH_SIZE: z.coerce.number().int().positive().optional(),
+  CAMPAIGN_MAX_PER_HOUR: z.coerce.number().int().positive().optional(),
+  CAMPAIGN_MAX_PER_DAY: z.coerce.number().int().positive().optional(),
+  // "off" | "drafts" (default) | "autopilot".
+  CAMPAIGN_REPLY_AUTOMATION: z.enum(["off", "drafts", "autopilot"]).optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -127,4 +253,224 @@ export function getPubSubAudience(): string {
     env.GOOGLE_PUBSUB_AUDIENCE ??
     `${env.BETTER_AUTH_URL.replace(/\/$/, "")}/api/webhooks/gmail`
   );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Operational hardening (Phase A)                                           */
+/* -------------------------------------------------------------------------- */
+
+/** Default per-user API ceiling, matching the skill's "general API" band. */
+export const DEFAULT_API_RATE_LIMIT_PER_MIN = 300;
+/** Expensive agent turns are rarer but cost model tokens. */
+export const DEFAULT_AGENT_RATE_LIMIT_PER_MIN = 20;
+/** Uploads buffer bytes in the function; keep them well bounded. */
+export const DEFAULT_ASSET_RATE_LIMIT_PER_MIN = 30;
+
+export function apiRateLimitPerMin(): number {
+  return env.API_RATE_LIMIT_PER_MIN ?? DEFAULT_API_RATE_LIMIT_PER_MIN;
+}
+
+export function agentRateLimitPerMin(): number {
+  return env.AGENT_RATE_LIMIT_PER_MIN ?? DEFAULT_AGENT_RATE_LIMIT_PER_MIN;
+}
+
+export function assetRateLimitPerMin(): number {
+  return env.ASSET_RATE_LIMIT_PER_MIN ?? DEFAULT_ASSET_RATE_LIMIT_PER_MIN;
+}
+
+/**
+ * Phase 0 §5.3 — progressive agent tool disclosure. Opt-in: it changes which
+ * tools the model sees, so it stays off unless explicitly enabled.
+ */
+export function isProgressiveToolsEnabled(): boolean {
+  return env.AGENT_PROGRESSIVE_TOOLS === "true";
+}
+
+/**
+ * Phase 1 feature gates.
+ *
+ * The voice/memory/knowledge capabilities are additive and cached, so they ship
+ * enabled by default; an operator hard-disables one with `...=false`. (The
+ * riskier later phases invert this and default to off.) A gate is only ever a
+ * coarse kill-switch: the per-user `assistant_settings` toggles still apply.
+ */
+export function isAssistantVoiceEnabled(): boolean {
+  return env.ASSISTANT_VOICE_ENABLED !== "false";
+}
+
+export function isAssistantMemoryEnabled(): boolean {
+  return env.ASSISTANT_MEMORY_ENABLED !== "false";
+}
+
+export function isAssistantKnowledgeEnabled(): boolean {
+  return env.ASSISTANT_KNOWLEDGE_ENABLED !== "false";
+}
+
+/**
+ * Phase 2 feature gates. Sender intelligence is deterministic-first and cached,
+ * so it ships enabled; the individual capabilities each have their own gate.
+ * `...=false` is a hard kill-switch; the per-user setting still applies.
+ */
+export function isSenderIntelligenceEnabled(): boolean {
+  return env.SENDER_INTELLIGENCE_ENABLED !== "false";
+}
+
+export function isColdEmailBlockerEnabled(): boolean {
+  return isSenderIntelligenceEnabled() && env.COLD_EMAIL_BLOCKER_ENABLED !== "false";
+}
+
+export function isSenderCategorizationEnabled(): boolean {
+  return (
+    isSenderIntelligenceEnabled() && env.SENDER_CATEGORIZATION_ENABLED !== "false"
+  );
+}
+
+export function isThreadSummaryEnabled(): boolean {
+  return env.THREAD_SUMMARY_ENABLED !== "false";
+}
+
+/** Phase 3: plain-English automation rules. */
+export function isRulesEnabled(): boolean {
+  return env.RULES_ENABLED !== "false";
+}
+
+/**
+ * Phase 4 gates. Like Phase 1–3, the capabilities are cached/user-initiated and
+ * always have a deterministic fallback, so they ship enabled and `=false` is a
+ * hard kill-switch. The per-user `assistant_settings` toggle still applies.
+ */
+export function isComposeAssistEnabled(): boolean {
+  return env.COMPOSE_ASSIST_ENABLED !== "false";
+}
+
+export function isFollowupAiEnabled(): boolean {
+  return env.FOLLOWUP_AI_ENABLED !== "false";
+}
+
+export function isMeetingBriefsEnabled(): boolean {
+  return env.MEETING_BRIEFS_ENABLED !== "false";
+}
+
+export function isDigestEnabled(): boolean {
+  return env.DIGEST_ENABLED !== "false";
+}
+
+export function isReplyStatusEnabled(): boolean {
+  return env.REPLY_STATUS_ENABLED !== "false";
+}
+
+/**
+ * Morning briefing + commitments ship enabled (deterministic-first, cached, and
+ * every outbound still goes through `egress`). `=false` is a hard kill-switch;
+ * the per-user `assistant_settings` toggle still applies.
+ */
+export function isBriefingEnabled(): boolean {
+  return env.BRIEFING_ENABLED !== "false";
+}
+
+export function isCommitmentsEnabled(): boolean {
+  return env.COMMITMENTS_ENABLED !== "false";
+}
+
+/**
+ * Auto-memory is opt-in twice over: this env gate ships on, but the per-user
+ * `memoryAutoExtract` setting defaults off, so nothing is learned until the
+ * user turns it on.
+ */
+export function isAssistantAutoMemoryEnabled(): boolean {
+  return env.ASSISTANT_AUTO_MEMORY_ENABLED !== "false";
+}
+
+/** Phase 5 gates. Insights/translate ship on; semantic search is opt-in. */
+export function isInsightsEnabled(): boolean {
+  return env.INSIGHTS_ENABLED !== "false";
+}
+
+export function isTranslateEnabled(): boolean {
+  return env.TRANSLATE_ENABLED !== "false";
+}
+
+/**
+ * Semantic search is evidence-gated (§6 Phase 5): it ships **off** and is only
+ * enabled once the eval shows keyword/trigram search is insufficient.
+ */
+export function isSemanticSearchEnabled(): boolean {
+  return env.SEMANTIC_SEARCH_ENABLED === "true";
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Phase 6 — assets                                                          */
+/* -------------------------------------------------------------------------- */
+
+export const DEFAULT_ASSET_MAX_BYTES = 10 * 1024 * 1024;
+export const DEFAULT_ASSET_ALLOWED_MIME = "image/*,application/pdf";
+/** Gmail rejects a message over ~25 MB once base64-encoded. */
+export const GMAIL_MAX_MESSAGE_BYTES = 25 * 1024 * 1024;
+
+/** Assets ship enabled; `=false` is a hard kill-switch. */
+export function isAssetsEnabled(): boolean {
+  return env.ASSETS_ENABLED !== "false";
+}
+
+export function assetMaxBytes(): number {
+  return env.ASSET_MAX_BYTES ?? DEFAULT_ASSET_MAX_BYTES;
+}
+
+export function assetAllowedMime(): string[] {
+  return (env.ASSET_ALLOWED_MIME ?? DEFAULT_ASSET_ALLOWED_MIME)
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+/** "vercel-blob" by default; "s3" when explicitly configured. */
+export function assetStorageDriver(): "vercel-blob" | "s3" {
+  return env.ASSET_STORAGE_DRIVER === "s3" ? "s3" : "vercel-blob";
+}
+
+/**
+ * Vercel Blob object access. Defaults to `private` so a leaked URL is not
+ * enough to read someone's files; only the authenticated proxy can serve them.
+ */
+export function assetBlobAccess(): "public" | "private" {
+  return env.ASSET_BLOB_ACCESS === "public" ? "public" : "private";
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Phase 7 — campaigns                                                       */
+/* -------------------------------------------------------------------------- */
+
+export const DEFAULT_CAMPAIGN_MAX_RECIPIENTS = 5_000;
+export const DEFAULT_CAMPAIGN_BATCH_SIZE = 20;
+export const DEFAULT_CAMPAIGN_MAX_PER_HOUR = 50;
+export const DEFAULT_CAMPAIGN_MAX_PER_DAY = 200;
+
+/** Campaigns ship **off** — bulk sending is the riskiest surface in the plan. */
+export function isCampaignsEnabled(): boolean {
+  return env.CAMPAIGNS_ENABLED === "true";
+}
+
+export function campaignMaxRecipients(): number {
+  return env.CAMPAIGN_MAX_RECIPIENTS ?? DEFAULT_CAMPAIGN_MAX_RECIPIENTS;
+}
+
+export function campaignBatchSize(): number {
+  return env.CAMPAIGN_BATCH_SIZE ?? DEFAULT_CAMPAIGN_BATCH_SIZE;
+}
+
+export function campaignMaxPerHour(): number {
+  return env.CAMPAIGN_MAX_PER_HOUR ?? DEFAULT_CAMPAIGN_MAX_PER_HOUR;
+}
+
+export function campaignMaxPerDay(): number {
+  return env.CAMPAIGN_MAX_PER_DAY ?? DEFAULT_CAMPAIGN_MAX_PER_DAY;
+}
+
+export type CampaignReplyPolicy = "off" | "drafts" | "autopilot";
+
+export function campaignReplyPolicy(): CampaignReplyPolicy {
+  return env.CAMPAIGN_REPLY_AUTOMATION === "off" ||
+    env.CAMPAIGN_REPLY_AUTOMATION === "autopilot"
+    ? env.CAMPAIGN_REPLY_AUTOMATION
+    : "drafts";
 }

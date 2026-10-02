@@ -34,6 +34,19 @@ export type GmailMessageResource = {
 
 export type ParsedAddress = { name: string | null; email: string };
 
+/**
+ * Bulk-mail headers captured at parse time (Phase 2). Kept structurally
+ * identical to `MessageUnsubscribeInfo` in `lib/db/schema.ts` so it can be
+ * stored verbatim; defined here to keep this module dependency-free.
+ */
+export type ParsedUnsubscribeInfo = {
+  url?: string;
+  mailto?: string;
+  oneClick: boolean;
+  listId?: string;
+  precedence?: string;
+};
+
 export type ParsedMessage = {
   gmailMessageId: string;
   gmailThreadId: string;
@@ -45,6 +58,7 @@ export type ParsedMessage = {
   bodyHtml: string | null;
   snippet: string | null;
   labels: string[];
+  unsubscribe: ParsedUnsubscribeInfo | null;
   sentAt: Date | null;
 };
 
@@ -186,7 +200,41 @@ export function parseGmailMessage(message: GmailMessageResource): ParsedMessage 
     bodyHtml: html,
     snippet: message.snippet ?? null,
     labels: message.labelIds ?? [],
+    unsubscribe: parseUnsubscribeHeaders(headers),
     sentAt: Number.isFinite(internalDate) ? new Date(internalDate) : null,
+  };
+}
+
+/** The `<url>`s inside a `List-Unsubscribe` header value. */
+function extractAngleBrackets(value: string): string[] {
+  return [...value.matchAll(/<([^>]+)>/g)].map((match) => match[1]!.trim());
+}
+
+/**
+ * Reads the bulk-mail headers that make newsletter/marketing detection
+ * deterministic and free. Returns null for ordinary person-to-person mail.
+ */
+export function parseUnsubscribeHeaders(
+  headers: GmailHeader[] | null | undefined,
+): ParsedUnsubscribeInfo | null {
+  const listUnsubscribe = getHeader(headers, "list-unsubscribe");
+  const listId = getHeader(headers, "list-id");
+  const precedence = getHeader(headers, "precedence");
+  const post = getHeader(headers, "list-unsubscribe-post");
+
+  if (!listUnsubscribe && !listId && !precedence && !post) return null;
+
+  const targets = listUnsubscribe ? extractAngleBrackets(listUnsubscribe) : [];
+  const url = targets.find((target) => /^https?:\/\//i.test(target));
+  const mailto = targets.find((target) => /^mailto:/i.test(target));
+
+  return {
+    ...(url ? { url } : {}),
+    ...(mailto ? { mailto } : {}),
+    // RFC 8058: the sender accepts a POST-only unsubscribe.
+    oneClick: /list-unsubscribe\s*=\s*one-click/i.test(post ?? ""),
+    ...(listId ? { listId: listId.trim().slice(0, 200) } : {}),
+    ...(precedence ? { precedence: precedence.trim().toLowerCase().slice(0, 40) } : {}),
   };
 }
 

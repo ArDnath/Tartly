@@ -1,18 +1,18 @@
-# Redape — AI Email Client
+# Lunabox — AI Email Client
 
-**Redape is a web email client with an AI operator built in.** It connects to
+**Lunabox is a web email client with an AI operator built in.** It connects to
 your Gmail and Google Calendar and works inside your inbox: it triages incoming
 mail, drafts replies in your voice, proposes and books meeting times, and chases
 the threads that have gone quiet. Nothing leaves your mailbox without your
-review — Redape drafts and proposes, you approve and send.
+review — Lunabox drafts and proposes, you approve and send.
 
 > **A full email client, not just an assistant.** `/mail` is a complete
 > Gmail-style client (folders, labels, search, compose, read/star/archive/trash)
 > that reads live from Gmail. An AI layer rides on top: `/inbox` is the triage
 > view, and the `/assistant` chat can operate your mailbox through tools.
 
-This repository is the Next.js application server for Redape (mirrored here as
-`Redape-Scratch`).
+This repository is the Next.js application server for Lunabox (mirrored here as
+`Lunabox-Scratch`).
 
 ---
 
@@ -42,11 +42,11 @@ This repository is the Next.js application server for Redape (mirrored here as
 | --- | --- | --- |
 | **Live mail client** | `/mail` | Full Gmail-style UI: folders, labels, search, compose, and per-message read / star / archive / trash / spam / label actions. Data is fetched live from Gmail. |
 | **AI triage inbox** | `/inbox` | Server-rendered views — **Needs you**, **Waiting on them**, **Handled** — driven by an AI triage step rather than a live model call on page load. |
-| **Drafts & approval** | `/inbox/[threadId]` | Redape writes a reply in your voice; you edit, approve (send) or discard it. A single send gate guarantees nothing goes out unreviewed. |
+| **Drafts & approval** | `/inbox/[threadId]` | Lunabox writes a reply in your voice; you edit, approve (send) or discard it. A single send gate guarantees nothing goes out unreviewed. |
 | **Meeting scheduling** | `/calendar` | Detects meeting intent, finds free slots against your working hours and Calendar, proposes times, then books the event with a Google Meet link. |
 | **Follow-ups** | `/followups` | Tracks threads waiting on a reply and nudges — or drafts the nudge — with stop rules (reply detection, caps, quiet hours, opt-out detection). |
 | **Agent chat** | `/assistant` | A tool-using agent that can search/read mail, draft, send (with confirmation), schedule, and research. |
-| **Activity & traces** | `/metrics`, `/runs` | Counts of runs, drafts, sends, meetings, follow-ups, plus a per-run step trace for debugging. |
+| **Activity & traces** | `/activity`, `/runs` | Counts of runs, drafts, sends, meetings, follow-ups, plus a per-run step trace for debugging. |
 | **Settings** | `/settings/calendar` | Working hours, timezone, meeting duration and buffer, plus autonomy (copilot vs. autopilot). |
 
 Onboarding walks a new user through **Google sign-in → create profile → connect
@@ -58,7 +58,7 @@ inbox + calendar → meeting preferences**, then lands them in the app.
 
 | Route | Description |
 | --- | --- |
-| `/` | Marketing landing page (what Redape is, permissions, data promises). |
+| `/` | Marketing landing page (what Lunabox is, permissions, data promises). |
 | `/auth` | Google sign-in. A valid session redirects to `/mail`. |
 | `/onboarding` | Multi-step onboarding; completed users redirect into the app. |
 | `/mail` · `/mail/[id]` | Live Gmail client and message reader. |
@@ -66,7 +66,7 @@ inbox + calendar → meeting preferences**, then lands them in the app.
 | `/calendar` | Booked meetings agenda (upcoming / past). |
 | `/followups` | Active and stopped follow-up enrollments. |
 | `/assistant` | Tool-using agent chat. |
-| `/metrics` | Activity dashboard. |
+| `/activity` | Operator activity dashboard (charts, budget, activity log). |
 | `/runs` · `/runs/[id]` | Flow-run index and step trace. |
 | `/settings/calendar` | Calendar, working-hours and autonomy settings. |
 | `/privacy`, `/terms` | Legal pages. |
@@ -76,7 +76,7 @@ inbox + calendar → meeting preferences**, then lands them in the app.
 
 ## Architecture
 
-Redape is intentionally **push-first and event-driven**, because the Vercel
+Lunabox is intentionally **push-first and event-driven**, because the Vercel
 Hobby plan only allows a once-daily cron. The cron is a safety net, not the
 trigger.
 
@@ -205,8 +205,8 @@ npm run db:migrate
 ### 1. Install
 
 ```bash
-git clone git@github.com:RedApeAI/Redape-Scratch.git
-cd Redape-Scratch
+git clone git@github.com:LunaboxAI/Lunabox-Scratch.git
+cd Lunabox-Scratch
 npm install
 ```
 
@@ -304,7 +304,7 @@ npm run test:agent:evals
 ```
 app/
   (pages)              landing, auth, onboarding, mail, inbox, calendar,
-                       followups, metrics, runs, settings, assistant, legal
+                       followups, activity, runs, settings, assistant, legal
   api/
     auth/              Better Auth handler
     onboarding/        profile, calendar, sync-email completion
@@ -359,7 +359,7 @@ and return `{ data }` or `{ error: { code, message } }`.
 
 ## Deployment
 
-Redape is built for **Vercel + serverless Postgres + Upstash Redis**.
+Lunabox is built for **Vercel + serverless Postgres + Upstash Redis**.
 
 1. Import the repository into Vercel.
 2. Add environment variables (see [`.env.example`](./.env.example)).
@@ -415,7 +415,7 @@ architecture and phased build plans.
   hosts 308-redirect to it (`next.config.ts`).
 - Sign-in grants only basic profile access. Inbox and calendar access are a
   separate, explicit consent step; access is limited to the approved scopes.
-- Redape never sends mail silently in `copilot` mode; the `egress` gate plus
+- Lunabox never sends mail silently in `copilot` mode; the `egress` gate plus
   `send_ledger` guarantee user approval and at-most-once delivery.
 - Sessions are durable in Postgres, with Redis as a best-effort speed layer.
 - Webhook and cron routes are fail-closed and require OIDC verification /
@@ -425,5 +425,5 @@ architecture and phased build plans.
 
 ## License
 
-© RedApeAI. All rights reserved. This is a private, proprietary project; see the
-repository owner for terms. Contact: support@redape.app
+© LunaboxAI. All rights reserved. This is a private, proprietary project; see the
+repository owner for terms. Contact: support@lunabox.app

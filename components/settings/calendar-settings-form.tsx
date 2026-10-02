@@ -56,7 +56,7 @@ export function CalendarSettingsForm({
   };
 
   return (
-    <div className="flex max-w-md flex-col gap-5">
+    <div className="flex w-full flex-col gap-5">
       <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
         Timezone
         <Input

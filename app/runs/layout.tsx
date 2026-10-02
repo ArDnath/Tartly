@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 
 import { AppShell } from "@/components/app-shell/app-shell";
-import { SettingsSidebar } from "@/components/settings/settings-sidebar";
+import { AppSidebar } from "@/components/app-shell/app-sidebar";
 import { getOrCreateOnboardingState } from "@/lib/onboarding/server";
 import { ONBOARDING_STATUS } from "@/lib/onboarding/types";
 import { requireSession } from "@/lib/session";
@@ -14,7 +14,7 @@ export default async function RunsLayout({ children }: { children: ReactNode }) 
   return (
     <AppShell
       sidebar={
-        <SettingsSidebar
+        <AppSidebar
           user={{
             name: session.user.name,
             image: state.avatarUrl ?? session.user.image ?? null,

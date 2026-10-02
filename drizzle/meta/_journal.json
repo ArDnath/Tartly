@@ -99,6 +99,55 @@
       "when": 1790446609964,
       "tag": "0013_legal_dragon_lord",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1790703796982,
+      "tag": "0014_marvelous_excalibur",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1790707537332,
+      "tag": "0015_left_pyro",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1790709308322,
+      "tag": "0016_naive_firestar",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1790711430033,
+      "tag": "0017_conscious_mentallo",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1790715152904,
+      "tag": "0018_abnormal_hemingway",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1790715918590,
+      "tag": "0019_demonic_maverick",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1790789302991,
+      "tag": "0020_bouncy_loki",
+      "breakpoints": true
     }
   ]
 }
