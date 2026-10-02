@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { jsonError } from "@/lib/api/error-envelope";
 import { db } from "@/lib/db";
 import { user } from "@/lib/db/schema";
 import {
@@ -27,15 +28,14 @@ const bodySchema = z.object({
 export async function POST(request: Request) {
   const session = await getSession();
   if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return jsonError("unauthorized", "Unauthorized", 401);
   }
 
   const parsed = bodySchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Invalid request", issues: parsed.error.flatten() },
-      { status: 400 },
-    );
+    return jsonError("validation", "Invalid request", 400, {
+      details: parsed.error.flatten(),
+    });
   }
 
   const { action, data } = parsed.data;
@@ -49,10 +49,7 @@ export async function POST(request: Request) {
       const firstName = data.firstName ?? "";
       const lastName = data.lastName ?? "";
       if (action === "complete" && !firstName) {
-        return NextResponse.json(
-          { error: "First name is required" },
-          { status: 400 },
-        );
+        return jsonError("validation", "First name is required", 400);
       }
 
       if (firstName || lastName) {
@@ -75,10 +72,7 @@ export async function POST(request: Request) {
     case ONBOARDING_STATUS.SYNC_EMAIL: {
       // Syncing an inbox is required, so this step deliberately has no skip.
       if (action === "skip") {
-        return NextResponse.json(
-          { error: "This step can't be skipped" },
-          { status: 400 },
-        );
+        return jsonError("validation", "This step can't be skipped", 400);
       }
       break;
     }

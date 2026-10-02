@@ -3,6 +3,7 @@ import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { toSafeError } from "@/lib/agent/errors";
+import { jsonError } from "@/lib/api/error-envelope";
 import { apiRateLimitPerMin } from "@/lib/env";
 import {
   resolveRequestId,
@@ -24,14 +25,24 @@ export function ok(data: unknown, init?: ResponseInit): NextResponse {
   return NextResponse.json({ data }, init);
 }
 
-/** Standard error envelope: `{ error: { code, message } }`. */
+/** Standard error envelope: `{ error: { code, message, trace_id } }`. */
 export function apiError(
   code: string,
   message: string,
   status: number,
   init?: Omit<ResponseInit, "status">,
+  details?: unknown,
 ): NextResponse {
-  return NextResponse.json({ error: { code, message } }, { ...init, status });
+  const headers: Record<string, string> = {};
+  if (init?.headers) {
+    new Headers(init.headers).forEach((value, key) => {
+      headers[key] = value;
+    });
+  }
+  return jsonError(code, message, status, {
+    ...(details !== undefined ? { details } : {}),
+    ...(Object.keys(headers).length > 0 ? { headers } : {}),
+  });
 }
 
 /**

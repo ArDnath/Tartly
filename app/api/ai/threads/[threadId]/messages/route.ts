@@ -2,6 +2,7 @@ import type { ModelMessage } from "ai";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { jsonError } from "@/lib/api/error-envelope";
 import {
   appendMessage,
   ensureChatThreadTitle,
@@ -25,14 +26,14 @@ const sendSchema = z.object({
 export async function GET(_request: Request, { params }: RouteContext) {
   const session = await getSession();
   if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return jsonError("unauthorized", "Unauthorized", 401);
   }
 
   const { threadId } = await params;
   const thread = await findThreadForUser(session.user.id, threadId);
 
   if (!thread) {
-    return NextResponse.json({ error: "Thread not found" }, { status: 404 });
+    return jsonError("not_found", "Thread not found", 404);
   }
 
   const messages = (await loadThreadMessages(threadId)).filter(
@@ -50,19 +51,19 @@ export async function GET(_request: Request, { params }: RouteContext) {
 export async function POST(request: Request, { params }: RouteContext) {
   const session = await getSession();
   if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return jsonError("unauthorized", "Unauthorized", 401);
   }
 
   const { threadId } = await params;
 
   const thread = await findThreadForUser(session.user.id, threadId);
   if (!thread) {
-    return NextResponse.json({ error: "Thread not found" }, { status: 404 });
+    return jsonError("not_found", "Thread not found", 404);
   }
 
   const parsed = sendSchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+    return jsonError("validation", "Invalid request", 400);
   }
 
   const userText = parsed.data.message.trim();

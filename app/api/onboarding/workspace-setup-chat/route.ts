@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { jsonError } from "@/lib/api/error-envelope";
 import { startWorkspaceSetupChat } from "@/lib/ai/chat-service";
 import { getSession } from "@/lib/session";
 
@@ -12,12 +13,12 @@ const bodySchema = z.object({
 export async function POST(request: Request) {
   const session = await getSession();
   if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return jsonError("unauthorized", "Unauthorized", 401);
   }
 
   const parsed = bodySchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+    return jsonError("validation", "Invalid request", 400);
   }
 
   try {
@@ -33,9 +34,6 @@ export async function POST(request: Request) {
     return NextResponse.json(result);
   } catch (error) {
     console.error("[workspace-setup-chat] failed to start chat", error);
-    return NextResponse.json(
-      { error: "Failed to start setup chat" },
-      { status: 500 },
-    );
+    return jsonError("internal", "Failed to start setup chat", 500);
   }
 }

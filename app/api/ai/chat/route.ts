@@ -1,7 +1,7 @@
 import type { ModelMessage } from "ai";
-import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { jsonError } from "@/lib/api/error-envelope";
 import { appendMessage, loadThreadMessages } from "@/lib/ai/chat-service";
 import { buildFallbackSetupResponse } from "@/lib/ai/fallback-response";
 import { WORKSPACE_SETUP_SYSTEM_PROMPT } from "@/lib/ai/prompts";
@@ -26,18 +26,18 @@ const bodySchema = z.object({
 export async function POST(request: Request) {
   const session = await getSession();
   if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return jsonError("unauthorized", "Unauthorized", 401);
   }
 
   const parsed = bodySchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+    return jsonError("validation", "Invalid request", 400);
   }
 
   const { threadId, message } = parsed.data;
 
   if (!(await userOwnsThread(session.user.id, threadId))) {
-    return NextResponse.json({ error: "Thread not found" }, { status: 404 });
+    return jsonError("not_found", "Thread not found", 404);
   }
 
   if (message?.trim()) {
@@ -49,10 +49,7 @@ export async function POST(request: Request) {
   // A trailing assistant message means there is nothing to answer.
   const lastMessage = history[history.length - 1];
   if (!lastMessage || lastMessage.role === "assistant") {
-    return NextResponse.json(
-      { error: "Nothing to respond to" },
-      { status: 409 },
-    );
+    return jsonError("conflict", "Nothing to respond to", 409);
   }
 
   const modelMessages: ModelMessage[] = history.map((entry) => ({

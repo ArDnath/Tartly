@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { jsonError } from "@/lib/api/error-envelope";
 import {
   deleteChatThread,
   findThreadForUser,
@@ -21,19 +22,19 @@ type RouteContext = { params: Promise<{ threadId: string }> };
 export async function PATCH(request: Request, { params }: RouteContext) {
   const session = await getSession();
   if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return jsonError("unauthorized", "Unauthorized", 401);
   }
 
   const { threadId } = await params;
 
   const parsed = patchSchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+    return jsonError("validation", "Invalid request", 400);
   }
 
   const existing = await findThreadForUser(session.user.id, threadId);
   if (!existing) {
-    return NextResponse.json({ error: "Thread not found" }, { status: 404 });
+    return jsonError("not_found", "Thread not found", 404);
   }
 
   let thread = existing;
@@ -59,14 +60,14 @@ export async function PATCH(request: Request, { params }: RouteContext) {
 export async function DELETE(_request: Request, { params }: RouteContext) {
   const session = await getSession();
   if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return jsonError("unauthorized", "Unauthorized", 401);
   }
 
   const { threadId } = await params;
   const deleted = await deleteChatThread(session.user.id, threadId);
 
   if (!deleted) {
-    return NextResponse.json({ error: "Thread not found" }, { status: 404 });
+    return jsonError("not_found", "Thread not found", 404);
   }
 
   return NextResponse.json({ ok: true });

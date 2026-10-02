@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 
+import { jsonError } from "@/lib/api/error-envelope";
 import { createChatThread, listChatThreads } from "@/lib/ai/chat-service";
 import { getSession } from "@/lib/session";
 
 export async function GET(request: Request) {
   const session = await getSession();
   if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return jsonError("unauthorized", "Unauthorized", 401);
   }
 
   const includeArchived =
@@ -20,7 +21,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const session = await getSession();
   if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return jsonError("unauthorized", "Unauthorized", 401);
   }
 
   // An optional title lets callers open a purpose-named conversation (e.g. the

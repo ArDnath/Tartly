@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { jsonError } from "@/lib/api/error-envelope";
 import { isCronAuthorized } from "@/lib/email-operator/cron-auth";
 import { enqueueDueFollowups } from "@/lib/followup/service";
 
@@ -12,10 +13,7 @@ export const maxDuration = 300;
  */
 export async function GET(request: NextRequest) {
   if (!isCronAuthorized(request)) {
-    return NextResponse.json(
-      { error: { code: "unauthorized", message: "Invalid cron secret." } },
-      { status: 401 },
-    );
+    return jsonError("unauthorized", "Invalid cron secret.", 401);
   }
 
   const enqueued = await enqueueDueFollowups();

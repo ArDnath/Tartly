@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { after } from "next/server";
 
+import { jsonError } from "@/lib/api/error-envelope";
 import { recordEvent, processGmailEvent } from "@/lib/email-operator/events";
 import { findMailboxByEmail } from "@/lib/email-operator/mailbox";
 import { getPubSubAudience, isEmailOperatorEnabled } from "@/lib/env";
@@ -19,18 +20,12 @@ export const maxDuration = 300;
  */
 export async function POST(request: NextRequest) {
   if (!isEmailOperatorEnabled()) {
-    return NextResponse.json(
-      { error: { code: "disabled", message: "Email operator is not enabled." } },
-      { status: 503 },
-    );
+    return jsonError("disabled", "Email operator is not enabled.", 503);
   }
 
   const authorization = request.headers.get("authorization") ?? "";
   if (!authorization.startsWith("Bearer ")) {
-    return NextResponse.json(
-      { error: { code: "unauthorized", message: "Missing OIDC token." } },
-      { status: 401 },
-    );
+    return jsonError("unauthorized", "Missing OIDC token.", 401);
   }
 
   try {
@@ -40,10 +35,7 @@ export async function POST(request: NextRequest) {
     );
   } catch (error) {
     console.warn("[webhooks/gmail] OIDC verification failed", error);
-    return NextResponse.json(
-      { error: { code: "unauthorized", message: "Invalid OIDC token." } },
-      { status: 401 },
-    );
+    return jsonError("unauthorized", "Invalid OIDC token.", 401);
   }
 
   let payload;
@@ -53,14 +45,10 @@ export async function POST(request: NextRequest) {
     if (!data) throw new Error("missing message.data");
     payload = decodeGmailPushData(data);
   } catch (error) {
-    return NextResponse.json(
-      {
-        error: {
-          code: "bad_request",
-          message: error instanceof Error ? error.message : "Invalid payload.",
-        },
-      },
-      { status: 400 },
+    return jsonError(
+      "bad_request",
+      error instanceof Error ? error.message : "Invalid payload.",
+      400,
     );
   }
 

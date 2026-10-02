@@ -63,7 +63,7 @@ phase and update this table.
 | 5 | BOLA/IDOR protection | `[x]` | `userId` sourced from session everywhere; `ActionService` owner-scoped. Strong. |
 | 6 | Authentication security | `[x]` | JWE cookie cache → Redis → Postgres; trusted origins; **auth rate limit added in A**. |
 | 7 | Password/crypto hygiene | `[~]` | OAuth-only; OIDC RS256 verified. **Cron secret compare not constant-time** (B). |
-| 8 | Global error middleware | `[~]` | `toSafeError` redaction + A logging; **envelope inconsistent** across route groups (B). |
+| 8 | Global error middleware | `[x]` | `toSafeError` redaction + A logging; **B unified the envelope** to `{ error: { code, message, trace_id } }` everywhere. |
 | 9 | Graceful shutdown | `[ ]` | No SIGTERM drain; no worker process. Phase D (serverless today). |
 | 10 | DB migrations | `[x]` | 21+ versioned Drizzle SQL migrations; no prod auto-sync. Strong. |
 | 11 | Indexing & N+1 | `[x]` | 66 indexes / 68 FKs; `DISTINCT ON` + batched `inArray`. Strong. |
@@ -306,13 +306,23 @@ melt Postgres.
   - **Evidence.** `npx tsc --noEmit` ✅ · `npm run lint` ✅ (one pre-existing
     unrelated warning).
 
-- [ ] **B8. Unified error envelope + trace id** · `SKILL §5.1`, matrix #8
+- [x] **B8. Unified error envelope + trace id** · `SKILL §5.1`, matrix #8
   - **Problem.** `/api/onboarding/*`, `/api/ai/*`, `/api/sign-out` return
     `{ error: "..." }`; `/api/v1/*` returns `{ error: { code, message } }`; no
     `trace_id` in errors.
   - **Do.** One helper shaping `{ error: { code, message, trace_id } }`; adopt a
     consistent status taxonomy (see C4). Include `getRequestId()` in bodies.
   - **Acceptance.** Every JSON error has the same shape and a queryable trace id.
+  - **Landed.** New `lib/api/error-envelope.ts` (`errorEnvelope` / `jsonError`)
+    is the single source of truth; `apiError` in `lib/api/http.ts` now emits
+    `trace_id` (from `getRequestId()`, minted when there is no ALS frame) and
+    echoes it as `x-request-id`. Converted every raw `{ error: "..." }` route:
+    `/api/ai/*` (5 files), `/api/onboarding/*` (5), `/api/webhooks/gmail`, and
+    the three `/api/v1/cron/*` routes. Validation `issues` now live under
+    `error.details`; `/api/sign-out` had no error path.
+  - **Evidence.** `grep "error: *\"\|json({ error"` across `app/api` → no
+    matches ✅ · `npx tsc --noEmit` ✅ · `npm run lint` ✅ (one pre-existing
+    unrelated warning).
 
 - [ ] **B9. HTTP idempotency for mutating POSTs** · `SKILL §8.2`
   - **Problem.** Only `sendEmail` has a ledger; arbitrary retried POSTs can
@@ -400,7 +410,7 @@ horizontally, and traces/metrics are exported.
 | P2 | No OpenAPI contract | repo root | C1 |
 | P2 | SQL in services (no repos) | `lib/inbox`, `lib/services` | C2 |
 | P2 | No unit/integration pyramid | `scripts/` only | C3 |
-| P2 | Inconsistent error envelope | mixed route groups | B8 |
+| P2 | Inconsistent error envelope | mixed route groups | B8 ✅ |
 | P2 | No tracing/metrics | — | D5 |
 
 ---

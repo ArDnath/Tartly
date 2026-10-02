@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { jsonError } from "@/lib/api/error-envelope";
 import {
   DEFAULT_CALENDAR_SETTINGS,
   upsertCalendarSettings,
@@ -25,22 +26,22 @@ const bodySchema = z.object({
 export async function POST(request: Request) {
   const session = await getSession();
   if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return jsonError("unauthorized", "Unauthorized", 401);
   }
 
   const parsed = bodySchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Invalid request", issues: parsed.error.flatten() },
-      { status: 400 },
-    );
+    return jsonError("validation", "Invalid request", 400, {
+      details: parsed.error.flatten(),
+    });
   }
 
   const input = parsed.data;
   if (input.workEndHour <= input.workStartHour) {
-    return NextResponse.json(
-      { error: "Work end hour must be after the start hour" },
-      { status: 400 },
+    return jsonError(
+      "validation",
+      "Work end hour must be after the start hour",
+      400,
     );
   }
 
