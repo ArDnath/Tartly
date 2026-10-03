@@ -187,12 +187,13 @@ export class AutopilotRepository {
     return rows[0]?.count ?? 0;
   }
 
-  async countAiSendsInThread(threadId: string): Promise<number> {
+  async countAiSendsInThread(userId: string, threadId: string): Promise<number> {
     const rows = await this.database
       .select({ count: sql<number>`count(*)::int` })
       .from(drafts)
       .where(
         and(
+          eq(drafts.userId, userId),
           eq(drafts.threadId, threadId),
           eq(drafts.sentBy, "ai"),
           eq(drafts.status, "sent"),
@@ -214,8 +215,13 @@ export class AutopilotRepository {
     const lastInbound = await this.database
       .select({ at: sql<Date | null>`max(${messages.sentAt})` })
       .from(messages)
+      .innerJoin(threads, eq(threads.id, messages.threadId))
       .where(
-        and(eq(messages.threadId, threadId), eq(messages.direction, "inbound")),
+        and(
+          eq(threads.userId, userId),
+          eq(messages.threadId, threadId),
+          eq(messages.direction, "inbound"),
+        ),
       );
 
     const lastHumanDraft = await this.database
@@ -276,7 +282,7 @@ export class AutopilotRepository {
       await Promise.all([
         this.countAiSendsSince(input.userId, new Date(input.now.getTime() - hourMs)),
         this.countAiSendsSince(input.userId, new Date(input.now.getTime() - dayMs)),
-        this.countAiSendsInThread(input.threadId),
+        this.countAiSendsInThread(input.userId, input.threadId),
         this.countConsecutiveAutomatedExchanges(
           input.userId,
           input.threadId,

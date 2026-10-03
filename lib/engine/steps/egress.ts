@@ -4,6 +4,8 @@ import { z } from "zod";
 
 import { defineStep } from "@/lib/engine/step";
 import { isAutopilotEnabled } from "@/lib/env";
+import { recordAutopilotDecisionMetric } from "@/lib/observability/autopilot-metrics";
+import { logger } from "@/lib/observability/logger";
 import { threadRepository } from "@/lib/repositories/threads";
 import { resolveAutonomy } from "@/lib/settings/autonomy";
 import {
@@ -70,84 +72,103 @@ export const egressStep = defineStep({
     }
 
     // --- Autopilot: evaluate the policy gate. ----------------------------
-    // Missing mailbox is a fail-safe draft (we cannot scope a policy or audit).
-    if (!mailboxId) {
-      ctx.log("egress", { decision: "draft", reason: "autopilot_disabled" });
+    // Fault-Safety clause 1: any unexpected error on this path (bad/stale
+    // policy, counter query failure, transient DB error) resolves to a draft.
+    // It must never become a send and must never crash the run.
+    try {
+      // Missing mailbox is a fail-safe draft (we cannot scope a policy or audit).
+      if (!mailboxId) {
+        ctx.log("egress", { decision: "draft", reason: "autopilot_disabled" });
+        recordAutopilotDecisionMetric({ allowed: false, reason: "autopilot_disabled" });
+        return {
+          decision: "draft",
+          reason: "autopilot_disabled",
+          autonomy,
+          autonomySource: source,
+        };
+      }
+
+      const now = new Date();
+      const policy = await getAutopilotPolicyForMailbox(ctx.userId, mailboxId);
+      const usage = await getAutopilotUsage({
+        userId: ctx.userId,
+        threadId,
+        now,
+        loopThreshold: policy.loopThreshold,
+      });
+
+      const violations = toViolationList(ctx.state.violations);
+      const category = typeof ctx.state.category === "string" ? ctx.state.category : null;
+      const confidence = normalizeConfidence(ctx.state.confidence);
+      const knownSender =
+        !policy.requireKnownSender
+          ? true
+          : await isKnownSender({ userId: ctx.userId, email: contactEmail ?? null });
+
+      const gate = evaluateAutopilotGate({
+        now,
+        policy,
+        globalEnabled: isAutopilotEnabled(),
+        category,
+        confidence,
+        contactEmail: contactEmail ?? null,
+        knownSender,
+        guardrailViolations: violations,
+        sentLastHour: usage.sentLastHour,
+        sentLastDay: usage.sentLastDay,
+        sentInThread: usage.sentInThread,
+        consecutiveAutomatedExchanges: usage.consecutiveAutomatedExchanges,
+      });
+
+      const decision: "draft" | "send" = gate.allowed ? "send" : "draft";
+      const reason = gate.allowed ? "autopilot" : gate.reason;
+
+      await recordAutopilotDecision({
+        userId: ctx.userId,
+        mailboxId,
+        threadId,
+        runId: ctx.runId,
+        draftId: typeof ctx.state.draftId === "string" ? ctx.state.draftId : null,
+        contactEmail: contactEmail ?? null,
+        decision,
+        reason,
+        autonomySource: source,
+        category,
+        confidence,
+        checks: gate.checks,
+        policyVersion: policy.policyVersion,
+      });
+
+      recordAutopilotDecisionMetric({ allowed: gate.allowed, reason });
+
+      ctx.log("egress", {
+        decision,
+        reason,
+        autonomy,
+        source,
+        checks: gate.checks,
+      });
+
+      return {
+        decision,
+        reason,
+        autonomy,
+        autonomySource: source,
+        autopilotReason: reason,
+        autopilotChecks: gate.checks,
+      };
+    } catch (error) {
+      logger.error("autopilot_gate_error", {
+        error: error instanceof Error ? error.name : "unknown",
+      });
+      recordAutopilotDecisionMetric({ allowed: false, reason: "autopilot_error" });
       return {
         decision: "draft",
-        reason: "autopilot_disabled",
+        reason: "autopilot_error",
         autonomy,
         autonomySource: source,
       };
     }
-
-    const now = new Date();
-    const policy = await getAutopilotPolicyForMailbox(ctx.userId, mailboxId);
-    const usage = await getAutopilotUsage({
-      userId: ctx.userId,
-      threadId,
-      now,
-      loopThreshold: policy.loopThreshold,
-    });
-
-    const violations = toViolationList(ctx.state.violations);
-    const category = typeof ctx.state.category === "string" ? ctx.state.category : null;
-    const confidence = normalizeConfidence(ctx.state.confidence);
-    const knownSender =
-      !policy.requireKnownSender
-        ? true
-        : await isKnownSender({ userId: ctx.userId, email: contactEmail ?? null });
-
-    const gate = evaluateAutopilotGate({
-      now,
-      policy,
-      globalEnabled: isAutopilotEnabled(),
-      category,
-      confidence,
-      contactEmail: contactEmail ?? null,
-      knownSender,
-      guardrailViolations: violations,
-      sentLastHour: usage.sentLastHour,
-      sentLastDay: usage.sentLastDay,
-      sentInThread: usage.sentInThread,
-      consecutiveAutomatedExchanges: usage.consecutiveAutomatedExchanges,
-    });
-
-    const decision: "draft" | "send" = gate.allowed ? "send" : "draft";
-    const reason = gate.allowed ? "autopilot" : gate.reason;
-
-    await recordAutopilotDecision({
-      userId: ctx.userId,
-      mailboxId,
-      threadId,
-      runId: ctx.runId,
-      draftId: typeof ctx.state.draftId === "string" ? ctx.state.draftId : null,
-      contactEmail: contactEmail ?? null,
-      decision,
-      reason,
-      autonomySource: source,
-      category,
-      confidence,
-      checks: gate.checks,
-      policyVersion: policy.policyVersion,
-    });
-
-    ctx.log("egress", {
-      decision,
-      reason,
-      autonomy,
-      source,
-      checks: gate.checks,
-    });
-
-    return {
-      decision,
-      reason,
-      autonomy,
-      autonomySource: source,
-      autopilotReason: reason,
-      autopilotChecks: gate.checks,
-    };
   },
 });
 

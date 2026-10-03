@@ -52,6 +52,22 @@ export class MessageRepository {
   }
 
   /**
+   * The newest `limit` messages of a thread, returned oldest-first. Use this
+   * (not `listOldestByThread`) for reply context: the engine must see the most
+   * recent turn, and `latestInbound` must not fall outside the window on long
+   * threads.
+   */
+  async listRecentByThread(threadId: string, limit: number): Promise<Message[]> {
+    const rows = await this.database
+      .select()
+      .from(messages)
+      .where(eq(messages.threadId, threadId))
+      .orderBy(desc(messages.sentAt))
+      .limit(limit);
+    return rows.reverse();
+  }
+
+  /**
    * Only the newest message per thread feeds an inbox row. `DISTINCT ON` lets
    * Postgres return one row per thread instead of streaming the whole history
    * so JS can throw all but the last away.

@@ -2,6 +2,7 @@ import "server-only";
 
 import { nanoid } from "nanoid";
 
+import { logger } from "@/lib/observability/logger";
 import {
   autopilotRepository,
   type AutopilotDecisionRow,
@@ -77,7 +78,11 @@ export async function recordAutopilotDecision(
       policyVersion: input.policyVersion ?? AUTOPILOT_POLICY_VERSION,
     });
   } catch (error) {
-    console.error("[autopilot] failed to record decision", error);
+    // T-06: never log the raw driver error — Postgres/Drizzle messages can echo
+    // bound parameter values (e.g. `contact_email`). Record the error name only.
+    logger.error("autopilot_decision_record_failed", {
+      error: error instanceof Error ? error.name : "unknown",
+    });
   }
 }
 

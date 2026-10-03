@@ -3,8 +3,10 @@ import "server-only";
 import { nanoid } from "nanoid";
 
 import {
+  autopilotMaxLoopThreshold,
   autopilotMaxPerDay,
   autopilotMaxPerHour,
+  autopilotMaxPerThread,
   autopilotMinConfidence,
   type AutopilotConfidence,
 } from "@/lib/env";
@@ -98,6 +100,7 @@ export type AutopilotGateReason =
   | "day_cap"
   | "thread_cap"
   | "loop_detected"
+  | "autopilot_error"
   | `guardrails:${string}`;
 
 export type AutopilotGateResult = {
@@ -119,6 +122,7 @@ export const AUTOPILOT_REASON_LABELS: Record<string, string> = {
   day_cap: "Held for review: sending limit reached",
   thread_cap: "Held for review: sending limit reached",
   loop_detected: "Held for review: repeated auto-replies",
+  autopilot_error: "Held for review: couldn't check safely",
 };
 
 /** Resolves a reason (including `guardrails:*`) to human copy. */
@@ -162,8 +166,8 @@ export function defaultAutopilotPolicy(input: {
     allowedCategories: ["needs_reply"],
     maxPerHour: autopilotMaxPerHour(),
     maxPerDay: autopilotMaxPerDay(),
-    maxPerThread: 3,
-    loopThreshold: 3,
+    maxPerThread: Math.min(3, autopilotMaxPerThread()),
+    loopThreshold: Math.min(3, autopilotMaxLoopThreshold()),
     morningReview: true,
     policyVersion: AUTOPILOT_POLICY_VERSION,
   };
@@ -175,7 +179,9 @@ export function policyFromRow(row: AutopilotPolicyRow): AutopilotPolicy {
     mailboxId: row.mailboxId,
     enabled: row.enabled,
     mode: normalizeMode(row.mode),
-    timezone: row.timezone,
+    // A stale/corrupt timezone must not make the gate throw on every message.
+    // Fail safe to UTC (never to a send) rather than crashing the run.
+    timezone: isValidTimezone(row.timezone) ? row.timezone : "UTC",
     days: Array.isArray(row.days) && row.days.length > 0 ? row.days : [1, 2, 3, 4, 5, 6, 7],
     windowStartHour: clampHour(row.windowStartHour, 22),
     windowEndHour: clampHour(row.windowEndHour, 7),
@@ -188,8 +194,14 @@ export function policyFromRow(row: AutopilotPolicyRow): AutopilotPolicy {
       : ["needs_reply"],
     maxPerHour: clampPositive(row.maxPerHour, autopilotMaxPerHour()),
     maxPerDay: clampPositive(row.maxPerDay, autopilotMaxPerDay()),
-    maxPerThread: clampPositive(row.maxPerThread, 3),
-    loopThreshold: clampPositive(row.loopThreshold, 3),
+    maxPerThread: Math.min(
+      clampPositive(row.maxPerThread, 3),
+      autopilotMaxPerThread(),
+    ),
+    loopThreshold: Math.min(
+      clampPositive(row.loopThreshold, 3),
+      autopilotMaxLoopThreshold(),
+    ),
     morningReview: row.morningReview,
     policyVersion: row.policyVersion,
   };
@@ -274,10 +286,16 @@ export function applyPolicyPatch(
     );
   }
   if (patch.maxPerThread !== undefined) {
-    next.maxPerThread = clampPositive(patch.maxPerThread, current.maxPerThread);
+    next.maxPerThread = Math.min(
+      clampPositive(patch.maxPerThread, current.maxPerThread),
+      autopilotMaxPerThread(),
+    );
   }
   if (patch.loopThreshold !== undefined) {
-    next.loopThreshold = clampPositive(patch.loopThreshold, current.loopThreshold);
+    next.loopThreshold = Math.min(
+      clampPositive(patch.loopThreshold, current.loopThreshold),
+      autopilotMaxLoopThreshold(),
+    );
   }
   if (patch.morningReview !== undefined) {
     next.morningReview = patch.morningReview === true;

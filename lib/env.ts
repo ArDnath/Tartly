@@ -251,6 +251,10 @@ const envSchema = z.object({
   // Platform ceilings that clamp a user's policy on write.
   AUTOPILOT_MAX_PER_HOUR: z.coerce.number().int().positive().optional(),
   AUTOPILOT_MAX_PER_DAY: z.coerce.number().int().positive().optional(),
+  // Ceilings for the per-thread cap and loop threshold. A compromised session
+  // must not be able to raise these high enough to defeat loop protection.
+  AUTOPILOT_MAX_PER_THREAD: z.coerce.number().int().positive().optional(),
+  AUTOPILOT_MAX_LOOP_THRESHOLD: z.coerce.number().int().positive().optional(),
   // Platform floor for min confidence ("HIGH" | "MEDIUM" | "LOW").
   AUTOPILOT_MIN_CONFIDENCE: z.enum(["HIGH", "MEDIUM", "LOW"]).optional(),
   // How many queue jobs the webhook `after()` drains inline. Clamped to the
@@ -533,6 +537,8 @@ export type AutopilotConfidence = "HIGH" | "MEDIUM" | "LOW";
 
 export const DEFAULT_AUTOPILOT_MAX_PER_HOUR = 10;
 export const DEFAULT_AUTOPILOT_MAX_PER_DAY = 50;
+export const DEFAULT_AUTOPILOT_MAX_PER_THREAD = 10;
+export const DEFAULT_AUTOPILOT_MAX_LOOP_THRESHOLD = 10;
 export const DEFAULT_AUTOPILOT_MIN_CONFIDENCE: AutopilotConfidence = "HIGH";
 export const DEFAULT_WEBHOOK_DRAIN_BATCH_SIZE = 5;
 export const DEFAULT_AUTOPILOT_DECISION_RETENTION_DAYS = 90;
@@ -551,6 +557,16 @@ export function autopilotMaxPerHour(): number {
 
 export function autopilotMaxPerDay(): number {
   return env.AUTOPILOT_MAX_PER_DAY ?? DEFAULT_AUTOPILOT_MAX_PER_DAY;
+}
+
+/** Platform ceiling for a policy's `maxPerThread`. */
+export function autopilotMaxPerThread(): number {
+  return env.AUTOPILOT_MAX_PER_THREAD ?? DEFAULT_AUTOPILOT_MAX_PER_THREAD;
+}
+
+/** Platform ceiling for a policy's `loopThreshold`. */
+export function autopilotMaxLoopThreshold(): number {
+  return env.AUTOPILOT_MAX_LOOP_THRESHOLD ?? DEFAULT_AUTOPILOT_MAX_LOOP_THRESHOLD;
 }
 
 export function autopilotMinConfidence(): AutopilotConfidence {
