@@ -60,14 +60,17 @@ export async function loadThreadContext({
   const thread = await threadRepository.findByIdForUser(userId, threadId);
   if (!thread) return null;
 
-  const history = await messageRepository.listOldestByThread(
+  const history = await messageRepository.listRecentByThread(
     threadId,
     historyLimit,
   );
 
+  // Query the newest inbound directly. Deriving it from a bounded history
+  // window returned a stale message on long threads, which would make the
+  // engine reply to the wrong sender (T-19) and skip the auto_responder
+  // guardrail for the current message.
   const latestInbound =
-    [...history].reverse().find((message) => message.direction === "inbound") ??
-    null;
+    (await messageRepository.latestInboundByThreadId(threadId)) ?? null;
 
   let contact: ContactRow | null = null;
   if (latestInbound?.fromAddr) {

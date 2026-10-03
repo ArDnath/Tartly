@@ -1,6 +1,7 @@
 import "server-only";
 
 import { invalidateBriefing } from "@/lib/briefing/service";
+import { logger } from "@/lib/observability/logger";
 import { mailboxRepository } from "@/lib/repositories/mailboxes";
 import { assistantSettingsRepository } from "@/lib/repositories/assistant-settings";
 import { getAutopilotPolicyForMailbox } from "@/lib/settings/autopilot";
@@ -69,10 +70,11 @@ export async function runAutopilotReview(
         })
         .catch(() => {});
     } catch (error) {
-      console.warn(
-        `[autopilot-review] failed for mailbox ${mailbox.id}`,
-        error,
-      );
+      // T-06: log identifiers and the error name, never the raw driver error.
+      logger.warn("autopilot_review_mailbox_failed", {
+        mailboxId: mailbox.id,
+        error: error instanceof Error ? error.name : "unknown",
+      });
     }
   }
 

@@ -90,6 +90,7 @@ describe("gate reason labels (single source of truth)", () => {
     "day_cap",
     "thread_cap",
     "loop_detected",
+    "autopilot_error",
   ];
 
   it("labels every static reason", () => {

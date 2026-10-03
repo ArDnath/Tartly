@@ -5,6 +5,8 @@ import { jsonError } from "@/lib/api/error-envelope";
 import { drainQueue } from "@/lib/email-operator/drain";
 import { recordEvent, processGmailEvent } from "@/lib/email-operator/events";
 import { findMailboxByEmail } from "@/lib/email-operator/mailbox";
+import { incrementCounter } from "@/lib/observability/metrics";
+import { logger } from "@/lib/observability/logger";
 import {
   getPubSubAudience,
   isEmailOperatorEnabled,
@@ -39,7 +41,9 @@ export async function POST(request: NextRequest) {
       getPubSubAudience(),
     );
   } catch (error) {
-    console.warn("[webhooks/gmail] OIDC verification failed", error);
+    logger.warn("webhook_oidc_verification_failed", {
+      error: error instanceof Error ? error.name : "unknown",
+    });
     return jsonError("unauthorized", "Invalid OIDC token.", 401);
   }
 
@@ -73,6 +77,10 @@ export async function POST(request: NextRequest) {
     },
   });
 
+  incrementCounter("webhook_events_total", {
+    deduped: isNew ? "false" : "true",
+  });
+
   if (isNew) {
     after(async () => {
       try {
@@ -85,8 +93,13 @@ export async function POST(request: NextRequest) {
           workerId: `webhook:${id}:${Date.now().toString(36)}`,
           batchSize: webhookDrainBatchSize(),
         });
+        incrementCounter("webhook_processed_total");
       } catch (error) {
-        console.error("[webhooks/gmail] processing failed", error);
+        incrementCounter("webhook_processing_failed_total");
+        logger.error("webhook_processing_failed", {
+          eventId: id,
+          error: error instanceof Error ? error.name : "unknown",
+        });
       }
     });
   }
