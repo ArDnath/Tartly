@@ -2,8 +2,8 @@ import "server-only";
 
 import {
   getGoogleAccessToken,
+  googleAuthFailure,
   GmailApiError,
-  GmailAuthError,
 } from "@/lib/gmail/client";
 
 /**
@@ -39,9 +39,7 @@ export const defaultCalendarTransport: CalendarTransport = async (
   });
 
   if (response.status === 401 || response.status === 403) {
-    throw new GmailAuthError(
-      `Calendar authorization failed (${response.status}); reconnect Google.`,
-    );
+    return googleAuthFailure(response, "Calendar", userId);
   }
 
   return response;

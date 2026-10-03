@@ -111,6 +111,19 @@ export function invalidateGoogleAccessToken(): void {
   accessTokenCache.clear();
 }
 
+/**
+ * Drop one user's cached access token.
+ *
+ * Called when Google rejects the token with a 401/403: the cached entry is
+ * demonstrably unusable, and because re-linking updates the *same* account row
+ * (same cache key), leaving it in place would keep serving the bad token for the
+ * rest of its TTL — so a reconnect would look like it did nothing.
+ */
+export async function forgetGoogleAccessToken(userId: string): Promise<void> {
+  const accountId = await getGoogleAuthAccountId(userId);
+  if (accountId) accessTokenCache.delete(accountId);
+}
+
 /** Transport seam so tests can run the send path without hitting Google. */
 export type GmailTransport = (
   userId: string,
@@ -120,6 +133,78 @@ export type GmailTransport = (
 
 /** Every Gmail call is bounded; a hung socket must never stall a request. */
 export const GMAIL_REQUEST_TIMEOUT_MS = 20_000;
+
+/**
+ * Google reasons that mean the grant is unusable (a reconnect fixes them).
+ * Anything not on the non-auth list below is treated as one of these.
+ */
+const NON_AUTH_GOOGLE_REASONS = new Set([
+  "accessNotConfigured",
+  "SERVICE_DISABLED",
+  "API_DISABLED",
+  "rateLimitExceeded",
+  "userRateLimitExceeded",
+  "RESOURCE_EXHAUSTED",
+]);
+
+/** Google's machine-readable error reason(s) from a response body, if any. */
+async function googleErrorReasons(response: Response): Promise<string[]> {
+  try {
+    const body = (await response.clone().json()) as {
+      error?: {
+        errors?: Array<{ reason?: string }>;
+        details?: Array<{ reason?: string }>;
+      };
+    };
+    return [
+      ...(body.error?.errors ?? []).map((entry) => entry.reason),
+      ...(body.error?.details ?? []).map((entry) => entry.reason),
+    ].filter((reason): reason is string => Boolean(reason));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Whether a Google 401/403 is a grant problem (reconnect helps) rather than a
+ * Cloud-project/quota problem (reconnect does not). A 401 is always the former;
+ * an unrecognized 403 is treated as the former too, so a real scope failure
+ * never strands the user behind a message that tells them to do nothing.
+ */
+function shouldReconnectGoogle(status: number, reasons: string[]): boolean {
+  if (status === 401) return true;
+  return !reasons.some((reason) => NON_AUTH_GOOGLE_REASONS.has(reason));
+}
+
+/**
+ * Convert a Google 401/403 into the right error and evict the bad token.
+ *
+ * A 403 is ambiguous: Google uses it both for "the grant lacks the required
+ * scope" (reconnect fixes it) and for "the API is disabled in this project" or
+ * an exhausted quota (reconnect does not). Reading the reason keeps the advice
+ * honest instead of always saying "reconnect Google". Never returns.
+ */
+export async function googleAuthFailure(
+  response: Response,
+  apiLabel: string,
+  userId: string,
+): Promise<never> {
+  const reasons = await googleErrorReasons(response);
+  if (shouldReconnectGoogle(response.status, reasons)) {
+    // Evict before throwing so the next attempt after a reconnect re-reads the
+    // stored tokens instead of replaying the rejected one.
+    await forgetGoogleAccessToken(userId).catch(() => {});
+    throw new GmailAuthError(
+      `${apiLabel} authorization failed (${response.status}); reconnect Google.`,
+    );
+  }
+  throw new GmailApiError(
+    response.status,
+    `${apiLabel} request failed (${response.status}${
+      reasons[0] ? `, ${reasons[0]}` : ""
+    }).`,
+  );
+}
 
 export const defaultGmailTransport: GmailTransport = async (
   userId,
@@ -138,9 +223,7 @@ export const defaultGmailTransport: GmailTransport = async (
   });
 
   if (response.status === 401 || response.status === 403) {
-    throw new GmailAuthError(
-      `Gmail authorization failed (${response.status}); reconnect Google.`,
-    );
+    return googleAuthFailure(response, "Gmail", userId);
   }
 
   return response;
