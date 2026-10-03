@@ -33,6 +33,9 @@ export async function loadInitialMailbox(
         name: account.emailAddress.split("@")[0] ?? "Me",
         email: account.emailAddress,
       },
+      ...(mailbox.nextPageToken
+        ? { nextPageToken: mailbox.nextPageToken }
+        : {}),
     };
   } catch (error) {
     console.warn("[mail] initial mailbox prefetch failed", error);

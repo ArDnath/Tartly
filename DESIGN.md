@@ -327,11 +327,14 @@ scrim.
 
 ### Signature: AI-authored surfaces
 
-The one place the system allows a gradient. `.surface-ai-gradient` paints the
-Operator Spectrum onto the "Approve & Send" control and the frame around a drafted
-body; it exists so machine-written content is unmistakable at a glance. Pair it
-with `--activity-accent` only on the activity board, where the warm signal marks
-the peak.
+Machine-written content is marked in the palette, not with a decorative ramp. In
+the composer, the agent's live chain-of-thought renders in the body area while it
+works; once it delivers, that thread is replaced by the draft in a **square**
+frame (`rounded-none`, generous inside padding) with a `--mail-recipient` border,
+and "Approve & Send" takes the same bracketed `ClickPowerUp` treatment as "Write
+with AI" — one size larger. `.surface-ai-gradient` (the Operator Spectrum) remains
+the landing hero's signature; pair it with `--activity-accent` only on the activity
+board, where the warm signal marks the peak.
 
 ### Signature: the dither-kit chart
 

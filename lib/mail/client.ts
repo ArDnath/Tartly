@@ -38,6 +38,12 @@ export interface Mailbox {
   messages: MailMessage[];
   labels: string[];
   account: MailAddress;
+  /**
+   * Opaque Gmail cursor for the slice after this page. Absent on the last page.
+   * The client only ever holds it in memory to fetch the *next* page on demand —
+   * nothing is persisted, so the full mailbox never lands in a database.
+   */
+  nextPageToken?: string;
 }
 
 /** A Gmail-side mailbox. The sidebar's views map onto these. */
@@ -58,34 +64,66 @@ export interface MailboxRequest {
   /** Extra Gmail search syntax stacked on the box, e.g. `label:"Investors"`. */
   search?: string;
   limit?: number;
+  /**
+   * Cursor returned by a previous call as `nextPageToken`. Omit for the first
+   * page; pass it to fetch the page after the one already loaded.
+   */
+  pageToken?: string;
 }
 
-/** One page of one box. Each destination asks Gmail for itself. */
-export async function fetchMailbox(
+/** The list slice of a mailbox fetch — no account/profile round trip. */
+export interface MailboxPage {
+  messages: MailMessage[];
+  labels: string[];
+  nextPageToken?: string;
+}
+
+/**
+ * One cursor slice of one box. The destination identity and cursor both live in
+ * `request_`, so a "load more" is just the same call with `pageToken` set.
+ */
+export async function fetchMailboxPage(
   request_: MailboxRequest = { box: "inbox" },
-): Promise<Mailbox> {
+): Promise<MailboxPage> {
   const params = new URLSearchParams({
     box: request_.box,
     limit: String(request_.limit ?? 60),
   });
   if (request_.search) params.set("search", request_.search);
+  if (request_.pageToken) params.set("pageToken", request_.pageToken);
 
-  const [mailbox, account] = await Promise.all([
-    request<{
-      messages: MailMessage[];
-      labels: string[];
-      nextPageToken?: string;
-    }>(`/api/v1/mail/messages?${params}`),
-    request<{ emailAddress: string }>("/api/v1/mail/profile"),
-  ]);
+  const mailbox = await request<{
+    messages: MailMessage[];
+    labels: string[];
+    nextPageToken?: string;
+  }>(`/api/v1/mail/messages?${params}`);
 
   return {
     messages: mailbox.messages,
     labels: mailbox.labels,
+    ...(mailbox.nextPageToken
+      ? { nextPageToken: mailbox.nextPageToken }
+      : {}),
+  };
+}
+
+/** One page of one box, plus the signed-in account for the first load. */
+export async function fetchMailbox(
+  request_: MailboxRequest = { box: "inbox" },
+): Promise<Mailbox> {
+  const [page, account] = await Promise.all([
+    fetchMailboxPage(request_),
+    request<{ emailAddress: string }>("/api/v1/mail/profile"),
+  ]);
+
+  return {
+    messages: page.messages,
+    labels: page.labels,
     account: {
       name: account.emailAddress.split("@")[0] ?? "Me",
       email: account.emailAddress,
     },
+    ...(page.nextPageToken ? { nextPageToken: page.nextPageToken } : {}),
   };
 }
 

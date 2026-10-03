@@ -5587,6 +5587,107 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
       security:
         - sessionCookie: []
+  /api/v1/mail/compose:
+    post:
+      operationId: composeMailWithAgent
+      tags:
+        - mail
+      summary: Stream the compose agent (never sends)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text:
+                  type: string
+                  minLength: 1
+                  maxLength: 8000
+                compose:
+                  type: object
+                  properties:
+                    to:
+                      maxItems: 20
+                      type: array
+                      items:
+                        type: string
+                        maxLength: 320
+                    cc:
+                      maxItems: 20
+                      type: array
+                      items:
+                        type: string
+                        maxLength: 320
+                    bcc:
+                      maxItems: 20
+                      type: array
+                      items:
+                        type: string
+                        maxLength: 320
+                    subject:
+                      type: string
+                      maxLength: 500
+                    body:
+                      type: string
+                      maxLength: 20000
+              required:
+                - text
+      responses:
+        "200":
+          description: AI SDK UI message stream; the `deliver_composer_draft` tool result carries the draft.
+          content:
+            text/event-stream: {}
+        "400":
+          description: Syntactic validation failure (invalid body/query).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Missing or invalid credentials.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Authenticated but not permitted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Resource not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: State conflict (duplicate/unique violation).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Semantic validation failure (domain rule).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "429":
+          description: Rate limit exceeded; see `Retry-After`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Unhandled server error (redacted).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+      security:
+        - sessionCookie: []
   /api/v1/mail/draft:
     post:
       operationId: mailDraftWithAi

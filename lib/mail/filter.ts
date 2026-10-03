@@ -67,16 +67,23 @@ function matchesQuery(message: MailMessage, query: MailQuery): boolean {
 }
 
 /** The rows visible for the active view/label, with the filter popover's
- * predicates stacked on top, newest first. */
+ * predicates stacked on top, newest first.
+ *
+ * `scope` optionally narrows to one loaded page's ids: the store keeps a union
+ * of every destination so the sidebar counts and mutations can see it, but the
+ * list itself shows a single page at a time. */
 export function selectMessages(
   messages: MailMessage[],
   filter: MailFilter,
   query: MailQuery,
+  scope?: ReadonlySet<string> | null,
 ): MailMessage[] {
   return messages
     .filter(
       (message) =>
-        matchesFilter(message, filter) && matchesQuery(message, query),
+        (!scope || scope.has(message.id)) &&
+        matchesFilter(message, filter) &&
+        matchesQuery(message, query),
     )
     .sort(byNewest);
 }

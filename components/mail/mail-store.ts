@@ -49,6 +49,9 @@ function keyFor(filter: MailFilter): string {
   return `${filter.kind}:${filter.value}`;
 }
 
+/** Public alias so the list can ask whether the current view has a next page. */
+export { keyFor as mailFilterKey };
+
 /** What to ask the BFF for, or null when the view is local-only. */
 function requestFor(filter: MailFilter): mailApi.MailboxRequest | null {
   if (filter.kind === "label") {
@@ -68,6 +71,12 @@ function requestFor(filter: MailFilter): mailApi.MailboxRequest | null {
  * can both ask for the same page on mount; this keeps that to one round trip.
  */
 const loadInFlight = new Set<string>();
+
+/**
+ * Destinations with a *next-page* fetch in flight. Separate from `loadInFlight`
+ * so a manual "load more" never collapses into, or blocks, a concurrent refresh.
+ */
+const loadMoreInFlight = new Set<string>();
 
 /**
  * Fold a freshly fetched page into the union the store keeps.
@@ -109,10 +118,61 @@ function absorb(
   };
 }
 
+/**
+ * Fold a *follow-on* cursor page into a destination that is already loaded.
+ *
+ * This is deliberately not `absorb`: `absorb` resyncs a page and drops rows the
+ * refetch no longer lists, which is right for a refresh but wrong here — the
+ * earlier pages are still valid, Gmail merely returned the next slice. New rows
+ * append; rows already in the union (a message a label page also holds) are
+ * refreshed in place rather than duplicated.
+ */
+function appendPage(
+  messages: MailMessage[],
+  pages: Record<string, string[]>,
+  key: string,
+  page: MailMessage[],
+): { messages: MailMessage[]; pages: Record<string, string[]> } {
+  const fresh = new Map(page.map((message) => [message.id, message]));
+  const known = new Set(messages.map((message) => message.id));
+
+  const refreshed = messages.map((message) => fresh.get(message.id) ?? message);
+  const added = page.filter((message) => !known.has(message.id));
+
+  const previous = pages[key] ?? [];
+  const held = new Set(previous);
+  const appended = page
+    .map((message) => message.id)
+    .filter((id) => !held.has(id));
+
+  return {
+    messages: [...refreshed, ...added],
+    pages: { ...pages, [key]: [...previous, ...appended] },
+  };
+}
+
+/**
+ * Where a destination is in its Gmail page walk.
+ *
+ * `chunks` holds the id list of every page visited this session, so stepping
+ * back and forward is instant and never refetches. `index` is the page on
+ * screen; `nextToken` is Gmail's cursor for the page after the last loaded one.
+ * Session-only: the cursor and the ids live in memory, never in a database.
+ */
+interface MailPager {
+  chunks: string[][];
+  index: number;
+  nextToken?: string;
+}
+
 interface MailState {
   messages: MailMessage[];
   /** Message ids per destination already fetched — see `absorb`. */
   pages: Record<string, string[]>;
+  /** Page walk per destination, keyed like `pages`. See `MailPager`. */
+  pagers: Record<string, MailPager>;
+  /** A next-page fetch is running for the view on screen. */
+  loadingMore: boolean;
   status: "idle" | "loading" | "ready" | "error";
   error: string | null;
   labels: string[];
@@ -128,6 +188,10 @@ interface MailState {
   undo: MailUndo | null;
 
   load: (force?: boolean) => Promise<void>;
+  /** Advance one page — cached if already visited, otherwise fetched. */
+  nextPage: () => Promise<void>;
+  /** Step back one page from the in-memory cache (never refetches). */
+  prevPage: () => void;
   /** Seed the store from the server-prefetched default mailbox. */
   hydrate: (mailbox: InitialMailbox) => void;
   /** True once the server prefetch has resolved (with data or `null`). */
@@ -252,11 +316,17 @@ export const useMailStore = create<MailState>((set, get) => {
       pages: Object.fromEntries(
         Object.entries(state.pages).filter(([key]) => !keys.includes(key)),
       ),
+      // Drop the page walk too: a refetched destination starts at page one.
+      pagers: Object.fromEntries(
+        Object.entries(state.pagers).filter(([key]) => !keys.includes(key)),
+      ),
     }));
 
   return {
     messages: [],
     pages: {},
+    pagers: {},
+    loadingMore: false,
     status: "idle",
     error: null,
     labels: [],
@@ -289,7 +359,7 @@ export const useMailStore = create<MailState>((set, get) => {
 
       set({ status: "loading", error: null });
       try {
-        const { messages, labels, account } =
+        const { messages, labels, account, nextPageToken } =
           await mailApi.fetchMailbox(request);
         // The user may have moved on while this was in flight. The page is
         // still worth keeping, but it must not clear the spinner belonging to
@@ -297,6 +367,16 @@ export const useMailStore = create<MailState>((set, get) => {
         const stillShowing = keyFor(get().filter) === key;
         set((state) => ({
           ...absorb(state.messages, state.pages, key, messages),
+          // A refresh restarts the walk at page one, so its cursor becomes the
+          // only cursor and any deeper pages the destination had are dropped.
+          pagers: {
+            ...state.pagers,
+            [key]: {
+              chunks: [messages.map((message) => message.id)],
+              index: 0,
+              ...(nextPageToken ? { nextToken: nextPageToken } : {}),
+            },
+          },
           labels,
           account,
           ...(stillShowing ? { status: "ready" as const } : {}),
@@ -309,6 +389,80 @@ export const useMailStore = create<MailState>((set, get) => {
       } finally {
         loadInFlight.delete(key);
       }
+    },
+
+    /**
+     * Advance one page. Going forward into already-visited territory is a pure
+     * index move; only the first step past the loaded frontier hits Gmail, one
+     * page (one request) per click. Nothing here runs on scroll or in the
+     * background, and only the returned page is held in memory.
+     */
+    nextPage: async () => {
+      const filter = get().filter;
+      const key = keyFor(filter);
+      const request = requestFor(filter);
+      const pager = get().pagers[key];
+
+      if (!request || !pager || loadMoreInFlight.has(key)) return;
+
+      // Already fetched earlier this session — just move the cursor.
+      if (pager.index + 1 < pager.chunks.length) {
+        set((state) => ({
+          pagers: {
+            ...state.pagers,
+            [key]: { ...pager, index: pager.index + 1 },
+          },
+        }));
+        return;
+      }
+
+      const token = pager.nextToken;
+      if (!token || loadInFlight.has(key)) return;
+      loadMoreInFlight.add(key);
+
+      set({ loadingMore: true, error: null });
+      try {
+        const page = await mailApi.fetchMailboxPage({
+          ...request,
+          pageToken: token,
+        });
+        const ids = page.messages.map((message) => message.id);
+        set((state) => {
+          const current = state.pagers[key] ?? pager;
+          return {
+            ...appendPage(state.messages, state.pages, key, page.messages),
+            pagers: {
+              ...state.pagers,
+              [key]: {
+                chunks: [...current.chunks, ids],
+                index: current.index + 1,
+                ...(page.nextPageToken
+                  ? { nextToken: page.nextPageToken }
+                  : {}),
+              },
+            },
+            labels: page.labels,
+          };
+        });
+      } catch (error) {
+        set({ error: errorMessage(error, "Couldn't load more mail") });
+      } finally {
+        loadMoreInFlight.delete(key);
+        set({ loadingMore: false });
+      }
+    },
+
+    /** Step back one page from the cache. No network, no spinner. */
+    prevPage: () => {
+      const key = keyFor(get().filter);
+      const pager = get().pagers[key];
+      if (!pager || pager.index === 0) return;
+      set((state) => ({
+        pagers: {
+          ...state.pagers,
+          [key]: { ...pager, index: pager.index - 1 },
+        },
+      }));
     },
 
     /**
@@ -326,6 +480,17 @@ export const useMailStore = create<MailState>((set, get) => {
         labels: mailbox.labels,
         account: mailbox.account,
         pages: { [key]: mailbox.messages.map((message) => message.id) },
+        // A one-page walk, carrying the prefetch's cursor so Next works before
+        // any refresh.
+        pagers: {
+          [key]: {
+            chunks: [mailbox.messages.map((message) => message.id)],
+            index: 0,
+            ...(mailbox.nextPageToken
+              ? { nextToken: mailbox.nextPageToken }
+              : {}),
+          },
+        },
         status: "ready",
         error: null,
       });
