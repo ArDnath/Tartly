@@ -1,6 +1,6 @@
 # Ultra-detailed build plan — AI Email Operator in `efforts/app-server`
 
-Status: ready to implement · Target: **Vercel Hobby now, Pro later** (no code changes on upgrade)
+Status: **implemented (shipped)** · Target: **Vercel Hobby now, Pro later** (no code changes on upgrade)
 Scope: **Intelligent inbox · Meeting scheduling · Follow-ups.** (No voice feature.)
 Hard rule: **do not disrupt the existing onboarding → AI-chat flow. Add to it.**
 
@@ -513,55 +513,63 @@ required only when the feature is enabled.
 
 ## 12. Phased task checklist (granular, ship in order)
 
+> **Implementation note (2026-10-03).** All phases below are **shipped** and green;
+> the boxes were ticked retroactively (they were never updated as the work
+> landed). Evidence: the module/route inventory in [`README.md`](./README.md),
+> the Phase A–D tracker in
+> [`PLAN-production-hardening.md`](./PLAN-production-hardening.md), and the unit
+> (184 tests) + integration (86 tests) suites. Commands: `npx tsc --noEmit`,
+> `npm run lint`, `npm run test:unit`, `npm run test:integration`.
+
 ### Phase 1 — Onboarding permissions + Gmail I/O
-- [ ] Widen `GOOGLE_CONNECT_SCOPES` in `lib/onboarding/constants.ts`.
-- [ ] Update the two copy strings in `sync-email-step.tsx`.
-- [ ] Add `connectedCalendarProvider`, `calendarTimezone` to `onboardingState` + snapshot/patch.
-- [ ] Add `CALENDAR_SETUP` to types/status/meta + router case; new `calendar-setup-step.tsx`;
+- [x] Widen `GOOGLE_CONNECT_SCOPES` in `lib/onboarding/constants.ts`.
+- [x] Update the two copy strings in `sync-email-step.tsx`.
+- [x] Add `connectedCalendarProvider`, `calendarTimezone` to `onboardingState` + snapshot/patch.
+- [x] Add `CALENDAR_SETUP` to types/status/meta + router case; new `calendar-setup-step.tsx`;
       `POST /api/onboarding/calendar`; auto-skip when calendar scope absent.
-- [ ] `lib/gmail/{client,parse,mime,sync,send,watch}.ts` (tokens via Better Auth `account`).
-- [ ] Migrations for `mailboxes`, `threads`, `messages`, `contacts`, `threadStates`,
+- [x] `lib/gmail/{client,parse,mime,sync,send,watch}.ts` (tokens via Better Auth `account`).
+- [x] Migrations for `mailboxes`, `threads`, `messages`, `contacts`, `threadStates`,
       `calendarSettings`.
-- [ ] `POST /api/webhooks/gmail` + `after()` processing stub; `GET /api/v1/cron/daily`
+- [x] `POST /api/webhooks/gmail` + `after()` processing stub; `GET /api/v1/cron/daily`
       (watch-renew + history backfill).
-- [ ] `sendLedger` + idempotent `gmail.send`.
-- [ ] Tests: scope verification, MIME parse fixtures, history sync dedupe, send idempotency.
+- [x] `sendLedger` + idempotent `gmail.send`.
+- [x] Tests: scope verification, MIME parse fixtures, history sync dedupe, send idempotency.
 
 ### Phase 2 — Engine + queue
-- [ ] `lib/engine/{step,registry,run,flow}.ts` + `loadSteps()`.
-- [ ] `lib/queue/{enqueue,claim,complete,fail,reap}.ts`.
-- [ ] `jobQueue`/`eventLog`/`flows`/`flowRuns`/`flowCheckpoints` migrations.
-- [ ] `GET /api/v1/cron/drain`; opportunistic `kickDrain()` (Upstash lock) wired into inbox open.
-- [ ] Seed the default `inbound-email` flow.
-- [ ] Tests: claim concurrency (SKIP LOCKED), double-fire idempotency, best-effort vs critical.
+- [x] `lib/engine/{step,registry,run,flow}.ts` + `loadSteps()`.
+- [x] `lib/queue/{enqueue,claim,complete,fail,reap}.ts`.
+- [x] `jobQueue`/`eventLog`/`flows`/`flowRuns`/`flowCheckpoints` migrations.
+- [x] `GET /api/v1/cron/drain`; opportunistic `kickDrain()` (Upstash lock) wired into inbox open.
+- [x] Seed the default `inbound-email` flow.
+- [x] Tests: claim concurrency (SKIP LOCKED), double-fire idempotency, best-effort vs critical.
 
 ### Phase 3 — Intelligent inbox
-- [ ] Steps `triage`, `classify-intent`, `load-context`, `draft-reply`, `guardrails`, `egress`,
+- [x] Steps `triage`, `classify-intent`, `load-context`, `draft-reply`, `guardrails`, `egress`,
       `send-email`, `log-trace`.
-- [ ] `/api/v1/inbox*` routes; `drafts` approve/discard.
-- [ ] `app/inbox/**` UI + `AppShell`/`AppNav` + one-line insertion into `ai-chat-sidebar.tsx`.
-- [ ] Cursor polling (`?since=`) + optimistic updates.
-- [ ] Tests: triage schema, egress gate (copilot default; guardrail forces draft).
+- [x] `/api/v1/inbox*` routes; `drafts` approve/discard.
+- [x] `app/inbox/**` UI + `AppShell`/`AppNav` + one-line insertion into `ai-chat-sidebar.tsx`.
+- [x] Cursor polling (`?since=`) + optimistic updates.
+- [x] Tests: triage schema, egress gate (copilot default; guardrail forces draft).
 
 ### Phase 4 — Meetings
-- [ ] `lib/calendar/{client,freebusy,events,meet,tz}.ts`.
-- [ ] Steps `detect-meeting-intent`, `find-free-slots`, `propose-times`, `create-event`,
+- [x] `lib/calendar/{client,freebusy,events,meet,tz}.ts`.
+- [x] Steps `detect-meeting-intent`, `find-free-slots`, `propose-times`, `create-event`,
       `send-invite`.
-- [ ] `/settings/calendar` API + UI (can reuse the onboarding component).
-- [ ] `meetings` migration; idempotency on `(threadId, proposalId)`.
-- [ ] Tests: tz/DST slot math, buffer/no-overlap, one-event-per-proposal.
+- [x] `/settings/calendar` API + UI (can reuse the onboarding component).
+- [x] `meetings` migration; idempotency on `(threadId, proposalId)`.
+- [x] Tests: tz/DST slot math, buffer/no-overlap, one-event-per-proposal.
 
 ### Phase 5 — Follow-ups
-- [ ] `followupSequences`/`followupEnrollments` migrations; step `schedule-followup`.
-- [ ] `reactivity.onInbound` wired into the inbound flow (reply pauses enrollment).
-- [ ] `GET /api/v1/cron/followups` + daily-cron fan-out.
-- [ ] `/api/v1/followups` pause/stop; minimal UI list.
-- [ ] Tests: stop-on-reply, caps, quiet hours, unreachable-address exclusion.
+- [x] `followupSequences`/`followupEnrollments` migrations; step `schedule-followup`.
+- [x] `reactivity.onInbound` wired into the inbound flow (reply pauses enrollment).
+- [x] `GET /api/v1/cron/followups` + daily-cron fan-out.
+- [x] `/api/v1/followups` pause/stop; minimal UI list.
+- [x] Tests: stop-on-reply, caps, quiet hours, unreachable-address exclusion.
 
 ### Phase 6 — Guardrails & observability
-- [ ] Forbidden phrases, numeric/commitment grounding, prompt-injection classifier.
-- [ ] Per-org AI budget (Upstash counter); `log_trace` → run panel.
-- [ ] Metrics: runs/day, drafts, approvals, meetings booked, follow-ups sent.
+- [x] Forbidden phrases, numeric/commitment grounding, prompt-injection classifier.
+- [x] Per-org AI budget (Upstash counter); `log_trace` → run panel.
+- [x] Metrics: runs/day, drafts, approvals, meetings booked, follow-ups sent.
 
 ---
 

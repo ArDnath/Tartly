@@ -1,6 +1,6 @@
 # Lunabox — AI Capability Upgrade Plan
 
-**Status:** ready to implement · **Scope:** Gmail only · **Surface:** user-facing (`/mail`, `/assistant`, `/inbox`, `/settings`)
+**Status:** **implemented (all Phases 0–7 shipped)** · **Scope:** Gmail only · **Surface:** user-facing (`/mail`, `/assistant`, `/inbox`, `/settings`)
 **Target:** Vercel-native (Hobby now, Pro later — config-only upgrade) · **Rule:** additive, cost-disciplined, production-ready
 **Audience:** the engineers (human or agent) continuing this work.
 **Relationship to other docs:** this is the **capability roadmap** on top of the already-shipped
