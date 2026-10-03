@@ -127,4 +127,6 @@ export interface InitialMailbox {
   messages: MailMessage[];
   labels: string[];
   account: MailAddress;
+  /** Cursor for the page after this one, so “load more” works before a refetch. */
+  nextPageToken?: string;
 }

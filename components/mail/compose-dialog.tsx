@@ -1,7 +1,15 @@
 "use client";
 
 import * as React from "react";
+import dynamic from "next/dynamic";
 import Image from "next/image";
+import { useChat } from "@ai-sdk/react";
+import {
+  DefaultChatTransport,
+  getToolName,
+  isToolUIPart,
+  type UIMessage,
+} from "ai";
 import {
   Image as ImageIcon,
   LoaderCircle,
@@ -17,9 +25,83 @@ import { cn } from "@/lib/utils";
 import assistantLogo from "@/public/assitantlogo.png";
 import { ClickPowerUp } from "@/components/evil-buttons/click-powerup";
 import { useMailStore } from "@/components/mail/mail-store";
-import { assistCompose, errorMessage } from "@/lib/mail/client";
 import { mailInitials, parseAddressList } from "@/lib/mail/format";
 import type { MailDraft } from "@/lib/mail/types";
+import type { ComposerDraft } from "@/lib/agent/tools/deliver-composer-draft";
+
+/**
+ * The agent's live thinking surface, loaded on demand so the AI Elements stack
+ * (and every artifact card it pulls in) stays out of the mail route's initial JS
+ * until the user actually asks the composer agent to write.
+ */
+const ComposeAgentThread = dynamic(
+  () =>
+    import("@/components/mail/compose-agent-thread").then(
+      (module) => module.ComposeAgentThread,
+    ),
+  { ssr: false },
+);
+
+const DELIVER_TOOL_NAME = "deliver_composer_draft";
+
+/** Concatenated text parts of a message (the UI has no other text source). */
+function messageText(message: UIMessage | undefined): string {
+  if (!message) return "";
+  return message.parts
+    .map((part) => (part.type === "text" ? part.text : ""))
+    .join("");
+}
+
+/** Validate the `deliver_composer_draft` tool output into a draft. */
+function readDraft(output: unknown): ComposerDraft | null {
+  if (!output || typeof output !== "object") return null;
+  const value = output as Record<string, unknown>;
+  const body = typeof value.body === "string" ? value.body : "";
+  if (!body.trim()) return null;
+  const list = (input: unknown): string[] =>
+    Array.isArray(input)
+      ? input.filter((item): item is string => typeof item === "string")
+      : [];
+  return {
+    to: list(value.to),
+    cc: list(value.cc),
+    bcc: list(value.bcc),
+    subject: typeof value.subject === "string" ? value.subject : "",
+    body,
+  };
+}
+
+/** The finished draft, once the agent has delivered it on the stream. */
+function findComposeDraft(messages: UIMessage[]): ComposerDraft | null {
+  for (const message of messages) {
+    for (const part of message.parts) {
+      if (
+        isToolUIPart(part) &&
+        getToolName(part) === DELIVER_TOOL_NAME &&
+        part.state === "output-available"
+      ) {
+        const draft = readDraft(part.output);
+        if (draft) return draft;
+      }
+    }
+  }
+  return null;
+}
+
+/** A clean message from a `useChat` error, whose body may be a JSON envelope. */
+function readAiError(error: Error | undefined): string {
+  if (!error?.message) return "The assistant couldn't write that";
+  try {
+    const payload = JSON.parse(error.message) as {
+      error?: { message?: string };
+    };
+    if (payload.error?.message) return payload.error.message;
+  } catch {
+    // Not a JSON envelope — fall through to the raw message.
+  }
+  return error.message;
+}
+
 
 interface RecipientFieldProps {
   label: string;
@@ -135,10 +217,57 @@ function ComposeForm({
   const [showBcc, setShowBcc] = React.useState(Boolean(initial?.bcc));
   const [expanded, setExpanded] = React.useState(false);
   const [aiDrafted, setAiDrafted] = React.useState(false);
-  const [writing, setWriting] = React.useState(false);
+  const [aiRunning, setAiRunning] = React.useState(false);
   const [draftError, setDraftError] = React.useState<string | null>(null);
   const [aiOpen, setAiOpen] = React.useState(false);
   const [aiPrompt, setAiPrompt] = React.useState("");
+  /**
+   * The quoted original captured at send time. The agent only ever writes the
+   * new text, so the quote is re-appended when its draft arrives.
+   */
+  const quoteRef = React.useRef("");
+
+  const aiTransport = React.useMemo(
+    () =>
+      new DefaultChatTransport({
+        api: "/api/v1/mail/compose",
+        prepareSendMessagesRequest: ({ messages, body }) => {
+          const lastUser = [...messages]
+            .reverse()
+            .find((message) => message.role === "user");
+          return {
+            body: { ...(body ?? {}), text: messageText(lastUser) },
+          };
+        },
+      }),
+    [],
+  );
+
+  const {
+    messages: streamedMessages,
+    sendMessage,
+    setMessages: setStreamedMessages,
+    status: aiStatus,
+  } = useChat({
+    transport: aiTransport,
+    onFinish: ({ messages, isError, isAbort }) => {
+      const draft = findComposeDraft(messages);
+      if (draft) {
+        applyComposeDraft(draft);
+        return;
+      }
+      if (isError || isAbort) return;
+      setDraftError("The assistant couldn't finish that draft. Please try again.");
+      setAiRunning(false);
+      setStreamedMessages([]);
+    },
+    onError: (error) => {
+      setDraftError(readAiError(error));
+      setAiRunning(false);
+      setStreamedMessages([]);
+    },
+  });
+
   const [assets, setAssets] = React.useState<
     Array<{ id: string; filename: string; kind: string }>
   >([]);
@@ -197,46 +326,60 @@ function ComposeForm({
 
   const canSend = to.length > 0 || parseAddressList(toDraft).length > 0;
 
-  /**
-   * "Write with AI": the user describes the email or reply, the model streams
-   * the body. A quoted reply is preserved and the new text is written above it.
-   * Never sends.
-   */
-  const runAiWrite = async () => {
-    if (writing) return;
-    const instruction = aiPrompt.trim();
-    const { text: existing, quote } = splitQuoted(body);
+  /** Fill the form from the agent's delivered draft and close the thread. */
+  function applyComposeDraft(draft: ComposerDraft) {
+    if (draft.to.length) {
+      setTo((current) => [...new Set([...current, ...draft.to])]);
+    }
+    if (draft.cc.length) {
+      setCc((current) => [...new Set([...current, ...draft.cc])]);
+      setShowCc(true);
+    }
+    if (draft.bcc.length) {
+      setBcc((current) => [...new Set([...current, ...draft.bcc])]);
+      setShowBcc(true);
+    }
+    setSubject((current) => (current.trim() ? current : draft.subject));
+    setBody(quoteRef.current ? `${draft.body}${quoteRef.current}` : draft.body);
+    setAiDrafted(true);
+    setAiRunning(false);
+    setStreamedMessages([]);
+  }
 
-    setWriting(true);
+  /**
+   * "Write with AI": the same agent runtime and stream as the assistant space.
+   * The agent searches contacts and the mailbox to find the recipient, then
+   * calls `deliver_composer_draft`. We render its live thinking/tool steps in
+   * the body area and, the moment the draft arrives, replace that thread with
+   * the finished To/subject/body. A quoted reply is preserved. Never sends.
+   */
+  const runAiWrite = () => {
+    if (aiRunning) return;
+    const instruction =
+      aiPrompt.trim() || "Write a fitting email for me.";
+    const { text: existing, quote } = splitQuoted(body);
+    quoteRef.current = quote;
+
+    setAiRunning(true);
+    setAiDrafted(false);
     setDraftError(null);
     setAiOpen(false);
+    setStreamedMessages([]);
 
-    let streamed = "";
-    try {
-      await assistCompose(
-        {
-          action: "write",
-          body: existing,
-          ...(instruction ? { instruction } : {}),
-          subject,
-          to: [...to, ...parseAddressList(toDraft)],
-        },
-        {
-          onChunk: (full) => {
-            streamed = full;
-            setBody(quote ? `${full}${quote}` : full);
+    void sendMessage(
+      { text: instruction },
+      {
+        body: {
+          compose: {
+            to: [...to, ...parseAddressList(toDraft)],
+            cc: [...cc, ...parseAddressList(ccDraft)],
+            bcc: [...bcc, ...parseAddressList(bccDraft)],
+            subject,
+            body: existing,
           },
         },
-      );
-      // A no-op fallback (e.g. no model) leaves the draft untouched.
-      if (!streamed) setBody(body);
-      else setAiDrafted(true);
-    } catch (error) {
-      setBody(body);
-      setDraftError(errorMessage(error, "The assistant couldn't write that"));
-    } finally {
-      setWriting(false);
-    }
+      },
+    );
   };
 
   return (
@@ -366,17 +509,18 @@ function ComposeForm({
             </p>
           )}
 
-          {/* Unframed by default; the gradient frame is the AI-drafted state. */}
-          <div
-            className={cn(
-              "flex min-h-[200px] flex-1 flex-col rounded-lg",
-              aiDrafted && "surface-ai-gradient p-0.5",
-            )}
-          >
+          {/* The body area is the agent's live thinking thread while it works,
+              otherwise the plain textarea. The framed box appears only with the
+              AI — before that the body is unframed. */}
+          {aiRunning ? (
+            <div className="flex min-h-[200px] flex-1 flex-col overflow-hidden rounded-none border border-mail-recipient/50 bg-card">
+              <ComposeAgentThread messages={streamedMessages} status={aiStatus} />
+            </div>
+          ) : (
             <div
               className={cn(
-                "relative flex min-h-0 flex-1 flex-col",
-                aiDrafted && "rounded-[6px] bg-card",
+                "flex min-h-[200px] flex-1 flex-col rounded-none",
+                aiDrafted && "border border-mail-recipient/50 bg-card",
               )}
             >
               <textarea
@@ -391,10 +535,13 @@ function ComposeForm({
                 }}
                 placeholder="Write your message…"
                 aria-label="Message body"
-                className="scrollbar-none min-h-[190px] w-full flex-1 resize-none bg-transparent py-1 text-[13px] leading-[1.5] text-foreground outline-none placeholder:text-muted-foreground"
+                className={cn(
+                  "scrollbar-none min-h-[190px] w-full flex-1 resize-none bg-transparent text-[13px] leading-[1.5] text-foreground outline-none placeholder:text-muted-foreground",
+                  aiDrafted ? "px-4 py-3" : "py-1",
+                )}
               />
             </div>
-          </div>
+          )}
 
         </div>
 
@@ -403,13 +550,13 @@ function ComposeForm({
           <ClickPowerUp
             plain
             onClick={() => setAiOpen((value) => !value)}
-            disabled={writing}
+            disabled={aiRunning}
             aria-expanded={aiOpen}
             aria-controls="compose-ai-prompt"
-            accentColor="#8a43e1"
+            accentColor="var(--mail-recipient)"
             className="self-start rounded-md px-3 py-1.5 text-[12px] tracking-normal normal-case"
           >
-            {writing ? (
+            {aiRunning ? (
               <span className="flex items-center gap-2">
                 <LoaderCircle className="size-4 animate-spin" aria-hidden />
                 Writing…
@@ -428,7 +575,7 @@ function ComposeForm({
             )}
           </ClickPowerUp>
 
-          {aiOpen && !writing && (
+          {aiOpen && !aiRunning && (
             <div
               id="compose-ai-prompt"
               className="mt-2 rounded-lg border border-border bg-secondary/40 p-3"
@@ -447,7 +594,7 @@ function ComposeForm({
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && !event.shiftKey) {
                     event.preventDefault();
-                    void runAiWrite();
+                    runAiWrite();
                   }
                   if (event.key === "Escape") setAiOpen(false);
                 }}
@@ -469,8 +616,8 @@ function ComposeForm({
                   </button>
                   <button
                     type="button"
-                    onClick={() => void runAiWrite()}
-                    disabled={writing}
+                    onClick={() => runAiWrite()}
+                    disabled={aiRunning}
                     className="h-8 rounded-lg bg-primary px-3 text-[12px] font-medium text-primary-foreground transition-opacity disabled:opacity-50"
                   >
                     Generate
@@ -597,19 +744,32 @@ function ComposeForm({
 
         <footer className="flex shrink-0 items-center justify-between gap-2 border-t border-black/10 bg-mail-compose-chrome px-5 py-3">
           <div className="flex items-center gap-1.5">
-            <button
-              type="submit"
-              disabled={!canSend}
-              className={cn(
-                "flex h-9 items-center justify-center gap-2 rounded-lg px-4 text-[13px] font-medium transition-opacity disabled:opacity-50",
-                aiDrafted
-                  ? "surface-ai-gradient text-white"
-                  : "bg-primary text-primary-foreground",
-              )}
-            >
-              {!aiDrafted && <Send className="size-4" aria-hidden />}
-              {aiDrafted ? "Approve & Send" : "Send"}
-            </button>
+            {aiDrafted ? (
+              /* Approving an AI draft is the primary action here, so it gets the
+                 same powered-up treatment as "Write with AI" — larger, and in
+                 palette colours rather than the old gradient. */
+              <ClickPowerUp
+                type="submit"
+                disabled={!canSend}
+                plain
+                accentColor="var(--mail-recipient)"
+                className="h-10 rounded-md px-5 py-2.5 text-[13px] tracking-normal normal-case"
+              >
+                <span className="flex items-center gap-2">
+                  <Send className="size-4" aria-hidden />
+                  Approve &amp; Send
+                </span>
+              </ClickPowerUp>
+            ) : (
+              <button
+                type="submit"
+                disabled={!canSend}
+                className="flex h-9 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-[13px] font-medium text-primary-foreground transition-opacity disabled:opacity-50"
+              >
+                <Send className="size-4" aria-hidden />
+                Send
+              </button>
+            )}
 
             <label className="flex h-9 cursor-pointer items-center justify-center gap-2 rounded-lg px-3 text-[13px] font-medium text-foreground transition-colors hover:bg-accent">
               <Paperclip className="size-4" aria-hidden />

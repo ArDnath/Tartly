@@ -3,7 +3,7 @@
 import * as React from "react";
 import dynamic from "next/dynamic";
 
-import { useMailStore } from "@/components/mail/mail-store";
+import { useMailStore, mailFilterKey } from "@/components/mail/mail-store";
 import { selectMessages } from "@/lib/mail/filter";
 import { useMailShortcuts } from "@/components/mail/use-mail-shortcuts";
 import { useMailEvents } from "@/components/assistant/use-agent-events";
@@ -46,8 +46,22 @@ export function MailScreen({
   const load = useMailStore((state) => state.load);
   const openById = useMailStore((state) => state.openById);
   const prefetchSettled = useMailStore((state) => state.prefetchSettled);
+  const nextPage = useMailStore((state) => state.nextPage);
+  const prevPage = useMailStore((state) => state.prevPage);
+  const loadingMore = useMailStore((state) => state.loadingMore);
+  // The pager for the on-screen destination. Stable reference from the store,
+  // so the derived flags below don't churn.
+  const pager = useMailStore((state) => state.pagers[mailFilterKey(state.filter)]);
 
   const [focusedId, setFocusedId] = React.useState<string | null>(null);
+  const listRef = React.useRef<HTMLDivElement>(null);
+
+  // Gmail-like: a page turn (or destination change) lands at the top of the new
+  // rows rather than leaving the viewport parked at the footer you clicked.
+  const pageIndex = pager?.index ?? 0;
+  React.useEffect(() => {
+    listRef.current?.scrollTo({ top: 0 });
+  }, [pageIndex, filter, loadingMore]);
 
   React.useEffect(() => {
     // When a server prefetch is in flight, wait for it to settle: if it seeded
@@ -73,10 +87,37 @@ export function MailScreen({
     },
   });
 
-  const visible = React.useMemo(
-    () => selectMessages(messages, filter, query),
-    [messages, filter, query],
+  // The list shows one page at a time; the store keeps the union. Scoping to
+  // the current chunk's ids is what makes Previous/Next meaningful rather than
+  // a growing pile of every page ever visited.
+  const pageIds = React.useMemo(
+    () => (pager ? (pager.chunks[pager.index] ?? []) : null),
+    [pager],
   );
+  const pageScope = React.useMemo(
+    () => (pageIds ? new Set(pageIds) : null),
+    [pageIds],
+  );
+
+  const visible = React.useMemo(
+    () => selectMessages(messages, filter, query, pageScope),
+    [messages, filter, query, pageScope],
+  );
+
+  const hasPrev = Boolean(pager && pager.index > 0);
+  const hasNext = Boolean(
+    pager &&
+      (pager.index + 1 < pager.chunks.length || pager.nextToken),
+  );
+  // Gmail-style "1–50" range over the pages loaded so far.
+  const range = React.useMemo(() => {
+    if (!pager) return null;
+    let start = 0;
+    for (let i = 0; i < pager.index; i += 1) {
+      start += pager.chunks[i]?.length ?? 0;
+    }
+    return { start: start + 1, end: start + (pager.chunks[pager.index]?.length ?? 0) };
+  }, [pager]);
 
   // Optional deep link: wait for the initial page load to settle, then open the
   // target (fetching it directly if it isn't on the loaded page).
@@ -120,13 +161,22 @@ export function MailScreen({
           ) : (
             <>
               <MailToolbar visible={visible} />
-              <div className="scrollbar-none min-h-0 flex-1 overflow-y-auto">
+              <div
+                ref={listRef}
+                className="scrollbar-none min-h-0 flex-1 overflow-y-auto"
+              >
                 <MailList
                   messages={visible}
                   loading={status !== "ready"}
                   error={error}
                   onRetry={() => void load(true)}
                   focusedId={effectiveFocusedId}
+                  hasPrev={hasPrev}
+                  hasNext={hasNext}
+                  loadingMore={loadingMore}
+                  range={range}
+                  onPrev={prevPage}
+                  onNext={() => void nextPage()}
                 />
               </div>
             </>

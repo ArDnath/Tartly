@@ -40,6 +40,21 @@ export const mailCreateDraftBody = z.object({
   inReplyTo: z.string().optional(),
 });
 
+export const mailComposeAgentBody = z.object({
+  /** The user's free-form instruction, sent as the agent turn. */
+  text: z.string().min(1).max(8_000),
+  /** Whatever the composer already holds, as context for the agent. */
+  compose: z
+    .object({
+      to: z.array(z.string().max(320)).max(20).optional(),
+      cc: z.array(z.string().max(320)).max(20).optional(),
+      bcc: z.array(z.string().max(320)).max(20).optional(),
+      subject: z.string().max(500).optional(),
+      body: z.string().max(20_000).optional(),
+    })
+    .optional(),
+});
+
 export const mailSendBody = z.object({
   to: z.array(z.string().min(1)).min(1),
   cc: z.array(z.string().min(1)).optional(),
@@ -133,6 +148,19 @@ export const mailOperations = [
       dataEnvelope(
         z.object({ body: z.string(), source: z.enum(["ai", "fallback"]) }),
       ),
+    ),
+  }),
+  defineOperation({
+    method: "POST",
+    path: "/api/v1/mail/compose",
+    operationId: "composeMailWithAgent",
+    tags: ["mail"],
+    summary: "Stream the compose agent (never sends)",
+    security: "session",
+    body: mailComposeAgentBody,
+    responses: streamResponse(
+      "text/event-stream",
+      "AI SDK UI message stream; the `deliver_composer_draft` tool result carries the draft.",
     ),
   }),
   defineOperation({
