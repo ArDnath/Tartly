@@ -4,10 +4,8 @@ import { z } from "zod";
 
 import { createMeetingForProposal } from "@/lib/calendar/meetings";
 import { DEFAULT_CALENDAR_SETTINGS, getCalendarSettings } from "@/lib/calendar/settings";
-import { db } from "@/lib/db";
-import { threads } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
 import { defineStep } from "@/lib/engine/step";
+import { threadRepository } from "@/lib/repositories/threads";
 import { requireThreadId } from "./helpers";
 
 type SlotInstant = { startUtc: string; endUtc: string };
@@ -33,18 +31,14 @@ export const createEventStep = defineStep({
     const slot = slots[ctx.input.slotIndex] ?? slots[0];
     const settings = (await getCalendarSettings(ctx.userId)) ?? DEFAULT_CALENDAR_SETTINGS;
 
-    const threadRows = await db
-      .select({ subject: threads.subject })
-      .from(threads)
-      .where(eq(threads.id, threadId))
-      .limit(1);
+    const thread = await threadRepository.findOwnerAndSubjectById(threadId);
     const latest = ctx.state.latestMessage as { from?: string | null } | undefined;
 
     const meeting = await createMeetingForProposal({
       userId: ctx.userId,
       threadId,
       proposalId,
-      subject: threadRows[0]?.subject ?? "Meeting",
+      subject: thread?.subject ?? "Meeting",
       startUtc: new Date(slot.startUtc),
       endUtc: new Date(slot.endUtc),
       timeZone: settings.timezone,

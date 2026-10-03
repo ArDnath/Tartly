@@ -23,6 +23,10 @@ const LEGACY_HOSTS = [
 ];
 
 const nextConfig: NextConfig = {
+  // Emit `.next/standalone` (traced server + minimal node_modules) so the
+  // production container (Dockerfile) can ship without a full install. Vercel
+  // ignores this and uses its own bundling.
+  output: "standalone",
   // Ship the smallest possible initial payload: no framework fingerprint
   // header, and aggressive per-module imports for the big component barrels
   // (`lucide-react` and `date-fns` are optimized by Next already).
@@ -48,9 +52,9 @@ const nextConfig: NextConfig = {
       static: 180,
     },
   },
-  // Baseline security headers on every response. No CSP here: the app ships
-  // inline styles/scripts from Next and a naive policy would break it; CSP
-  // belongs in a deliberate, tested follow-up.
+  // Baseline security headers on every response. CSP is emitted per-request by
+  // `proxy.ts` (Phase C6) because a nonce policy needs a dynamic render; see
+  // `lib/security/csp.ts`. These static headers apply to every response.
   async headers() {
     return [
       {

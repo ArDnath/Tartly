@@ -1,10 +1,10 @@
 import "server-only";
 
-import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { db as defaultDb, type Database } from "@/lib/db";
-import { flowCheckpoints, flowRuns, type TraceEntry } from "@/lib/db/schema";
+import { type TraceEntry } from "@/lib/db/schema";
+import { EnginePersistenceRepository } from "@/lib/repositories/engine-persistence";
 import {
   firstNode,
   nextNode,
@@ -35,7 +35,7 @@ async function checkpoint({
   status: "ok" | "error";
   output: unknown;
 }): Promise<void> {
-  await database.insert(flowCheckpoints).values({
+  await new EnginePersistenceRepository(database).insertCheckpoint({
     id: nanoid(),
     runId,
     nodeId,
@@ -59,16 +59,14 @@ async function finishRun({
   trace: TraceEntry[];
   error?: { message: string; nodeId: string };
 }): Promise<void> {
-  await database
-    .update(flowRuns)
-    .set({
-      status,
-      state,
-      trace,
-      error: error ?? null,
-      finishedAt: new Date(),
-    })
-    .where(eq(flowRuns.id, runId));
+  await new EnginePersistenceRepository(database).finishRun({
+    runId,
+    status,
+    state,
+    trace,
+    error: error ?? null,
+    finishedAt: new Date(),
+  });
 }
 
 /**

@@ -9,6 +9,7 @@ import { createFollowupTool } from "./create-followup";
 import { createRuleTool } from "./create-rule";
 import { deleteEmailTool } from "./delete-email";
 import { draftInMyVoiceTool } from "./draft-in-my-voice";
+import { explainAutopilotDecisionTool } from "./explain-autopilot-decision";
 import { extractTasksTool } from "./extract-tasks";
 import { forwardEmailTool } from "./forward-email";
 import { getAiCostTool } from "./get-ai-cost";
@@ -16,11 +17,13 @@ import { getCampaignStatusTool } from "./get-campaign-status";
 import { getCommitmentsTool } from "./get-commitments";
 import { getContactTool } from "./get-contact";
 import { getEmailTool } from "./get-email";
+import { getOvernightSummaryTool } from "./get-overnight-summary";
 import { getSenderProfileTool } from "./get-sender-profile";
 import { getThreadTool } from "./get-thread";
 import { listAssetsTool } from "./list-assets";
 import { markEmailReadTool } from "./mark-email-read";
 import { openWebPageTool } from "./open-web-page";
+import { pauseAutopilotTool } from "./pause-autopilot";
 import { removeLabelTool } from "./remove-label";
 import { replyToEmailTool } from "./reply-to-email";
 import { researchCompanyTool } from "./research-company";
@@ -31,6 +34,7 @@ import { searchEmailsTool } from "./search-emails";
 import { searchKnowledgeTool } from "./search-knowledge";
 import { searchWebTool } from "./search-web";
 import { sendEmailTool } from "./send-email";
+import { setAutopilotPolicyTool } from "./set-autopilot-policy";
 import { setThreadAutonomyTool } from "./set-thread-autonomy";
 import { startCampaignTool } from "./start-campaign";
 import { summarizeThreadTool } from "./summarize-thread";
@@ -66,6 +70,8 @@ export const READ_TOOLS = [
   listAssetsTool,
   getCampaignStatusTool,
   getCommitmentsTool,
+  getOvernightSummaryTool,
+  explainAutopilotDecisionTool,
 ];
 
 export const WRITE_TOOLS = [
@@ -82,6 +88,8 @@ export const WRITE_TOOLS = [
   startCampaignTool,
   addSuppressionTool,
   setThreadAutonomyTool,
+  setAutopilotPolicyTool,
+  pauseAutopilotTool,
 ];
 
 export const SIDE_EFFECT_TOOLS = [
@@ -111,6 +119,7 @@ export {
   createRuleTool,
   deleteEmailTool,
   draftInMyVoiceTool,
+  explainAutopilotDecisionTool,
   extractTasksTool,
   forwardEmailTool,
   getAiCostTool,
@@ -118,11 +127,13 @@ export {
   getCommitmentsTool,
   getContactTool,
   getEmailTool,
+  getOvernightSummaryTool,
   getSenderProfileTool,
   getThreadTool,
   listAssetsTool,
   markEmailReadTool,
   openWebPageTool,
+  pauseAutopilotTool,
   removeLabelTool,
   replyToEmailTool,
   researchCompanyTool,
@@ -133,6 +144,7 @@ export {
   searchKnowledgeTool,
   searchWebTool,
   sendEmailTool,
+  setAutopilotPolicyTool,
   setThreadAutonomyTool,
   startCampaignTool,
   summarizeThreadTool,

@@ -1,15 +1,13 @@
 import "server-only";
 
-import { and, desc, eq } from "drizzle-orm";
-
 import {
   createMeetingForProposal,
   type MeetingEventCreator,
   type MeetingRow,
 } from "@/lib/calendar/meetings";
 import { DEFAULT_CALENDAR_SETTINGS, getCalendarSettings } from "@/lib/calendar/settings";
-import { db } from "@/lib/db";
-import { drafts, flowRuns, meetings, threads } from "@/lib/db/schema";
+import { calendarPersistenceRepository } from "@/lib/repositories/calendar-persistence";
+import { threadRepository } from "@/lib/repositories/threads";
 
 type RunState = {
   proposalId?: string | null;
@@ -28,23 +26,12 @@ export type MeetingProposal = {
 export async function getThreadProposal(
   threadId: string,
 ): Promise<MeetingProposal | null> {
-  const draftRows = await db
-    .select({ runId: drafts.runId })
-    .from(drafts)
-    .where(eq(drafts.threadId, threadId))
-    .orderBy(desc(drafts.createdAt))
-    .limit(1);
-
-  const runId = draftRows[0]?.runId;
+  const runId = await calendarPersistenceRepository.findLatestDraftRunId(threadId);
   if (!runId) return null;
 
-  const runRows = await db
-    .select({ state: flowRuns.state })
-    .from(flowRuns)
-    .where(eq(flowRuns.id, runId))
-    .limit(1);
+  const runState = await calendarPersistenceRepository.findFlowRunState(runId);
 
-  const state = runRows[0]?.state as RunState | undefined;
+  const state = runState as RunState | undefined;
   if (!state?.proposalId || !Array.isArray(state.slotInstants)) return null;
 
   const options = (state as { options?: string[] }).options ?? [];
@@ -61,21 +48,21 @@ export async function getThreadProposal(
 export async function getLatestMeetingForThread(
   threadId: string,
 ): Promise<MeetingRow | null> {
-  const rows = await db
-    .select()
-    .from(meetings)
-    .where(eq(meetings.threadId, threadId))
-    .orderBy(desc(meetings.createdAt))
-    .limit(1);
-  return rows[0] ?? null;
+  const meeting = await calendarPersistenceRepository.findLatestMeetingByThread(
+    threadId,
+  );
+  return meeting ?? null;
 }
 
-export async function listMeetings(userId: string): Promise<MeetingRow[]> {
-  return db
-    .select()
-    .from(meetings)
-    .where(eq(meetings.userId, userId))
-    .orderBy(desc(meetings.startAt));
+/** Hard ceiling on a single meetings page; keeps the read bounded. */
+export const MAX_MEETINGS_LIMIT = 500;
+export const DEFAULT_MEETINGS_LIMIT = 200;
+
+export async function listMeetings(
+  userId: string,
+  limit: number = DEFAULT_MEETINGS_LIMIT,
+): Promise<MeetingRow[]> {
+  return calendarPersistenceRepository.listMeetingsForUser(userId, limit);
 }
 
 /**
@@ -98,12 +85,7 @@ export async function bookSlot({
   const slot = proposal?.slots[slotIndex];
   if (!proposal || !slot) return null;
 
-  const threadRows = await db
-    .select()
-    .from(threads)
-    .where(and(eq(threads.id, threadId), eq(threads.userId, userId)))
-    .limit(1);
-  const thread = threadRows[0];
+  const thread = await threadRepository.findByIdForUser(userId, threadId);
   if (!thread) return null;
 
   const settings = (await getCalendarSettings(userId)) ?? DEFAULT_CALENDAR_SETTINGS;

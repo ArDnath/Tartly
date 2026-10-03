@@ -15,6 +15,10 @@ const envSchema = z.object({
   // the provider-side pooler bounds total connections, not this.
   DB_POOL_MAX: z.coerce.number().int().positive().optional(),
 
+  // Optional read-replica connection string (Phase D3). When unset, reads use
+  // the primary. See docs/runbooks/scaling-and-connections.md.
+  DATABASE_REPLICA_URL: z.string().min(1).optional(),
+
   BETTER_AUTH_SECRET: z
     .string()
     .min(16, "BETTER_AUTH_SECRET must be at least 16 characters")
@@ -48,6 +52,31 @@ const envSchema = z.object({
   // Stricter per-user limits for expensive routes (agent runs, uploads).
   AGENT_RATE_LIMIT_PER_MIN: z.coerce.number().int().positive().optional(),
   ASSET_RATE_LIMIT_PER_MIN: z.coerce.number().int().positive().optional(),
+
+  /* --- API contract enforcement (Phase C1) --- */
+
+  // Runtime request validation against the generated OpenAPI contract:
+  //   off     — never validate
+  //   warn    — log `contract.violation` and continue
+  //   enforce — reject with 400 before the handler runs (default)
+  API_CONTRACT_VALIDATION: z.enum(["off", "warn", "enforce"]).optional(),
+
+  /* --- Content Security Policy (Phase C6) --- */
+
+  // Nonce-based CSP emitted by `proxy.ts`:
+  //   off     — emit no CSP header
+  //   report  — emit `Content-Security-Policy-Report-Only` (default, burn-in)
+  //   enforce — emit the enforcing `Content-Security-Policy` header
+  CSP_MODE: z.enum(["off", "report", "enforce"]).optional(),
+  // Optional `report-uri` sink (relative path or absolute URL). Only meaningful
+  // while CSP_MODE=report/enforce.
+  CSP_REPORT_URI: z.string().min(1).optional(),
+
+  /* --- Metrics (Phase D5) --- */
+
+  // Bearer token for the Prometheus scrape endpoint
+  // (`GET /api/health/metrics`). Unset keeps the endpoint hidden (404).
+  METRICS_TOKEN: z.string().min(16).optional(),
 
   /* --- Email operator (optional until the feature is enabled) --- */
 
@@ -212,6 +241,23 @@ const envSchema = z.object({
   CAMPAIGN_MAX_PER_DAY: z.coerce.number().int().positive().optional(),
   // "off" | "drafts" (default) | "autopilot".
   CAMPAIGN_REPLY_AUTOMATION: z.enum(["off", "drafts", "autopilot"]).optional(),
+
+  /* --- 24/7 autopilot (Plan-24-7-autopilot) --- */
+
+  // Global kill switch for *unattended* sends. Unset means allowed; "false"
+  // hard-disables every autopilot send platform-wide without a deploy. This
+  // does not affect copilot drafts or manual approvals.
+  AUTOPILOT_ENABLED: z.enum(["true", "false"]).optional(),
+  // Platform ceilings that clamp a user's policy on write.
+  AUTOPILOT_MAX_PER_HOUR: z.coerce.number().int().positive().optional(),
+  AUTOPILOT_MAX_PER_DAY: z.coerce.number().int().positive().optional(),
+  // Platform floor for min confidence ("HIGH" | "MEDIUM" | "LOW").
+  AUTOPILOT_MIN_CONFIDENCE: z.enum(["HIGH", "MEDIUM", "LOW"]).optional(),
+  // How many queue jobs the webhook `after()` drains inline. Clamped to the
+  // queue's global concurrency.
+  WEBHOOK_DRAIN_BATCH_SIZE: z.coerce.number().int().positive().optional(),
+  // How long `autopilot_decisions` audit rows are retained.
+  AUTOPILOT_DECISION_RETENTION_DAYS: z.coerce.number().int().positive().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -477,4 +523,57 @@ export function campaignReplyPolicy(): CampaignReplyPolicy {
     env.CAMPAIGN_REPLY_AUTOMATION === "autopilot"
     ? env.CAMPAIGN_REPLY_AUTOMATION
     : "drafts";
+}
+
+/* -------------------------------------------------------------------------- */
+/*  24/7 autopilot                                                            */
+/* -------------------------------------------------------------------------- */
+
+export type AutopilotConfidence = "HIGH" | "MEDIUM" | "LOW";
+
+export const DEFAULT_AUTOPILOT_MAX_PER_HOUR = 10;
+export const DEFAULT_AUTOPILOT_MAX_PER_DAY = 50;
+export const DEFAULT_AUTOPILOT_MIN_CONFIDENCE: AutopilotConfidence = "HIGH";
+export const DEFAULT_WEBHOOK_DRAIN_BATCH_SIZE = 5;
+export const DEFAULT_AUTOPILOT_DECISION_RETENTION_DAYS = 90;
+
+/**
+ * Global kill switch. Unset/`true` = allowed; `false` = no unattended sends
+ * anywhere. Per-mailbox policies must still be enabled on top of this.
+ */
+export function isAutopilotEnabled(): boolean {
+  return env.AUTOPILOT_ENABLED !== "false";
+}
+
+export function autopilotMaxPerHour(): number {
+  return env.AUTOPILOT_MAX_PER_HOUR ?? DEFAULT_AUTOPILOT_MAX_PER_HOUR;
+}
+
+export function autopilotMaxPerDay(): number {
+  return env.AUTOPILOT_MAX_PER_DAY ?? DEFAULT_AUTOPILOT_MAX_PER_DAY;
+}
+
+export function autopilotMinConfidence(): AutopilotConfidence {
+  return env.AUTOPILOT_MIN_CONFIDENCE ?? DEFAULT_AUTOPILOT_MIN_CONFIDENCE;
+}
+
+export function autopilotDecisionRetentionDays(): number {
+  return (
+    env.AUTOPILOT_DECISION_RETENTION_DAYS ??
+    DEFAULT_AUTOPILOT_DECISION_RETENTION_DAYS
+  );
+}
+
+/**
+ * Webhook inline drain batch size, clamped to the queue's global concurrency
+ * (`QUEUE_MAX_CONCURRENCY`). Read directly from `process.env` to avoid an
+ * `env -> drain -> redis -> env` import cycle.
+ */
+export function webhookDrainBatchSize(): number {
+  const configured =
+    env.WEBHOOK_DRAIN_BATCH_SIZE ?? DEFAULT_WEBHOOK_DRAIN_BATCH_SIZE;
+  const rawMax = Number(process.env.QUEUE_MAX_CONCURRENCY);
+  const ceiling =
+    Number.isFinite(rawMax) && rawMax > 0 ? rawMax : configured;
+  return Math.max(1, Math.min(configured, ceiling));
 }

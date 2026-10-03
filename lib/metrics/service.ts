@@ -1,20 +1,18 @@
 import "server-only";
 
-import { and, eq, gte, like, sql } from "drizzle-orm";
-
-import { db } from "@/lib/db";
-import {
-  commitments,
-  drafts,
-  flowRuns,
-  followupEnrollments,
-  meetings,
-  sendLedger,
-} from "@/lib/db/schema";
+import { commitmentRepository } from "@/lib/repositories/commitments";
+import { draftRepository } from "@/lib/repositories/drafts";
+import { flowRunRepository } from "@/lib/repositories/flow-runs";
+import { followupEnrollmentRepository } from "@/lib/repositories/followup-enrollments";
+import { meetingRepository } from "@/lib/repositories/meetings";
+import { sendLedgerRepository } from "@/lib/repositories/send-ledger";
 
 /**
  * Operational metrics for the run panel / dashboard. All counts are windowed on
  * `sinceDays` except the standing counts (active follow-ups, open promises).
+ *
+ * Pure read-model orchestration: each count is one atomic repository method, and
+ * this service composes them.
  */
 
 export type Metrics = {
@@ -31,10 +29,6 @@ export type Metrics = {
   /** Commitment nudge drafts prepared in the window. */
   briefingActions: number;
 };
-
-function count(query: Promise<Array<{ n: number }>>): Promise<number> {
-  return query.then((rows) => rows[0]?.n ?? 0);
-}
 
 export async function getMetrics({
   userId,
@@ -57,86 +51,15 @@ export async function getMetrics({
     promisesOpen,
     briefingActions,
   ] = await Promise.all([
-      count(
-        db
-          .select({ n: sql<number>`count(*)::int` })
-          .from(flowRuns)
-          .where(and(eq(flowRuns.userId, userId), gte(flowRuns.startedAt, since))),
-      ),
-      count(
-        db
-          .select({ n: sql<number>`count(*)::int` })
-          .from(drafts)
-          .where(and(eq(drafts.userId, userId), gte(drafts.createdAt, since))),
-      ),
-      count(
-        db
-          .select({ n: sql<number>`count(*)::int` })
-          .from(drafts)
-          .where(
-            and(
-              eq(drafts.userId, userId),
-              eq(drafts.status, "sent"),
-              gte(drafts.createdAt, since),
-            ),
-          ),
-      ),
-      count(
-        db
-          .select({ n: sql<number>`count(*)::int` })
-          .from(meetings)
-          .where(
-            and(eq(meetings.userId, userId), gte(meetings.createdAt, since)),
-          ),
-      ),
-      count(
-        db
-          .select({ n: sql<number>`count(*)::int` })
-          .from(followupEnrollments)
-          .where(
-            and(
-              eq(followupEnrollments.userId, userId),
-              eq(followupEnrollments.status, "active"),
-            ),
-          ),
-      ),
-      count(
-        db
-          .select({ n: sql<number>`count(*)::int` })
-          .from(drafts)
-          .where(
-            and(
-              eq(drafts.userId, userId),
-              eq(drafts.status, "sent"),
-              eq(drafts.sentBy, "ai"),
-              gte(drafts.decidedAt, since),
-            ),
-          ),
-      ),
-      count(
-        db
-          .select({ n: sql<number>`count(*)::int` })
-          .from(commitments)
-          .where(
-            and(
-              eq(commitments.userId, userId),
-              eq(commitments.status, "open"),
-            ),
-          ),
-      ),
-      count(
-        db
-          .select({ n: sql<number>`count(*)::int` })
-          .from(sendLedger)
-          .where(
-            and(
-              eq(sendLedger.userId, userId),
-              like(sendLedger.idempotencyKey, "commitment:%"),
-              gte(sendLedger.createdAt, since),
-            ),
-          ),
-      ),
-    ]);
+    flowRunRepository.countStartedSince(userId, since),
+    draftRepository.countCreatedSince(userId, since),
+    draftRepository.countSentSince(userId, since),
+    meetingRepository.countCreatedSince(userId, since),
+    followupEnrollmentRepository.countActive(userId),
+    draftRepository.countAiHandledSince(userId, since),
+    commitmentRepository.countOpen(userId),
+    sendLedgerRepository.countCommitmentNudgesSince(userId, since),
+  ]);
 
   return {
     sinceDays,

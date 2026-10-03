@@ -1,6 +1,5 @@
-import { z } from "zod";
-
 import { apiError, ok, withUser } from "@/lib/api/http";
+import { mailUnsubscribeBody as bodySchema } from "@/lib/api/contracts/mail";
 import { extractEmail } from "@/lib/services/draft-service";
 import { performUnsubscribe } from "@/lib/ai/features/unsubscribe";
 
@@ -11,12 +10,6 @@ import { performUnsubscribe } from "@/lib/ai/features/unsubscribe";
  * unsubscribed with a direct POST (no mail leaves the mailbox); others return
  * the mailto/link for the user to finish. The attempt is always logged.
  */
-
-const bodySchema = z.object({
-  senderEmail: z.string().min(3).max(320),
-  threadId: z.string().min(1).max(200).optional(),
-  archiveThread: z.boolean().optional(),
-});
 
 export const POST = withUser(async (userId, request) => {
   const parsed = bodySchema.safeParse(await request.json().catch(() => ({})));

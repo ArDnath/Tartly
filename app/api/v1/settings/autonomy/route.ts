@@ -1,6 +1,5 @@
-import { z } from "zod";
-
 import { ok, apiError, withUser } from "@/lib/api/http";
+import { autonomyPatchBody as patchSchema } from "@/lib/api/contracts/settings";
 import {
   getAutonomySettings,
   setContactOverride,
@@ -9,16 +8,6 @@ import {
 
 export const GET = withUser(async (userId) => {
   return ok(await getAutonomySettings(userId));
-});
-
-const patchSchema = z.object({
-  mailboxAutonomy: z.enum(["copilot", "autopilot"]).optional(),
-  contact: z
-    .object({
-      email: z.string().email(),
-      override: z.enum(["copilot", "autopilot"]).nullable(),
-    })
-    .optional(),
 });
 
 export const PATCH = withUser(async (userId, request) => {

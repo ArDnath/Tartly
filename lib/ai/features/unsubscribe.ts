@@ -1,17 +1,13 @@
 import "server-only";
 
-import { and, desc, eq, isNotNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { archive } from "@/lib/mail/service";
-import { db } from "@/lib/db";
-import {
-  messages,
-  senderProfiles,
-  threads,
-  unsubscribeAttempts,
-  type MessageUnsubscribeInfo,
-} from "@/lib/db/schema";
+import { messageRepository } from "@/lib/repositories/messages";
+import { senderProfileRepository } from "@/lib/repositories/sender-profiles";
+import { unsubscribeAttemptRepository } from "@/lib/repositories/unsubscribe-attempts";
+import { assertSafeOutboundUrl, SsrfBlockedError } from "@/lib/security/ssrf";
+import type { MessageUnsubscribeInfo } from "@/lib/db/schema";
 
 import { normalizeSenderEmail } from "./sender-profiles";
 
@@ -54,27 +50,16 @@ export async function findSenderUnsubscribeInfo({
   senderEmail: string;
 }): Promise<{ info: MessageUnsubscribeInfo; messageId: string } | null> {
   const email = normalizeSenderEmail(senderEmail);
-  const rows = await db
-    .select({
-      unsubscribe: messages.unsubscribe,
-      gmailMessageId: messages.gmailMessageId,
-    })
-    .from(messages)
-    .innerJoin(threads, eq(messages.threadId, threads.id))
-    .where(
-      and(
-        eq(threads.userId, userId),
-        eq(messages.direction, "inbound"),
-        eq(messages.fromAddr, email),
-        isNotNull(messages.unsubscribe),
-      ),
-    )
-    .orderBy(desc(messages.sentAt))
-    .limit(1);
+  const row = await messageRepository.findLatestInboundWithUnsubscribe({
+    userId,
+    email,
+  });
 
-  const row = rows[0];
   if (!row?.unsubscribe) return null;
-  return { info: row.unsubscribe, messageId: row.gmailMessageId };
+  return {
+    info: row.unsubscribe as MessageUnsubscribeInfo,
+    messageId: row.gmailMessageId,
+  };
 }
 
 export type UnsubscribeResult = {
@@ -88,6 +73,17 @@ export type UnsubscribeResult = {
 
 /** POST the one-click endpoint. Bounded; never throws to the caller. */
 async function sendOneClick(target: string): Promise<{ ok: boolean; detail: string }> {
+  try {
+    // `target` comes from an attacker-controllable `List-Unsubscribe` header, so
+    // never POST it to a loopback/private/metadata address (SSRF).
+    await assertSafeOutboundUrl(target);
+  } catch (error) {
+    return {
+      ok: false,
+      detail:
+        error instanceof SsrfBlockedError ? "blocked address" : "request failed",
+    };
+  }
   try {
     const response = await fetch(target, {
       method: "POST",
@@ -111,12 +107,10 @@ async function archiveThreadMessages({
   userId: string;
   threadId: string;
 }): Promise<number> {
-  const rows = await db
-    .select({ gmailMessageId: messages.gmailMessageId })
-    .from(messages)
-    .innerJoin(threads, eq(messages.threadId, threads.id))
-    .where(and(eq(messages.threadId, threadId), eq(threads.userId, userId)));
-  const ids = rows.map((row) => row.gmailMessageId).filter(Boolean);
+  const ids = await messageRepository.listGmailIdsByThreadOwned({
+    userId,
+    threadId,
+  });
   if (ids.length === 0) return 0;
   try {
     await archive(userId, ids);
@@ -164,7 +158,7 @@ export async function performUnsubscribe({
     note = "No unsubscribe mechanism was offered; marking the sender as blocked instead.";
   }
 
-  await db.insert(unsubscribeAttempts).values({
+  await unsubscribeAttemptRepository.insert({
     id: nanoid(),
     userId,
     senderEmail: email,
@@ -175,16 +169,13 @@ export async function performUnsubscribe({
   });
 
   // Once we have acted, remember how — and treat future mail as bulk noise.
-  await db
-    .update(senderProfiles)
-    .set({
-      unsubscribeUrl: mechanism.target,
-      unsubscribeMethod: mechanism.method,
-      updatedAt: new Date(),
-    })
-    .where(
-      and(eq(senderProfiles.userId, userId), eq(senderProfiles.email, email)),
-    );
+  await senderProfileRepository.setUnsubscribe({
+    userId,
+    email,
+    url: mechanism.target,
+    method: mechanism.method,
+    now: new Date(),
+  });
 
   let archived = 0;
   if (archiveThread && threadId) {

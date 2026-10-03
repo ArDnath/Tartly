@@ -1,9 +1,6 @@
-import { z } from "zod";
-
 import { ok, apiError, withUser } from "@/lib/api/http";
+import { followupPauseBody as bodySchema } from "@/lib/api/contracts/inbox";
 import { pauseEnrollment } from "@/lib/followup/service";
-
-const bodySchema = z.object({ paused: z.boolean() });
 
 export const POST = withUser<{ params: Promise<{ id: string }> }>(
   async (userId, request, context) => {

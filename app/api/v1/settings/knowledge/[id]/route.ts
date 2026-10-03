@@ -1,15 +1,9 @@
-import { z } from "zod";
-
-import { apiError, ok, withUser } from "@/lib/api/http";
+import { apiError, noContent, ok, withUser } from "@/lib/api/http";
+import { knowledgePatchBody as patchSchema } from "@/lib/api/contracts/settings";
 import {
   deleteKnowledgeEntry,
   updateKnowledgeEntry,
 } from "@/lib/ai/features/knowledge";
-
-const patchSchema = z.object({
-  title: z.string().min(1).max(200).optional(),
-  content: z.string().min(1).max(8_000).optional(),
-});
 
 export const PATCH = withUser<{ params: Promise<{ id: string }> }>(
   async (userId, request, context) => {
@@ -28,6 +22,6 @@ export const DELETE = withUser<{ params: Promise<{ id: string }> }>(
     const { id } = await context.params;
     const deleted = await deleteKnowledgeEntry({ userId, id });
     if (!deleted) return apiError("not_found", "Entry not found", 404);
-    return ok({ deleted: true });
+    return noContent();
   },
 );

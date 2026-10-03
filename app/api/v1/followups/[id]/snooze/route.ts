@@ -1,14 +1,9 @@
-import { z } from "zod";
-
 import { apiError, ok, withUser } from "@/lib/api/http";
+import { followupSnoozeBody as bodySchema } from "@/lib/api/contracts/inbox";
 import { invalidateBriefing } from "@/lib/briefing/service";
 import { snoozeEnrollment } from "@/lib/followup/service";
 
 export const dynamic = "force-dynamic";
-
-const bodySchema = z.object({
-  days: z.number().int().min(1).max(30).default(1),
-});
 
 type Ctx = { params: Promise<{ id: string }> };
 

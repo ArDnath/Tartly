@@ -22,6 +22,10 @@ export type RequestContext = {
   /** `Date.now()` when the handler was entered, for latency logging. */
   startedAt: number;
   userId?: string;
+  /** W3C trace id parsed from an inbound `traceparent`, when present. */
+  traceId?: string;
+  /** W3C parent span id parsed from an inbound `traceparent`. */
+  parentId?: string;
 };
 
 const storage = new AsyncLocalStorage<RequestContext>();

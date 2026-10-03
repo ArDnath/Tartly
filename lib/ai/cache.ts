@@ -2,11 +2,9 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 
-import { and, eq, lt } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
-import { db } from "@/lib/db";
-import { aiCache } from "@/lib/db/schema";
+import { aiCacheRepository } from "@/lib/repositories/ai-cache";
 import { redis } from "@/lib/redis";
 
 /**
@@ -44,22 +42,7 @@ export async function getCached<T>({
   key: string;
 }): Promise<T | null> {
   try {
-    const rows = await db
-      .select({
-        payload: aiCache.payload,
-        expiresAt: aiCache.expiresAt,
-      })
-      .from(aiCache)
-      .where(
-        and(
-          eq(aiCache.userId, userId),
-          eq(aiCache.cacheType, type),
-          eq(aiCache.cacheKey, key),
-        ),
-      )
-      .limit(1);
-
-    const row = rows[0];
+    const row = await aiCacheRepository.findEntry({ userId, type, key });
     if (!row) return null;
     if (row.expiresAt.getTime() <= Date.now()) return null;
     return row.payload as T;
@@ -86,20 +69,14 @@ export async function setCached<T>({
   try {
     const now = new Date();
     const expiresAt = new Date(now.getTime() + Math.max(ttlMs, 1_000));
-    await db
-      .insert(aiCache)
-      .values({
-        id: nanoid(),
-        userId,
-        cacheType: type,
-        cacheKey: key,
-        payload: payload as Record<string, unknown>,
-        expiresAt,
-      })
-      .onConflictDoUpdate({
-        target: [aiCache.userId, aiCache.cacheType, aiCache.cacheKey],
-        set: { payload: payload as Record<string, unknown>, expiresAt },
-      });
+    await aiCacheRepository.upsert({
+      id: nanoid(),
+      userId,
+      cacheType: type,
+      cacheKey: key,
+      payload: payload as Record<string, unknown>,
+      expiresAt,
+    });
     return true;
   } catch (error) {
     console.warn("[ai/cache] write failed", error);
@@ -117,17 +94,7 @@ export async function deleteCached({
   key: string;
 }): Promise<boolean> {
   try {
-    const deleted = await db
-      .delete(aiCache)
-      .where(
-        and(
-          eq(aiCache.userId, userId),
-          eq(aiCache.cacheType, type),
-          eq(aiCache.cacheKey, key),
-        ),
-      )
-      .returning({ id: aiCache.id });
-    return deleted.length > 0;
+    return await aiCacheRepository.deleteEntry({ userId, type, key });
   } catch (error) {
     console.warn("[ai/cache] delete failed", error);
     return false;
@@ -137,11 +104,7 @@ export async function deleteCached({
 /** Housekeeping: drop every expired row. Safe to run from the daily cron. */
 export async function purgeExpiredCache(): Promise<number> {
   try {
-    const deleted = await db
-      .delete(aiCache)
-      .where(lt(aiCache.expiresAt, new Date()))
-      .returning({ id: aiCache.id });
-    return deleted.length;
+    return await aiCacheRepository.deleteExpired(new Date());
   } catch (error) {
     console.warn("[ai/cache] purge failed", error);
     return 0;

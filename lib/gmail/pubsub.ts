@@ -14,6 +14,8 @@ import { createPublicKey, createVerify, type JsonWebKey } from "node:crypto";
 const GOOGLE_JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs";
 const GOOGLE_ISSUERS = new Set(["https://accounts.google.com", "accounts.google.com"]);
 const JWKS_TTL_MS = 60 * 60 * 1000;
+/** Bound the JWKS fetch: the webhook must fail closed, not hang. */
+const JWKS_TIMEOUT_MS = 10_000;
 
 type Jwk = JsonWebKey & { kid?: string; alg?: string; use?: string };
 type JwksCache = { keys: Jwk[]; fetchedAt: number };
@@ -36,7 +38,9 @@ async function loadJwks(forceRefresh = false): Promise<Jwk[]> {
     return jwksCache.keys;
   }
 
-  const response = await fetch(GOOGLE_JWKS_URL);
+  const response = await fetch(GOOGLE_JWKS_URL, {
+    signal: AbortSignal.timeout(JWKS_TIMEOUT_MS),
+  });
   if (!response.ok) {
     throw new PubSubAuthError(`Failed to fetch Google JWKS (${response.status}).`);
   }

@@ -9,6 +9,7 @@ import { DraftCard } from "@/components/inbox/draft-card";
 import { MeetingCard } from "@/components/inbox/meeting-card";
 import { ThreadSummary } from "@/components/inbox/thread-summary";
 import { ScopedAutonomySwitch } from "@/components/assistant/scoped-autonomy";
+import { AutopilotWhy } from "@/components/assistant/autopilot-why";
 import { Button } from "@/components/ui/button";
 import type { ThreadDetail } from "@/lib/inbox/service";
 import { cn } from "@/lib/utils";
@@ -145,6 +146,7 @@ export function ThreadView({ detail }: { detail: ThreadDetail }) {
           </span>
         ) : null}
         <ScopedAutonomySwitch threadId={detail.thread.id} />
+        <AutopilotWhy threadId={detail.thread.id} />
         {showUnsubscribe ? (
           <Button
             type="button"

@@ -1,6 +1,8 @@
-import { z } from "zod";
-
 import { apiError, ok, withUser } from "@/lib/api/http";
+import {
+  assistantActionBody as actionSchema,
+  assistantPatchBody as patchSchema,
+} from "@/lib/api/contracts/settings";
 import {
   getAssistantOverview,
   updateAssistantSettings,
@@ -16,21 +18,6 @@ export const GET = withUser(async (userId) => {
   return ok(await getAssistantOverview(userId));
 });
 
-const patchSchema = z.object({
-  voiceEnabled: z.boolean().optional(),
-  memoryEnabled: z.boolean().optional(),
-  knowledgeEnabled: z.boolean().optional(),
-  draftConfidence: z.enum(["all", "standard", "high"]).optional(),
-  explicitWritingStyle: z.string().max(2_000).nullable().optional(),
-  meetingBriefsEnabled: z.boolean().optional(),
-  digestFrequency: z.enum(["off", "daily", "weekly"]).optional(),
-  // Morning briefing, commitments & auto-memory.
-  briefingEnabled: z.boolean().optional(),
-  briefingHour: z.number().int().min(0).max(23).optional(),
-  commitmentsEnabled: z.boolean().optional(),
-  memoryAutoExtract: z.boolean().optional(),
-});
-
 export const PATCH = withUser(async (userId, request) => {
   const parsed = patchSchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) return apiError("bad_request", "Invalid request", 400);
@@ -38,8 +25,6 @@ export const PATCH = withUser(async (userId, request) => {
   await updateAssistantSettings(userId, parsed.data);
   return ok(await getAssistantOverview(userId));
 });
-
-const actionSchema = z.object({ action: z.literal("analyze-style") });
 
 /** POST { action: "analyze-style" } — re-analyze the writing voice now. */
 export const POST = withUser(async (userId, request) => {

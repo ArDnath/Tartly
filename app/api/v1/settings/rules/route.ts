@@ -1,13 +1,11 @@
-import { z } from "zod";
-
-import { apiError, ok, withUser } from "@/lib/api/http";
+import { apiError, created, ok, withUser } from "@/lib/api/http";
+import { rulesCreateBody as bodySchema } from "@/lib/api/contracts/settings";
 import { buildManualRule, compileRule } from "@/lib/ai/features/compile-rule";
 import {
   createRule,
   listRuleExecutions,
   listRules,
 } from "@/lib/ai/features/rules";
-import { RULE_ACTION_TYPES } from "@/lib/db/schema";
 
 /**
  * Automation rules (Phase 3).
@@ -29,41 +27,6 @@ export const GET = withUser(async (userId) => {
     compilerAvailable: isAiProviderConfigured(),
   });
 });
-
-const actionSchema = z.object({
-  type: z.enum(RULE_ACTION_TYPES),
-  fields: z
-    .object({
-      label: z.string().max(120).optional(),
-      folder: z.string().max(120).optional(),
-      instruction: z.string().max(1_000).optional(),
-      to: z.string().max(320).optional(),
-      message: z.string().max(500).optional(),
-      digest: z.string().max(120).optional(),
-    })
-    .default({}),
-  delayMinutes: z.number().int().min(0).max(10_080).optional(),
-});
-
-const conditionSchema = z.object({
-  logic: z.enum(["AND", "OR"]).default("AND"),
-  ai: z.string().max(500).nullable().default(null),
-  from: z.string().max(320).nullable().default(null),
-  to: z.string().max(320).nullable().default(null),
-  subject: z.string().max(320).nullable().default(null),
-  categories: z.array(z.string().max(60)).max(12).default([]),
-  hasUnsubscribe: z.boolean().optional(),
-  coldEmail: z.boolean().optional(),
-});
-
-const bodySchema = z.union([
-  z.object({ instructions: z.string().min(4).max(2_000) }),
-  z.object({
-    name: z.string().min(1).max(120),
-    condition: conditionSchema,
-    actions: z.array(actionSchema).min(1).max(6),
-  }),
-]);
 
 export const POST = withUser(async (userId, request) => {
   const parsed = bodySchema.safeParse(await request.json().catch(() => ({})));
@@ -88,7 +51,7 @@ export const POST = withUser(async (userId, request) => {
       source: "ai",
       createdBy: "user",
     });
-    return ok({ rule }, { status: 201 });
+    return created({ rule }, { location: `/api/v1/settings/rules/${rule.id}` });
   }
 
   const compiled = buildManualRule({
@@ -100,5 +63,5 @@ export const POST = withUser(async (userId, request) => {
     return apiError("invalid_rule", "The rule has no usable actions.", 422);
   }
   const rule = await createRule({ userId, rule: compiled, source: "user" });
-  return ok({ rule }, { status: 201 });
+  return created({ rule }, { location: `/api/v1/settings/rules/${rule.id}` });
 });

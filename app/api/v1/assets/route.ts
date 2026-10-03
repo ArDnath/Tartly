@@ -1,6 +1,5 @@
-import { z } from "zod";
-
-import { apiError, ok, withUser, type UserRouteHandler } from "@/lib/api/http";
+import { apiError, created, ok, withUser, type UserRouteHandler } from "@/lib/api/http";
+import { assetFinalizeBody as finalizeSchema } from "@/lib/api/contracts/assets";
 import {
   listAssets,
   registerUploadedAsset,
@@ -59,17 +58,6 @@ export const GET = withUser(async (userId, request) => {
   });
 });
 
-const finalizeSchema = z.object({
-  key: z.string().min(1).max(1024),
-  filename: z.string().min(1).max(240),
-  mimeType: z.string().min(3).max(120),
-  sizeBytes: z.number().int().positive(),
-  sha256: z.string().regex(/^[a-f0-9]{64}$/i),
-  altText: z.string().max(500).nullable().optional(),
-  width: z.number().int().min(0).max(100_000).nullable().optional(),
-  height: z.number().int().min(0).max(100_000).nullable().optional(),
-});
-
 const handleFinalize: UserRouteHandler = async (userId, request) => {
   if (!isAssetsEnabled()) {
     return apiError("disabled", ERROR_MESSAGES.disabled, ERROR_STATUS.disabled);
@@ -91,7 +79,7 @@ const handleFinalize: UserRouteHandler = async (userId, request) => {
   }
 
   const asset = result.asset;
-  return ok({
+  const payload = {
     deduped: result.deduped,
     asset: {
       id: asset.id,
@@ -104,7 +92,12 @@ const handleFinalize: UserRouteHandler = async (userId, request) => {
       altText: asset.altText,
       createdAt: asset.createdAt.toISOString(),
     },
-  });
+  };
+  // A re-upload of identical bytes dedupes to the existing row: that is a 200,
+  // not a new creation. A fresh row is 201 + Location (SKILL §2.3).
+  return result.deduped
+    ? ok(payload)
+    : created(payload, { location: `/api/v1/assets/${asset.id}` });
 };
 
 export const POST = withUser(

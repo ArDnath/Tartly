@@ -5,18 +5,22 @@ import { refreshWritingStyleIfStale } from "@/lib/ai/features/writing-style";
 import { maybeGenerateScheduledDigest } from "@/lib/ai/features/digest";
 import { recoverStuckCampaigns } from "@/lib/campaigns/service";
 import { enqueueDueCommitments } from "@/lib/commitments/service";
-import { db, pool } from "@/lib/db";
-import { mailboxes } from "@/lib/db/schema";
+import { pool } from "@/lib/db";
 import { JOB_KIND_INBOUND_EMAIL } from "@/lib/email-operator/job-kinds";
-import { renewExpiringWatches } from "@/lib/gmail/watch";
+import { getUnhealthyWatches, renewExpiringWatches } from "@/lib/gmail/watch";
 import { syncMailbox } from "@/lib/gmail/sync";
 import { drainQueue } from "@/lib/email-operator/drain";
+import { reconcileForUser } from "@/lib/email-operator/reconcile";
+import { runRetentionJobs } from "@/lib/email-operator/retention";
 import { enqueueDueFollowups } from "@/lib/followup/service";
 import { enqueueJob } from "@/lib/queue/queue";
+import { mailboxRepository } from "@/lib/repositories/mailboxes";
+import { runAutopilotReview } from "@/lib/settings/autopilot-review";
 
 export type DailyMaintenanceSummary = {
   watchesRenewed: number;
   watchesFailed: number;
+  watchesUnhealthy: number;
   mailboxesBackfilled: number;
   backfillErrors: number;
   triageEnqueued: number;
@@ -26,6 +30,9 @@ export type DailyMaintenanceSummary = {
   digestsGenerated: number;
   campaignsRecovered: number;
   commitmentNudges: number;
+  reconcileDrift: number;
+  retentionPruned: number;
+  autopilotReviews: number;
 };
 
 /**
@@ -39,6 +46,7 @@ export async function runDailyMaintenance(): Promise<DailyMaintenanceSummary> {
   const summary: DailyMaintenanceSummary = {
     watchesRenewed: 0,
     watchesFailed: 0,
+    watchesUnhealthy: 0,
     mailboxesBackfilled: 0,
     backfillErrors: 0,
     triageEnqueued: 0,
@@ -48,6 +56,9 @@ export async function runDailyMaintenance(): Promise<DailyMaintenanceSummary> {
     digestsGenerated: 0,
     campaignsRecovered: 0,
     commitmentNudges: 0,
+    reconcileDrift: 0,
+    retentionPruned: 0,
+    autopilotReviews: 0,
   };
 
   if (env.GOOGLE_PUBSUB_TOPIC) {
@@ -58,11 +69,16 @@ export async function runDailyMaintenance(): Promise<DailyMaintenanceSummary> {
     summary.watchesFailed = watchResult.failed;
   }
 
+  // After renewal, report any watch still unhealthy (expiring, lapsed, or a
+  // sync failure). Drives the watch-expiring alert (SLO-7).
+  try {
+    summary.watchesUnhealthy = (await getUnhealthyWatches()).length;
+  } catch (error) {
+    console.warn("[cron/daily] watch health check failed", error);
+  }
+
   // Bounded backfill: at most the first page per mailbox.
-  const rows = await db
-    .select({ id: mailboxes.id, userId: mailboxes.userId })
-    .from(mailboxes)
-    .limit(50);
+  const rows = await mailboxRepository.listForBackfill(50);
 
   for (const mailbox of rows) {
     try {
@@ -106,6 +122,15 @@ export async function runDailyMaintenance(): Promise<DailyMaintenanceSummary> {
       } catch (error) {
         console.warn(`[cron/daily] campaign recovery failed for ${mailbox.id}`, error);
       }
+
+      // F-14/G-11: detect send/DB drift for this user's mailboxes.
+      try {
+        const reconciled = await reconcileForUser(mailbox.userId);
+        summary.reconcileDrift +=
+          reconciled.sendMirrorMissing + reconciled.deadJobs;
+      } catch (error) {
+        console.warn(`[cron/daily] reconcile failed for ${mailbox.id}`, error);
+      }
     } catch (error) {
       summary.backfillErrors += 1;
       console.error(`[cron/daily] backfill failed for ${mailbox.id}`, error);
@@ -119,11 +144,30 @@ export async function runDailyMaintenance(): Promise<DailyMaintenanceSummary> {
   // per (commitment, nudgeCount) via the send ledger.
   summary.commitmentNudges = await enqueueDueCommitments();
 
+  // 24/7 autopilot: finalize the overnight review for every enabled mailbox, so
+  // the morning catch-up reflects it even on Hobby. Idempotent.
+  try {
+    const review = await runAutopilotReview();
+    summary.autopilotReviews = review.reviewsFinalized;
+  } catch (error) {
+    console.warn("[cron/daily] autopilot review failed", error);
+  }
+
   // Safety net: on Hobby the daily cron is the only guaranteed drain.
   const drained = await drainQueue({
     workerId: `cron-daily:${Date.now().toString(36)}`,
   });
   summary.queueDrained = drained.completed;
+
+  // Retention: prune bounded, content-free history (autopilot decisions,
+  // event log, old send-ledger rows). Failure never blocks the run.
+  try {
+    const retention = await runRetentionJobs();
+    summary.retentionPruned =
+      retention.autopilotDecisions + retention.eventLog + retention.sendLedger;
+  } catch (error) {
+    console.warn("[cron/daily] retention failed", error);
+  }
 
   return summary;
 }

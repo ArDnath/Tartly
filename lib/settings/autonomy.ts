@@ -1,9 +1,7 @@
 import "server-only";
 
-import { and, eq } from "drizzle-orm";
-
-import { db } from "@/lib/db";
-import { contacts, mailboxes, threadSettings, threads } from "@/lib/db/schema";
+import { threadRepository } from "@/lib/repositories/threads";
+import { threadSettingsRepository } from "@/lib/repositories/thread-settings";
 
 /**
  * Autonomy settings: the mailbox default (`copilot` drafts, `autopilot` sends),
@@ -37,29 +35,10 @@ function normalize(value: string | null | undefined): Autonomy | null {
 export async function getAutonomySettings(
   userId: string,
 ): Promise<AutonomySettings> {
-  const [mailboxRows, overrideRows, threadRows] = await Promise.all([
-    db
-      .select({ autonomy: mailboxes.autonomy })
-      .from(mailboxes)
-      .where(eq(mailboxes.userId, userId))
-      .limit(1),
-    db
-      .select({
-        email: contacts.email,
-        name: contacts.name,
-        override: contacts.autonomyOverride,
-      })
-      .from(contacts)
-      .where(eq(contacts.userId, userId)),
-    db
-      .select({
-        threadId: threadSettings.threadId,
-        autonomy: threadSettings.autonomy,
-        subject: threads.subject,
-      })
-      .from(threadSettings)
-      .leftJoin(threads, eq(threads.id, threadSettings.threadId))
-      .where(eq(threadSettings.userId, userId)),
+  const [mailboxAutonomy, overrideRows, threadRows] = await Promise.all([
+    threadSettingsRepository.findMailboxAutonomyForUser(userId),
+    threadSettingsRepository.listContactOverridesForUser(userId),
+    threadSettingsRepository.listThreadOverridesWithSubject(userId),
   ]);
 
   const overrides = overrideRows.flatMap((row) => {
@@ -75,7 +54,7 @@ export async function getAutonomySettings(
   });
 
   return {
-    mailboxAutonomy: normalize(mailboxRows[0]?.autonomy) ?? "copilot",
+    mailboxAutonomy: normalize(mailboxAutonomy) ?? "copilot",
     overrides,
     threadOverrides,
   };
@@ -85,12 +64,11 @@ export async function setMailboxAutonomy(
   userId: string,
   autonomy: Autonomy,
 ): Promise<boolean> {
-  const updated = await db
-    .update(mailboxes)
-    .set({ autonomy, updatedAt: new Date() })
-    .where(eq(mailboxes.userId, userId))
-    .returning({ id: mailboxes.id });
-  return updated.length > 0;
+  return threadSettingsRepository.updateMailboxAutonomy({
+    userId,
+    autonomy,
+    now: new Date(),
+  });
 }
 
 export async function setContactOverride(
@@ -98,14 +76,12 @@ export async function setContactOverride(
   email: string,
   override: Autonomy | null,
 ): Promise<boolean> {
-  const updated = await db
-    .update(contacts)
-    .set({ autonomyOverride: override, updatedAt: new Date() })
-    .where(
-      and(eq(contacts.userId, userId), eq(contacts.email, email.toLowerCase())),
-    )
-    .returning({ id: contacts.id });
-  return updated.length > 0;
+  return threadSettingsRepository.updateContactOverride({
+    userId,
+    email,
+    override,
+    now: new Date(),
+  });
 }
 
 /** The raw per-thread override (null = inherit), or null when not the user's. */
@@ -113,17 +89,11 @@ export async function getThreadAutonomy(
   userId: string,
   threadId: string,
 ): Promise<Autonomy | null> {
-  const rows = await db
-    .select({ autonomy: threadSettings.autonomy })
-    .from(threadSettings)
-    .where(
-      and(
-        eq(threadSettings.threadId, threadId),
-        eq(threadSettings.userId, userId),
-      ),
-    )
-    .limit(1);
-  return normalize(rows[0]?.autonomy);
+  const raw = await threadSettingsRepository.findThreadAutonomy({
+    userId,
+    threadId,
+  });
+  return normalize(raw);
 }
 
 /**
@@ -135,32 +105,20 @@ export async function setThreadAutonomy(
   threadId: string,
   autonomy: Autonomy | null,
 ): Promise<boolean> {
-  const owned = await db
-    .select({ id: threads.id })
-    .from(threads)
-    .where(and(eq(threads.id, threadId), eq(threads.userId, userId)))
-    .limit(1);
-  if (!owned[0]) return false;
+  const owned = await threadRepository.findIdForUser(userId, threadId);
+  if (!owned) return false;
 
   if (autonomy === null) {
-    await db
-      .delete(threadSettings)
-      .where(
-        and(
-          eq(threadSettings.threadId, threadId),
-          eq(threadSettings.userId, userId),
-        ),
-      );
+    await threadSettingsRepository.deleteThreadAutonomy({ userId, threadId });
     return true;
   }
 
-  await db
-    .insert(threadSettings)
-    .values({ threadId, userId, autonomy })
-    .onConflictDoUpdate({
-      target: threadSettings.threadId,
-      set: { autonomy, updatedAt: new Date() },
-    });
+  await threadSettingsRepository.upsertThreadAutonomy({
+    threadId,
+    userId,
+    autonomy,
+    now: new Date(),
+  });
   return true;
 }
 
@@ -185,49 +143,29 @@ export async function resolveAutonomy({
   mailboxId?: string | null;
 }): Promise<ResolvedAutonomy> {
   if (threadId) {
-    const rows = await db
-      .select({ autonomy: threadSettings.autonomy })
-      .from(threadSettings)
-      .where(
-        and(
-          eq(threadSettings.threadId, threadId),
-          eq(threadSettings.userId, userId),
-        ),
-      )
-      .limit(1);
-    const value = normalize(rows[0]?.autonomy);
+    const raw = await threadSettingsRepository.findThreadAutonomy({
+      userId,
+      threadId,
+    });
+    const value = normalize(raw);
     if (value) return { autonomy: value, source: "thread" };
   }
 
   if (contactEmail) {
-    const rows = await db
-      .select({ override: contacts.autonomyOverride })
-      .from(contacts)
-      .where(
-        and(
-          eq(contacts.userId, userId),
-          eq(contacts.email, contactEmail.toLowerCase()),
-        ),
-      )
-      .limit(1);
-    const value = normalize(rows[0]?.override);
+    const raw = await threadSettingsRepository.findContactOverride({
+      userId,
+      email: contactEmail,
+    });
+    const value = normalize(raw);
     if (value) return { autonomy: value, source: "contact" };
   }
 
-  const mailboxRows = mailboxId
-    ? await db
-        .select({ autonomy: mailboxes.autonomy })
-        .from(mailboxes)
-        .where(eq(mailboxes.id, mailboxId))
-        .limit(1)
-    : await db
-        .select({ autonomy: mailboxes.autonomy })
-        .from(mailboxes)
-        .where(eq(mailboxes.userId, userId))
-        .limit(1);
+  const rawMailboxAutonomy = mailboxId
+    ? await threadSettingsRepository.findMailboxAutonomyById(mailboxId)
+    : await threadSettingsRepository.findMailboxAutonomyForUser(userId);
 
   return {
-    autonomy: normalize(mailboxRows[0]?.autonomy) ?? "copilot",
+    autonomy: normalize(rawMailboxAutonomy) ?? "copilot",
     source: "mailbox",
   };
 }

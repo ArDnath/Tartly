@@ -2,9 +2,14 @@ import { NextResponse, type NextRequest } from "next/server";
 import { after } from "next/server";
 
 import { jsonError } from "@/lib/api/error-envelope";
+import { drainQueue } from "@/lib/email-operator/drain";
 import { recordEvent, processGmailEvent } from "@/lib/email-operator/events";
 import { findMailboxByEmail } from "@/lib/email-operator/mailbox";
-import { getPubSubAudience, isEmailOperatorEnabled } from "@/lib/env";
+import {
+  getPubSubAudience,
+  isEmailOperatorEnabled,
+  webhookDrainBatchSize,
+} from "@/lib/env";
 import { decodeGmailPushData, verifyGoogleOidcToken } from "@/lib/gmail/pubsub";
 
 export const runtime = "nodejs";
@@ -72,6 +77,14 @@ export async function POST(request: NextRequest) {
     after(async () => {
       try {
         await processGmailEvent(id);
+        // Fix G-01: the webhook enqueued the job but nothing drained it. Run a
+        // bounded drain in this same invocation so new mail is triaged (and,
+        // when eligible, auto-sent) without the user opening the app. A drain
+        // failure must never change the 200 ack or block other work.
+        await drainQueue({
+          workerId: `webhook:${id}:${Date.now().toString(36)}`,
+          batchSize: webhookDrainBatchSize(),
+        });
       } catch (error) {
         console.error("[webhooks/gmail] processing failed", error);
       }

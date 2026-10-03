@@ -1,6 +1,6 @@
 import { nanoid } from "nanoid";
-import { z } from "zod";
 
+import { mailSendBody as schema } from "@/lib/api/contracts/mail";
 import { apiError, ok } from "@/lib/api/http";
 import {
   buildHtmlWithImages,
@@ -11,19 +11,6 @@ import { getMailboxForUser } from "@/lib/email-operator/mailbox";
 import { sendEmail } from "@/lib/gmail/send";
 import { allowMailSend } from "@/lib/mail/rate-limit";
 import { withMailUser } from "@/lib/mail/route";
-
-const schema = z.object({
-  to: z.array(z.string().min(1)).min(1),
-  cc: z.array(z.string().min(1)).optional(),
-  bcc: z.array(z.string().min(1)).optional(),
-  subject: z.string().default(""),
-  body: z.string().default(""),
-  threadId: z.string().optional(),
-  inReplyTo: z.string().optional(),
-  /** Phase 6: assets to attach, and images to render inline. */
-  assetIds: z.array(z.string()).max(20).optional(),
-  inlineImageIds: z.array(z.string()).max(20).optional(),
-});
 
 /**
  * Sends mail through the single idempotent path (`sendEmail`), so a retried

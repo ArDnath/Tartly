@@ -1,8 +1,9 @@
-import { and, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
-import { db } from "@/lib/db";
-import { flows } from "@/lib/db/schema";
+import {
+  flowRepository,
+  type Flow,
+} from "@/lib/repositories/engine-flows";
 
 /**
  * Flow graph primitives + the seeded default flows. A graph is a list of nodes
@@ -123,30 +124,24 @@ export function nextNode(
   return graph.nodes.find((candidate) => candidate.id === edge.to) ?? null;
 }
 
-export type FlowRow = typeof flows.$inferSelect;
+export type FlowRow = Flow;
 
 /**
  * Ensures the default inbound-email flow exists for a user and returns it.
  * Idempotent: repeated calls return the existing row.
  */
 export async function seedDefaultFlows(userId: string): Promise<FlowRow> {
-  const existing = await db
-    .select()
-    .from(flows)
-    .where(
-      and(
-        eq(flows.userId, userId),
-        eq(flows.name, INBOUND_EMAIL_FLOW_NAME),
-      ),
-    )
-    .limit(1);
+  const existing = await flowRepository.findByNameForUser(
+    userId,
+    INBOUND_EMAIL_FLOW_NAME,
+  );
 
-  if (existing[0]) {
+  if (existing) {
     // The graph has no editor UI, so a shipped change (a new node such as
     // `extract-commitments`) must be applied to already-seeded rows or it would
     // never take effect. Refresh only when the stored graph is missing a node
     // type the current version adds — never clobber a purely identical row.
-    const stored = existing[0].graph as unknown as Partial<FlowGraph>;
+    const stored = existing.graph as unknown as Partial<FlowGraph>;
     const storedTypes = new Set(
       (stored.nodes ?? []).map((node) => node.type),
     );
@@ -155,26 +150,20 @@ export async function seedDefaultFlows(userId: string): Promise<FlowRow> {
       (node) => !storedTypes.has(node.type),
     );
     if (needsRefresh) {
-      const refreshed = await db
-        .update(flows)
-        .set({ graph: current as unknown as Record<string, unknown> })
-        .where(eq(flows.id, existing[0].id))
-        .returning();
-      return refreshed[0] ?? existing[0];
+      const refreshed = await flowRepository.updateGraphById(
+        existing.id,
+        current as unknown as Record<string, unknown>,
+      );
+      return refreshed ?? existing;
     }
-    return existing[0];
+    return existing;
   }
 
-  const inserted = await db
-    .insert(flows)
-    .values({
-      id: nanoid(),
-      userId,
-      name: INBOUND_EMAIL_FLOW_NAME,
-      graph: buildInboundEmailGraph() as unknown as Record<string, unknown>,
-      isActive: true,
-    })
-    .returning();
-
-  return inserted[0];
+  return flowRepository.insert({
+    id: nanoid(),
+    userId,
+    name: INBOUND_EMAIL_FLOW_NAME,
+    graph: buildInboundEmailGraph() as unknown as Record<string, unknown>,
+    isActive: true,
+  });
 }

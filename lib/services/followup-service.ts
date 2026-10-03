@@ -1,11 +1,11 @@
 import "server-only";
 
-import { and, eq } from "drizzle-orm";
-
 import { AuthenticationError, ValidationError } from "@/lib/agent/errors";
-import { db } from "@/lib/db";
-import { threads } from "@/lib/db/schema";
 import { enrollThread } from "@/lib/followup/service";
+import {
+  ThreadRepository,
+  threadRepository,
+} from "@/lib/repositories/threads";
 
 /**
  * FollowupService — the agent-facing entry to the follow-up cadence.
@@ -44,6 +44,8 @@ export type CreateFollowupResult =
 export const DEFAULT_FOLLOWUP_AFTER_DAYS = 3;
 
 export class FollowupService {
+  constructor(private readonly threads: ThreadRepository = threadRepository) {}
+
   async createFollowup(input: CreateFollowupInput): Promise<CreateFollowupResult> {
     if (!input.userId) throw new AuthenticationError();
     const gmailThreadId = input.gmailThreadId?.trim();
@@ -53,18 +55,10 @@ export class FollowupService {
     const afterDays = clampDays(input.afterDays);
     const maxAttempts = clampAttempts(input.maxAttempts);
 
-    const mirror = (
-      await db
-        .select()
-        .from(threads)
-        .where(
-          and(
-            eq(threads.gmailThreadId, gmailThreadId),
-            eq(threads.userId, input.userId),
-          ),
-        )
-        .limit(1)
-    )[0];
+    const mirror = await this.threads.findByGmailThreadIdForUser(
+      input.userId,
+      gmailThreadId,
+    );
 
     if (!mirror) {
       return {

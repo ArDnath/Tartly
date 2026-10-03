@@ -1,15 +1,9 @@
 import "server-only";
 
-import { and, desc, eq, isNotNull } from "drizzle-orm";
-
 import { generateObject } from "@/lib/ai/generate";
-import { db } from "@/lib/db";
-import {
-  assistantSettings,
-  messages,
-  threads,
-  type WritingStyleProfile,
-} from "@/lib/db/schema";
+import { assistantSettingsRepository } from "@/lib/repositories/assistant-settings";
+import { messageRepository } from "@/lib/repositories/messages";
+import type { WritingStyleProfile } from "@/lib/db/schema";
 import { z } from "zod";
 
 /**
@@ -74,22 +68,10 @@ export async function collectSentSamples({
   userId: string;
   limit?: number;
 }): Promise<StyleSample[]> {
-  const rows = await db
-    .select({
-      toAddr: messages.toAddr,
-      bodyText: messages.bodyText,
-    })
-    .from(messages)
-    .innerJoin(threads, eq(messages.threadId, threads.id))
-    .where(
-      and(
-        eq(threads.userId, userId),
-        eq(messages.direction, "outbound"),
-        isNotNull(messages.bodyText),
-      ),
-    )
-    .orderBy(desc(messages.sentAt))
-    .limit(Math.min(Math.max(limit, 1), MAX_STYLE_SAMPLES * 2));
+  const rows = await messageRepository.listSentSamples({
+    userId,
+    limit: Math.min(Math.max(limit, 1), MAX_STYLE_SAMPLES * 2),
+  });
 
   return rows
     .filter((row) => (row.bodyText ?? "").trim().length > 0)
@@ -228,12 +210,8 @@ export async function refreshWritingStyleIfStale({
   force?: boolean;
 }): Promise<{ refreshed: boolean }> {
   if (!force) {
-    const rows = await db
-      .select({ analyzedAt: assistantSettings.styleAnalyzedAt })
-      .from(assistantSettings)
-      .where(eq(assistantSettings.userId, userId))
-      .limit(1);
-    const analyzedAt = rows[0]?.analyzedAt;
+    const row = await assistantSettingsRepository.findStyleAnalyzedAt(userId);
+    const analyzedAt = row?.analyzedAt;
     if (analyzedAt && Date.now() - analyzedAt.getTime() < STYLE_REFRESH_INTERVAL_MS) {
       return { refreshed: false };
     }
@@ -245,25 +223,13 @@ export async function refreshWritingStyleIfStale({
 
     const learnedWritingStyle = buildStyleGuide(style);
     const now = new Date();
-    await db
-      .insert(assistantSettings)
-      .values({
-        userId,
-        writingStyle: style,
-        learnedWritingStyle,
-        styleVersion: WRITING_STYLE_VERSION,
-        styleAnalyzedAt: now,
-      })
-      .onConflictDoUpdate({
-        target: assistantSettings.userId,
-        set: {
-          writingStyle: style,
-          learnedWritingStyle,
-          styleVersion: WRITING_STYLE_VERSION,
-          styleAnalyzedAt: now,
-          updatedAt: now,
-        },
-      });
+    await assistantSettingsRepository.upsertStyle({
+      userId,
+      style,
+      learnedWritingStyle,
+      styleVersion: WRITING_STYLE_VERSION,
+      analyzedAt: now,
+    });
     return { refreshed: true };
   } catch (error) {
     console.warn("[ai/writing-style] refresh failed", error);

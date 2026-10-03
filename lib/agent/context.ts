@@ -1,9 +1,6 @@
 import "server-only";
 
-import { eq } from "drizzle-orm";
-
-import { db } from "@/lib/db";
-import { calendarSettings } from "@/lib/db/schema";
+import { calendarPersistenceRepository } from "@/lib/repositories/calendar-persistence";
 import { getAutonomySettings, type Autonomy } from "@/lib/settings/autonomy";
 
 /**
@@ -73,12 +70,8 @@ export async function buildAgentContext(input: {
 }): Promise<AgentContext> {
   const { userId } = input;
 
-  const [calendarRows, autonomy] = await Promise.all([
-    db
-      .select({ timezone: calendarSettings.timezone })
-      .from(calendarSettings)
-      .where(eq(calendarSettings.userId, userId))
-      .limit(1),
+  const [timezone, autonomy] = await Promise.all([
+    calendarPersistenceRepository.findSettingsTimezoneByUser(userId),
     getAutonomySettings(userId),
   ]);
 
@@ -102,7 +95,7 @@ export async function buildAgentContext(input: {
     ...(input.currentEmailId ? { currentEmailId: input.currentEmailId } : {}),
     permissions,
     locale: DEFAULT_AGENT_LOCALE,
-    timezone: calendarRows[0]?.timezone ?? DEFAULT_AGENT_TIMEZONE,
+    timezone: timezone ?? DEFAULT_AGENT_TIMEZONE,
     now: new Date(),
   };
 }

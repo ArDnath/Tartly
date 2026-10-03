@@ -1,10 +1,9 @@
-import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { z } from "zod";
 
 import { jsonError } from "@/lib/api/error-envelope";
-import { db } from "@/lib/db";
-import { user } from "@/lib/db/schema";
+import { onboardingAdvanceBody as bodySchema } from "@/lib/api/contracts/legacy";
+import { enforceUserRateLimit } from "@/lib/api/http";
+import { userRepository } from "@/lib/repositories/users";
 import {
   advanceOnboarding,
   getOrCreateOnboardingState,
@@ -13,23 +12,16 @@ import {
 import { ONBOARDING_STATUS } from "@/lib/onboarding/types";
 import { getSession } from "@/lib/session";
 
-const bodySchema = z.object({
-  action: z.enum(["complete", "skip"]).default("complete"),
-  data: z
-    .object({
-      firstName: z.string().min(1).max(80).optional(),
-      lastName: z.string().max(80).optional(),
-      jobTitle: z.string().max(120).optional(),
-      image: z.string().max(1_600_000).optional(),
-    })
-    .default({}),
-});
-
 export async function POST(request: Request) {
   const session = await getSession();
   if (!session?.user) {
     return jsonError("unauthorized", "Unauthorized", 401);
   }
+
+  const limited = await enforceUserRateLimit(session.user.id, {
+    scope: "legacy",
+  });
+  if (limited) return limited;
 
   const parsed = bodySchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {
@@ -53,13 +45,11 @@ export async function POST(request: Request) {
       }
 
       if (firstName || lastName) {
-        await db
-          .update(user)
-          .set({
-            name: `${firstName} ${lastName}`.trim(),
-            updatedAt: new Date(),
-          })
-          .where(eq(user.id, userId));
+        await userRepository.updateName({
+          userId,
+          name: `${firstName} ${lastName}`.trim(),
+          now: new Date(),
+        });
       }
 
       statusPatch.jobTitle = data.jobTitle ?? null;

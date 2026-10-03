@@ -1,14 +1,11 @@
 import "server-only";
 
-import { eq, lt, or, isNull } from "drizzle-orm";
-
-import { db } from "@/lib/db";
-import { mailboxes } from "@/lib/db/schema";
 import {
   defaultGmailTransport,
   gmailJson,
   type GmailTransport,
 } from "@/lib/gmail/client";
+import { mailboxRepository } from "@/lib/repositories/mailboxes";
 
 type WatchResponse = { historyId?: string; expiration?: string };
 
@@ -43,13 +40,11 @@ export async function registerMailboxWatch({
     ? new Date(Number(response.expiration))
     : null;
 
-  await db
-    .update(mailboxes)
-    .set({
-      watchExpiration: expiration,
-      ...(response.historyId ? { historyId: response.historyId } : {}),
-    })
-    .where(eq(mailboxes.id, mailboxId));
+  await mailboxRepository.updateWatch({
+    mailboxId,
+    expiration,
+    historyId: response.historyId,
+  });
 
   return { expiration, historyId: response.historyId ?? null };
 }
@@ -69,18 +64,7 @@ export async function renewExpiringWatches({
 }): Promise<{ renewed: number; failed: number }> {
   const cutoff = new Date(now.getTime() + WATCH_RENEWAL_WINDOW_MS);
 
-  const rows = await db
-    .select({
-      id: mailboxes.id,
-      userId: mailboxes.userId,
-    })
-    .from(mailboxes)
-    .where(
-      or(
-        isNull(mailboxes.watchExpiration),
-        lt(mailboxes.watchExpiration, cutoff),
-      ),
-    );
+  const rows = await mailboxRepository.listExpiringWatches(cutoff);
 
   let renewed = 0;
   let failed = 0;
@@ -101,4 +85,59 @@ export async function renewExpiringWatches({
   }
 
   return { renewed, failed };
+}
+
+export type WatchStatus = "ok" | "expiring" | "lapsed";
+
+export type WatchHealth = {
+  mailboxId: string;
+  userId: string;
+  email: string;
+  status: WatchStatus;
+  watchExpiration: Date | null;
+  lastSyncedAt: Date | null;
+  syncError: string | null;
+};
+
+/**
+ * Derives watch health from an expiration instant. `expiring` means it will
+ * lapse inside the renewal window; `lapsed` means it already has or was never
+ * registered.
+ */
+export function watchStatusFor(
+  expiration: Date | null,
+  now: Date,
+  minMinutesLeft = 24 * 60,
+): WatchStatus {
+  if (!expiration) return "lapsed";
+  const msLeft = expiration.getTime() - now.getTime();
+  if (msLeft <= 0) return "lapsed";
+  if (msLeft <= minMinutesLeft * 60 * 1000) return "expiring";
+  return "ok";
+}
+
+/**
+ * Every mailbox that needs attention: no watch, a watch expiring within the
+ * window, or a recorded sync failure. Powers the health alert/reaper and the
+ * operator panel. `minMinutesLeft` defaults to 24h.
+ */
+export async function getUnhealthyWatches({
+  now = new Date(),
+  minMinutesLeft = 24 * 60,
+}: {
+  now?: Date;
+  minMinutesLeft?: number;
+} = {}): Promise<WatchHealth[]> {
+  const rows = await mailboxRepository.listWatchHealth();
+  return rows
+    .map((row) => ({
+      mailboxId: row.id,
+      userId: row.userId,
+      email: row.email,
+      status: watchStatusFor(row.watchExpiration, now, minMinutesLeft),
+      watchExpiration: row.watchExpiration,
+      lastSyncedAt: row.lastSyncedAt,
+      syncError: row.syncError,
+    }))
+    .filter((row) => row.status !== "ok" || row.syncError !== null);
 }

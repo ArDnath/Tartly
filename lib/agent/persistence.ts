@@ -1,18 +1,12 @@
 import "server-only";
 
-import { and, asc, desc, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { NotFoundError } from "@/lib/agent/errors";
 import type { AgentEventSink } from "@/lib/agent/events";
-import { db } from "@/lib/db";
-import {
-  agentChatMessage,
-  agentChatThread,
-  agentRuns,
-  type AgentTraceEntry,
-  type ChatMessagePart,
-} from "@/lib/db/schema";
+import type { AgentTraceEntry, ChatMessagePart } from "@/lib/db/schema";
+import { agentChatRepository } from "@/lib/repositories/agent-chat";
+import { agentRunsRepository } from "@/lib/repositories/agent-runs";
 
 /**
  * Agent persistence: run records, the ordered trace, and message parts.
@@ -29,7 +23,7 @@ export async function createAgentRun(input: {
   model: string | null;
 }): Promise<string> {
   const id = nanoid();
-  await db.insert(agentRuns).values({
+  await agentRunsRepository.insertRun({
     id,
     userId: input.userId,
     conversationId: input.conversationId,
@@ -50,9 +44,9 @@ export async function finishAgentRun(input: {
   error?: string | null;
   trace: AgentTraceEntry[];
 }): Promise<void> {
-  await db
-    .update(agentRuns)
-    .set({
+  await agentRunsRepository.updateRunById({
+    runId: input.runId,
+    values: {
       status: input.status,
       stepCount: input.stepCount,
       promptTokens: input.promptTokens ?? 0,
@@ -61,8 +55,8 @@ export async function finishAgentRun(input: {
       error: input.error ? input.error.slice(0, 500) : null,
       trace: input.trace,
       finishedAt: new Date(),
-    })
-    .where(eq(agentRuns.id, input.runId));
+    },
+  });
 }
 
 export type StoredMessage = {
@@ -86,23 +80,15 @@ export async function appendMessageParts(input: {
    */
   id?: string;
 }): Promise<StoredMessage> {
-  const inserted = await db
-    .insert(agentChatMessage)
-    .values({
-      id: input.id ?? nanoid(),
-      threadId: input.conversationId,
-      role: input.role,
-      parts: input.parts,
-      hidden: input.hidden ?? false,
-    })
-    .returning();
+  const row = await agentChatRepository.insertMessage({
+    id: input.id ?? nanoid(),
+    threadId: input.conversationId,
+    role: input.role,
+    parts: input.parts,
+    hidden: input.hidden ?? false,
+  });
 
-  const row = inserted[0]!;
-
-  await db
-    .update(agentChatThread)
-    .set({ updatedAt: new Date(), lastMessageAt: new Date() })
-    .where(eq(agentChatThread.id, input.conversationId));
+  await agentChatRepository.touchThread(input.conversationId, new Date());
 
   return {
     id: row.id,
@@ -119,34 +105,24 @@ export async function loadConversationMessages(
   conversationId: string,
   options: { includeHidden?: boolean; limit?: number } = {},
 ): Promise<StoredMessage[]> {
-  const owned = await db
-    .select({ id: agentChatThread.id })
-    .from(agentChatThread)
-    .where(
-      and(
-        eq(agentChatThread.id, conversationId),
-        eq(agentChatThread.userId, userId),
-      ),
-    )
-    .limit(1);
+  const owned = await agentRunsRepository.findThreadIdForUser(
+    userId,
+    conversationId,
+  );
 
-  if (!owned[0]) throw new NotFoundError("Conversation not found.");
+  if (!owned) throw new NotFoundError("Conversation not found.");
 
   // A `limit` returns the most recent N (oldest-first) for bounded model
   // context; without it the full transcript is returned for the UI.
-  const base = db
-    .select()
-    .from(agentChatMessage)
-    .where(eq(agentChatMessage.threadId, conversationId));
-
   const rows =
     options.limit && options.limit > 0
       ? (
-          await base
-            .orderBy(desc(agentChatMessage.createdAt))
-            .limit(options.limit)
+          await agentRunsRepository.listRecentMessagesByThread(
+            conversationId,
+            options.limit,
+          )
         ).reverse()
-      : await base.orderBy(asc(agentChatMessage.createdAt));
+      : await agentChatRepository.listMessages(conversationId);
 
   return rows
     .filter((row) => options.includeHidden || !row.hidden)
@@ -230,10 +206,10 @@ export async function saveThreadCompaction(input: {
 }): Promise<void> {
   if (!input.summary.trim()) return;
   try {
-    await db
-      .update(agentChatThread)
-      .set({ compactionSummary: input.summary.slice(0, 8_000) })
-      .where(eq(agentChatThread.id, input.conversationId));
+    await agentRunsRepository.updateCompactionSummary(
+      input.conversationId,
+      input.summary.slice(0, 8_000),
+    );
   } catch (error) {
     console.warn("[agent] failed to persist compaction summary", error);
   }

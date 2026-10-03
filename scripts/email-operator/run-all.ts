@@ -6,6 +6,7 @@ import { run as runPhase4 } from "./phase4-meetings";
 import { run as runPhase5 } from "./phase5-followups";
 import { run as runPhase6 } from "./phase6-guardrails";
 import { run as runPhase8 } from "./phase8-briefing";
+import { run as runPhaseAutopilot } from "./phase-autopilot";
 import { run as runPhase2Intelligence } from "./evals/phase2-intelligence";
 import { run as runPhase3Rules } from "./evals/phase3-rules";
 import { run as runPhase4Comms } from "./evals/phase4-comms";
@@ -35,6 +36,7 @@ async function main() {
   await runPhase6Assets();
   await runPhase7Campaigns();
   await runPhase8();
+  await runPhaseAutopilot();
 
   const failures = getFailureCount();
   if (failures > 0) {

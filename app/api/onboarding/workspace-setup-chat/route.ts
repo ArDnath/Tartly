@@ -1,20 +1,23 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 
 import { jsonError } from "@/lib/api/error-envelope";
+import { onboardingWorkspaceSetupBody as bodySchema } from "@/lib/api/contracts/legacy";
+import { enforceUserRateLimit } from "@/lib/api/http";
 import { startWorkspaceSetupChat } from "@/lib/ai/chat-service";
+import { agentRateLimitPerMin } from "@/lib/env";
 import { getSession } from "@/lib/session";
-
-const bodySchema = z.object({
-  companyContext: z.unknown().optional(),
-  personContext: z.unknown().optional(),
-});
 
 export async function POST(request: Request) {
   const session = await getSession();
   if (!session?.user) {
     return jsonError("unauthorized", "Unauthorized", 401);
   }
+
+  const limited = await enforceUserRateLimit(session.user.id, {
+    limit: agentRateLimitPerMin(),
+    scope: "ai",
+  });
+  if (limited) return limited;
 
   const parsed = bodySchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {

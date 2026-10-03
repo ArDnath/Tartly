@@ -1,6 +1,5 @@
-import { z } from "zod";
-
 import { apiError, ok, withUser } from "@/lib/api/http";
+import { uploadTicketBody as ticketSchema } from "@/lib/api/contracts/assets";
 import { mimeAllowed } from "@/lib/assets/service";
 import {
   assetStorageKeyForSha,
@@ -25,13 +24,6 @@ import {
  */
 
 export const runtime = "nodejs";
-
-const ticketSchema = z.object({
-  filename: z.string().min(1).max(240),
-  mimeType: z.string().min(3).max(120),
-  sizeBytes: z.number().int().positive(),
-  sha256: z.string().regex(/^[a-f0-9]{64}$/i),
-});
 
 export const POST = withUser(
   {

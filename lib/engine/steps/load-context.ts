@@ -44,6 +44,11 @@ export const loadContextStep = defineStep({
           sentAt: context.latestInbound.sentAt
             ? context.latestInbound.sentAt.toISOString()
             : null,
+          // Auto-reply / bulk signals (header-only) for the auto_responder guard.
+          autoSubmitted: context.latestInbound.autoSubmitted === true,
+          listId: context.latestInbound.unsubscribe?.listId ?? null,
+          precedence: context.latestInbound.unsubscribe?.precedence ?? null,
+          hasListHeaders: Boolean(context.latestInbound.unsubscribe),
         }
       : null;
 

@@ -6,6 +6,7 @@ import {
   Inbox,
   Link2,
   Lock,
+  Moon,
   PenLine,
   ShieldCheck,
 } from "lucide-react";
@@ -57,6 +58,12 @@ const FEATURES: { icon: LucideIcon; title: string; description: string }[] = [
     description:
       "Lunabox tracks threads that are waiting on a reply and nudges you — or drafts the nudge — so nothing quietly slips.",
   },
+  {
+    icon: Moon,
+    title: "Works while you're away",
+    description:
+      "24/7 Autopilot keeps processing overnight. Opt in and it can send safe replies inside the hours you choose — risky ones still wait for you.",
+  },
 ];
 
 const STEPS = [
@@ -86,7 +93,7 @@ const PERMISSIONS: { title: string; description: string }[] = [
   {
     title: "Gmail — send on your approval",
     description:
-      "Used only to send replies and follow-ups that you have reviewed and approved. Lunabox never sends mail silently.",
+      "Used to send replies and follow-ups you have reviewed and approved. With 24/7 Autopilot you can optionally let safe replies send inside a window you set — anything risky still becomes a draft, and you can pause anytime.",
   },
   {
     title: "Calendar — read availability",
@@ -289,8 +296,11 @@ export default function LandingPage() {
                   Lunabox is available wherever you are.
                 </p>
                 <p>
-                  Nothing leaves your inbox without your approval. Lunabox drafts
-                  and proposes; you review and send.
+                  By default, nothing leaves your inbox without your approval —
+                  Lunabox drafts and proposes; you review and send. If you opt
+                  into 24/7 Autopilot, it can send safe replies on its own inside
+                  the hours you choose; anything risky still becomes a draft, and
+                  you can pause it at any time.
                 </p>
               </div>
             </div>

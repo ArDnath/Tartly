@@ -1,6 +1,5 @@
 import "server-only";
 
-import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import {
@@ -24,10 +23,7 @@ import {
   senderDomain,
   upsertSenderProfile,
 } from "@/lib/ai/features/sender-profiles";
-import { db } from "@/lib/db";
 import {
-  mailboxes,
-  messages,
   type MessageUnsubscribeInfo,
   type SenderCategory,
 } from "@/lib/db/schema";
@@ -39,6 +35,8 @@ import {
 } from "@/lib/env";
 import { loadThreadContext } from "@/lib/email-operator/thread-context";
 import { applyLabel, archive } from "@/lib/mail/service";
+import { mailboxRepository } from "@/lib/repositories/mailboxes";
+import { messageRepository } from "@/lib/repositories/messages";
 import { requireThreadId } from "./helpers";
 
 /**
@@ -64,15 +62,6 @@ export type SenderIntelOutput = {
     fromCache: boolean;
   } | null;
 };
-
-/** Mirror gmail message ids for a thread, so an action targets real messages. */
-async function threadGmailMessageIds(threadId: string): Promise<string[]> {
-  const rows = await db
-    .select({ gmailMessageId: messages.gmailMessageId })
-    .from(messages)
-    .where(eq(messages.threadId, threadId));
-  return rows.map((row) => row.gmailMessageId).filter(Boolean);
-}
 
 export const senderIntelStep = defineStep({
   type: "sender-intel",
@@ -124,12 +113,11 @@ export const senderIntelStep = defineStep({
       email,
     });
 
-    const mailboxRows = await db
-      .select({ email: mailboxes.email })
-      .from(mailboxes)
-      .where(and(eq(mailboxes.id, context!.thread.mailboxId), eq(mailboxes.userId, ctx.userId)))
-      .limit(1);
-    const ownerDomain = senderDomain(mailboxRows[0]?.email ?? "");
+    const ownerEmail = await mailboxRepository.findEmailByIdForUser({
+      mailboxId: context!.thread.mailboxId,
+      userId: ctx.userId,
+    });
+    const ownerDomain = senderDomain(ownerEmail ?? "");
     const domain = senderDomain(email);
     const isSameOrg = Boolean(ownerDomain) && ownerDomain === domain;
 
@@ -219,7 +207,7 @@ export const senderIntelStep = defineStep({
 
     // Optional, user-configured actions. Never delete; never spam.
     if (ctx.input.applyActions !== false && !existing?.modelEnriched) {
-      const ids = await threadGmailMessageIds(threadId);
+      const ids = await messageRepository.listGmailIdsByThread(threadId);
       try {
         if (cold.isCold && settings.coldEmailAction === "label" && ids.length) {
           await applyLabel(ctx.userId, ids, "Cold Email");

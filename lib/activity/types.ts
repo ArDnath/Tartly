@@ -175,6 +175,29 @@ export type ActivityOutcomes = {
   resolvedShare: number;
 };
 
+export type ActivityAutopilotReason = {
+  reason: string;
+  label: string;
+  count: number;
+};
+
+/** 24/7 Autopilot health: sends, gate reasons, caps and push health. */
+export type ActivityAutopilot = {
+  enabled: boolean;
+  mode: "window" | "always";
+  windowLabel: string;
+  sendsToday: number;
+  sendsWindow: number;
+  held: number;
+  capHits: number;
+  /** Decision counts by reason, newest window first, most frequent first. */
+  decisions: ActivityAutopilotReason[];
+  /** Mailboxes with a lapsed/expiring watch or a sync failure. */
+  watchUnhealthy: number;
+  /** Jobs that exhausted their retries and need attention. */
+  deadJobs: number;
+};
+
 export type ActivityDashboard = {
   timezone: string;
   windowDays: number;
@@ -209,4 +232,5 @@ export type ActivityDashboard = {
   senders: { week: ActivitySender[]; month: ActivitySender[] };
   budget: ActivityBudget;
   outcomes: ActivityOutcomes;
+  autopilot: ActivityAutopilot;
 };

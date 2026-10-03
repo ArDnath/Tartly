@@ -1,22 +1,20 @@
 import "server-only";
 
-import { and, asc, desc, eq, isNull, lte, or, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getAssistantSettings } from "@/lib/ai/features/draft-context";
 import { generateObject } from "@/lib/ai/generate";
-import { db } from "@/lib/db";
 import {
   COMMITMENT_DIRECTIONS,
-  commitments,
-  drafts,
-  messages,
-  sendLedger,
-  threads,
   type CommitmentDirection,
 } from "@/lib/db/schema";
 import { isCommitmentsEnabled } from "@/lib/env";
+import { commitmentRepository, type Commitment } from "@/lib/repositories/commitments";
+import { draftRepository } from "@/lib/repositories/drafts";
+import { messageRepository } from "@/lib/repositories/messages";
+import { sendLedgerRepository } from "@/lib/repositories/send-ledger";
+import { threadRepository } from "@/lib/repositories/threads";
 
 /**
  * Commitments (promises).
@@ -37,7 +35,7 @@ export const MAX_COMMITMENTS_PER_THREAD = 3;
 /** A re-nudge is deferred at least this long, so a re-run cannot stack drafts. */
 export const COMMITMENT_NUDGE_COOLDOWN_MS = 3 * 24 * 60 * 60 * 1000;
 
-export type CommitmentRow = typeof commitments.$inferSelect;
+export type CommitmentRow = Commitment;
 
 const newCommitmentSchema = z.object({
   direction: z.enum(COMMITMENT_DIRECTIONS),
@@ -89,18 +87,11 @@ export async function listOpenCommitments({
   threadId?: string;
   limit?: number;
 }): Promise<CommitmentRow[]> {
-  return db
-    .select()
-    .from(commitments)
-    .where(
-      and(
-        eq(commitments.userId, userId),
-        eq(commitments.status, "open"),
-        threadId ? eq(commitments.threadId, threadId) : undefined,
-      ),
-    )
-    .orderBy(asc(commitments.dueAt), desc(commitments.createdAt))
-    .limit(Math.min(Math.max(limit, 1), 200));
+  return commitmentRepository.listOpen({
+    userId,
+    threadId,
+    limit: Math.min(Math.max(limit, 1), 200),
+  });
 }
 
 /**
@@ -122,25 +113,10 @@ export async function extractCommitmentsForThread({
   const config = await getAssistantSettings(userId);
   if (!config.commitmentsEnabled) return [];
 
-  const threadRows = await db
-    .select({ subject: threads.subject })
-    .from(threads)
-    .where(and(eq(threads.id, threadId), eq(threads.userId, userId)))
-    .limit(1);
-  if (!threadRows[0]) return [];
+  const thread = await threadRepository.findByIdForUser(userId, threadId);
+  if (!thread) return [];
 
-  const history = await db
-    .select({
-      id: messages.id,
-      direction: messages.direction,
-      fromAddr: messages.fromAddr,
-      bodyText: messages.bodyText,
-      snippet: messages.snippet,
-    })
-    .from(messages)
-    .where(eq(messages.threadId, threadId))
-    .orderBy(asc(messages.sentAt))
-    .limit(6);
+  const history = await messageRepository.listOldestByThread(threadId, 6);
   if (history.length === 0) return [];
 
   const latestInbound = [...history]
@@ -165,7 +141,7 @@ export async function extractCommitmentsForThread({
     userId,
     system: EXTRACT_SYSTEM,
     prompt: [
-      `<thread subject="${threadRows[0].subject ?? "(none)"}">`,
+      `<thread subject="${thread.subject ?? "(none)"}">`,
       transcript,
       "</thread>",
       "Extract the concrete promises.",
@@ -180,65 +156,58 @@ export async function extractCommitmentsForThread({
   const existing = await listOpenCommitments({ userId, threadId, limit: 50 });
   const seen = new Set(existing.map((row) => normalizeDescription(row.description)));
 
-  const stored: CommitmentRow[] = [];
+  const storedRows: CommitmentRow[] = [];
   for (const candidate of result.commitments.slice(0, MAX_COMMITMENTS_PER_THREAD)) {
     const key = normalizeDescription(candidate.description);
     if (!key || seen.has(key)) continue;
     seen.add(key);
 
     const dueAt = parseDueAt(candidate.dueAt);
-    const inserted = await db
-      .insert(commitments)
-      .values({
-        id: nanoid(),
-        userId,
-        threadId,
-        contactEmail: latestInbound?.fromAddr ?? null,
-        direction: candidate.direction,
-        description: candidate.description.trim(),
-        dueAt,
-        status: "open",
-        sourceMessageId: latestInbound?.id ?? null,
-        confidence: candidate.confidence ?? null,
-      })
-      .returning();
-    if (inserted[0]) stored.push(inserted[0]);
+    const inserted = await commitmentRepository.insert({
+      id: nanoid(),
+      userId,
+      threadId,
+      contactEmail: latestInbound?.fromAddr ?? null,
+      direction: candidate.direction,
+      description: candidate.description.trim(),
+      dueAt,
+      status: "open",
+      sourceMessageId: latestInbound?.id ?? null,
+      confidence: candidate.confidence ?? null,
+    });
+    storedRows.push(inserted);
   }
 
-  if (stored.length > 0) {
+  if (storedRows.length > 0) {
     console.log(
-      `[commitments] stored ${stored.length} for thread ${threadId} at ${now.toISOString()}`,
+      `[commitments] stored ${storedRows.length} for thread ${threadId} at ${now.toISOString()}`,
     );
   }
-  return stored;
+  return storedRows;
 }
 
 export async function fulfillCommitment(
   userId: string,
   commitmentId: string,
 ): Promise<boolean> {
-  const updated = await db
-    .update(commitments)
-    .set({ status: "fulfilled", updatedAt: new Date() })
-    .where(
-      and(eq(commitments.id, commitmentId), eq(commitments.userId, userId)),
-    )
-    .returning({ id: commitments.id });
-  return updated.length > 0;
+  return commitmentRepository.setStatusOwned({
+    userId,
+    commitmentId,
+    status: "fulfilled",
+    now: new Date(),
+  });
 }
 
 export async function dismissCommitment(
   userId: string,
   commitmentId: string,
 ): Promise<boolean> {
-  const updated = await db
-    .update(commitments)
-    .set({ status: "cancelled", updatedAt: new Date() })
-    .where(
-      and(eq(commitments.id, commitmentId), eq(commitments.userId, userId)),
-    )
-    .returning({ id: commitments.id });
-  return updated.length > 0;
+  return commitmentRepository.setStatusOwned({
+    userId,
+    commitmentId,
+    status: "cancelled",
+    now: new Date(),
+  });
 }
 
 /** Mark every open commitment on a thread fulfilled (e.g. after an exchange). */
@@ -249,18 +218,11 @@ export async function resolveOpenCommitmentsForThread({
   threadId: string;
   direction?: CommitmentDirection;
 }): Promise<number> {
-  const updated = await db
-    .update(commitments)
-    .set({ status: "fulfilled", updatedAt: new Date() })
-    .where(
-      and(
-        eq(commitments.threadId, threadId),
-        eq(commitments.status, "open"),
-        direction ? eq(commitments.direction, direction) : undefined,
-      ),
-    )
-    .returning({ id: commitments.id });
-  return updated.length;
+  return commitmentRepository.resolveOpenForThread({
+    threadId,
+    direction,
+    now: new Date(),
+  });
 }
 
 /** Deterministic overdue nudge body; the chaser/reminder that ships as a draft. */
@@ -314,25 +276,12 @@ export async function enqueueDueCommitments({
 
   const nudgeNotBefore = new Date(now.getTime() - COMMITMENT_NUDGE_COOLDOWN_MS);
 
-  const due = await db
-    .select()
-    .from(commitments)
-    .where(
-      and(
-        eq(commitments.status, "open"),
-        lte(commitments.dueAt, now),
-        sql`${commitments.threadId} is not null`,
-        sql`${commitments.nudgeCount} < ${MAX_COMMITMENT_NUDGES}`,
-        // Cooldown: a commitment nudged earlier today is not nudged again on a
-        // double-fired cron; it waits out the cooldown first.
-        or(
-          isNull(commitments.nudgedAt),
-          lte(commitments.nudgedAt, nudgeNotBefore),
-        ),
-      ),
-    )
-    .orderBy(asc(commitments.dueAt))
-    .limit(limit);
+  const due = await commitmentRepository.listDueForNudge({
+    now,
+    nudgeNotBefore,
+    maxNudges: MAX_COMMITMENT_NUDGES,
+    limit,
+  });
 
   if (due.length === 0) return 0;
 
@@ -351,50 +300,38 @@ export async function enqueueDueCommitments({
     if (!enabled) continue;
 
     const idempotencyKey = `commitment:${commitment.id}:${commitment.nudgeCount}`;
-    const claimed = await db
-      .insert(sendLedger)
-      .values({
-        id: nanoid(),
-        userId: commitment.userId,
-        idempotencyKey,
-        status: "drafted",
-        seq: commitment.nudgeCount + 1,
-      })
-      .onConflictDoNothing({ target: sendLedger.idempotencyKey })
-      .returning({ id: sendLedger.id });
-    if (!claimed[0]) continue;
+    const claimed = await sendLedgerRepository.claimDraft({
+      id: nanoid(),
+      userId: commitment.userId,
+      idempotencyKey,
+      seq: commitment.nudgeCount + 1,
+    });
+    if (!claimed) continue;
 
-    const threadRows = await db
-      .select({ subject: threads.subject })
-      .from(threads)
-      .where(eq(threads.id, commitment.threadId))
-      .limit(1);
+    const thread = await threadRepository.findByIdForUser(
+      commitment.userId,
+      commitment.threadId,
+    );
 
     const body = buildCommitmentNudgeBody({
       direction: commitment.direction,
       description: commitment.description,
-      subject: threadRows[0]?.subject ?? null,
+      subject: thread?.subject ?? null,
       contactName: null,
     });
 
-    const pending = await db
-      .select({ id: drafts.id })
-      .from(drafts)
-      .where(
-        and(
-          eq(drafts.threadId, commitment.threadId),
-          eq(drafts.status, "pending"),
-        ),
-      )
-      .limit(1);
+    const pending = await draftRepository.findAnyPendingByThread(
+      commitment.threadId,
+    );
 
-    if (pending[0]) {
-      await db
-        .update(drafts)
-        .set({ body, pipelineVersion: COMMITMENT_PIPELINE_VERSION })
-        .where(eq(drafts.id, pending[0].id));
+    if (pending) {
+      await draftRepository.updateBodyById({
+        draftId: pending.id,
+        body,
+        pipelineVersion: COMMITMENT_PIPELINE_VERSION,
+      });
     } else {
-      await db.insert(drafts).values({
+      await draftRepository.insert({
         id: nanoid(),
         userId: commitment.userId,
         threadId: commitment.threadId,
@@ -404,14 +341,11 @@ export async function enqueueDueCommitments({
       });
     }
 
-    await db
-      .update(commitments)
-      .set({
-        nudgedAt: now,
-        nudgeCount: commitment.nudgeCount + 1,
-        updatedAt: now,
-      })
-      .where(eq(commitments.id, commitment.id));
+    await commitmentRepository.recordNudge({
+      commitmentId: commitment.id,
+      nudgeCount: commitment.nudgeCount + 1,
+      now,
+    });
 
     created += 1;
   }
@@ -421,5 +355,5 @@ export async function enqueueDueCommitments({
 
 /** Used by tests. */
 export async function deleteCommitmentsForUser(userId: string): Promise<void> {
-  await db.delete(commitments).where(eq(commitments.userId, userId));
+  await commitmentRepository.deleteForUser(userId);
 }

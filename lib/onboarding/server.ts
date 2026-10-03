@@ -1,10 +1,7 @@
 import "server-only";
 
-import { and, eq } from "drizzle-orm";
 import { cache } from "react";
 
-import { db } from "@/lib/db";
-import { agentChatThread, onboardingState } from "@/lib/db/schema";
 import {
   FIRST_ONBOARDING_STATUS,
   getNextOnboardingStatus,
@@ -20,8 +17,11 @@ import {
   type OnboardingStepHistoryEffect,
   type ReversibleOnboardingStep,
 } from "@/lib/onboarding/types";
-
-type OnboardingStateRow = typeof onboardingState.$inferSelect;
+import {
+  onboardingRepository,
+  type OnboardingState as OnboardingStateRow,
+} from "@/lib/repositories/onboarding";
+import { agentChatRepository } from "@/lib/repositories/agent-chat";
 
 function toSnapshot(row: OnboardingStateRow): OnboardingSnapshot {
   return {
@@ -45,34 +45,25 @@ function toSnapshot(row: OnboardingStateRow): OnboardingSnapshot {
 }
 
 async function readRow(userId: string): Promise<OnboardingStateRow> {
-  const existing = await db
-    .select()
-    .from(onboardingState)
-    .where(eq(onboardingState.userId, userId))
-    .limit(1);
+  const existing = await onboardingRepository.findByUser(userId);
 
-  if (existing[0]) {
-    return existing[0];
+  if (existing) {
+    return existing;
   }
 
-  const inserted = await db
-    .insert(onboardingState)
-    .values({ userId, status: FIRST_ONBOARDING_STATUS })
-    .onConflictDoNothing()
-    .returning();
+  const inserted = await onboardingRepository.insertIfAbsent({
+    userId,
+    status: FIRST_ONBOARDING_STATUS,
+  });
 
-  if (inserted[0]) {
-    return inserted[0];
+  if (inserted) {
+    return inserted;
   }
 
   // Lost a race with a concurrent request; read what the winner wrote.
-  const raced = await db
-    .select()
-    .from(onboardingState)
-    .where(eq(onboardingState.userId, userId))
-    .limit(1);
+  const raced = await onboardingRepository.findByUser(userId);
 
-  return raced[0];
+  return raced as OnboardingStateRow;
 }
 
 /**
@@ -90,13 +81,9 @@ export const getOrCreateOnboardingState = cache(
 
 export const getOnboardingState = cache(
   async (userId: string): Promise<OnboardingSnapshot | null> => {
-    const rows = await db
-      .select()
-      .from(onboardingState)
-      .where(eq(onboardingState.userId, userId))
-      .limit(1);
+    const row = await onboardingRepository.findByUser(userId);
 
-    return rows[0] ? toSnapshot(rows[0]) : null;
+    return row ? toSnapshot(row) : null;
   },
 );
 
@@ -237,13 +224,9 @@ async function updateState(
   userId: string,
   patch: Partial<OnboardingStateRow>,
 ): Promise<OnboardingSnapshot> {
-  const updated = await db
-    .update(onboardingState)
-    .set(patch)
-    .where(eq(onboardingState.userId, userId))
-    .returning();
+  const updated = await onboardingRepository.updateByUser(userId, patch);
 
-  return toSnapshot(updated[0]);
+  return toSnapshot(updated);
 }
 
 /** Narrow helper used by the chat routes to validate thread ownership. */
@@ -251,15 +234,9 @@ export async function userOwnsThread(
   userId: string,
   threadId: string,
 ): Promise<boolean> {
-  const rows = await db
-    .select({ id: agentChatThread.id })
-    .from(agentChatThread)
-    .where(
-      and(eq(agentChatThread.id, threadId), eq(agentChatThread.userId, userId)),
-    )
-    .limit(1);
+  const owned = await agentChatRepository.findThreadForUser(userId, threadId);
 
-  return Boolean(rows[0]);
+  return Boolean(owned);
 }
 
 export type { OnboardingNavigationDirection };

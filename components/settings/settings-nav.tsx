@@ -5,6 +5,7 @@ import {
   CalendarDays,
   FolderOpen,
   ListChecks,
+  Moon,
   Settings2,
   Sparkles,
   Users,
@@ -45,6 +46,7 @@ const GROUPS: Array<{ label: string; links: SettingsLink[] }> = [
       { href: "/settings/knowledge", label: "Knowledge", icon: BookOpen },
       { href: "/settings/senders", label: "Senders", icon: Users },
       { href: "/settings/rules", label: "Rules", icon: ListChecks },
+      { href: "/settings/autopilot", label: "24/7 Autopilot", icon: Moon },
     ],
   },
 ];

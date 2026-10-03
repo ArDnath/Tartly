@@ -1,6 +1,7 @@
 import "server-only";
 
 import { env } from "@/lib/env";
+import { assertSafeOutboundUrl } from "@/lib/security/ssrf";
 
 import type {
   WebPage,
@@ -106,7 +107,10 @@ export function createTavilyAdapter(
     },
 
     async fetchPage({ url, signal }): Promise<WebPage> {
-      const response = await fetch(url, {
+      // The URL can originate from untrusted content (prompt injection); never
+      // let it reach loopback/private/metadata addresses (SSRF).
+      const safe = await assertSafeOutboundUrl(url);
+      const response = await fetch(safe, {
         headers: { "User-Agent": "LunaboxResearch/1.0" },
         signal: signal ?? AbortSignal.timeout(OPERATOR_TIMEOUT_MS),
       });

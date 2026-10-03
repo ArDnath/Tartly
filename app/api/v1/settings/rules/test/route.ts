@@ -1,6 +1,5 @@
-import { z } from "zod";
-
 import { apiError, ok, withUser } from "@/lib/api/http";
+import { ruleTestBody as bodySchema } from "@/lib/api/contracts/settings";
 import { compileRule } from "@/lib/ai/features/compile-rule";
 import {
   evaluateAiCondition,
@@ -14,17 +13,6 @@ import {
  * Static conditions are evaluated deterministically; a semantic condition is
  * evaluated with the `fast` model. Nothing is written and no mail is touched.
  */
-
-const bodySchema = z.object({
-  instructions: z.string().min(4).max(2_000).optional(),
-  ruleId: z.string().min(1).max(200).optional(),
-  email: z.object({
-    from: z.string().max(320).default(""),
-    subject: z.string().max(320).default(""),
-    body: z.string().max(8_000).default(""),
-    categories: z.array(z.string().max(60)).max(12).default([]),
-  }),
-});
 
 export const POST = withUser(async (userId, request) => {
   const parsed = bodySchema.safeParse(await request.json().catch(() => ({})));

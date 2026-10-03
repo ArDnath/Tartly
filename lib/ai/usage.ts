@@ -1,10 +1,8 @@
 import "server-only";
 
-import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
-import { db } from "@/lib/db";
-import { aiUsageEvents } from "@/lib/db/schema";
+import { aiUsageRepository } from "@/lib/repositories/ai-usage";
 
 /**
  * The cross-feature AI usage ledger (A4/A8).
@@ -96,7 +94,7 @@ export async function recordAiUsage(input: AiUsageInput): Promise<void> {
     const totalTokens =
       input.totalTokens ?? promptTokens + completionTokens;
 
-    await db.insert(aiUsageEvents).values({
+    await aiUsageRepository.insert({
       id: nanoid(),
       userId: input.userId,
       feature: input.feature,
@@ -150,36 +148,10 @@ export async function getAiUsageSummary({
   since?: Date;
   until?: Date;
 }): Promise<AiUsageSummary> {
-  const window = and(
-    eq(aiUsageEvents.userId, userId),
-    gte(aiUsageEvents.createdAt, since),
-    lte(aiUsageEvents.createdAt, until),
-  );
-
-  const [totals] = await db
-    .select({
-      calls: sql<number>`count(*)::int`,
-      failedCalls: sql<number>`count(*) filter (where ${aiUsageEvents.ok} = false)::int`,
-      promptTokens: sql<number>`coalesce(sum(${aiUsageEvents.promptTokens}), 0)::int`,
-      completionTokens: sql<number>`coalesce(sum(${aiUsageEvents.completionTokens}), 0)::int`,
-      cachedTokens: sql<number>`coalesce(sum(${aiUsageEvents.cachedTokens}), 0)::int`,
-      totalTokens: sql<number>`coalesce(sum(${aiUsageEvents.totalTokens}), 0)::int`,
-      estimatedCostMicros: sql<number>`coalesce(sum(${aiUsageEvents.estimatedCostMicros}), 0)::bigint`,
-    })
-    .from(aiUsageEvents)
-    .where(window);
-
-  const byFeature = await db
-    .select({
-      feature: aiUsageEvents.feature,
-      calls: sql<number>`count(*)::int`,
-      totalTokens: sql<number>`coalesce(sum(${aiUsageEvents.totalTokens}), 0)::int`,
-      estimatedCostMicros: sql<number>`coalesce(sum(${aiUsageEvents.estimatedCostMicros}), 0)::bigint`,
-    })
-    .from(aiUsageEvents)
-    .where(window)
-    .groupBy(aiUsageEvents.feature)
-    .orderBy(desc(sql`sum(${aiUsageEvents.totalTokens})`));
+  const [totals, byFeature] = await Promise.all([
+    aiUsageRepository.summaryTotals({ userId, since, until }),
+    aiUsageRepository.summaryByFeature({ userId, since, until }),
+  ]);
 
   const toNumber = (value: unknown): number => {
     const parsed = typeof value === "number" ? value : Number(value);

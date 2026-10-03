@@ -1,9 +1,7 @@
-import { and, eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
 
 import { PageHeader } from "@/components/app-shell/page-header";
-import { db } from "@/lib/db";
-import { flowRuns } from "@/lib/db/schema";
+import { flowRunRepository } from "@/lib/repositories/flow-runs";
 import { requireSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
@@ -16,13 +14,7 @@ export default async function RunPage({
   const session = await requireSession();
   const { id } = await params;
 
-  const rows = await db
-    .select()
-    .from(flowRuns)
-    .where(and(eq(flowRuns.id, id), eq(flowRuns.userId, session.user.id)))
-    .limit(1);
-
-  const run = rows[0];
+  const run = await flowRunRepository.findByIdForUser(session.user.id, id);
   if (!run) notFound();
 
   return (

@@ -1,9 +1,7 @@
-import { desc, eq } from "drizzle-orm";
 import Link from "next/link";
 
 import { PageHeader } from "@/components/app-shell/page-header";
-import { db } from "@/lib/db";
-import { flowRuns } from "@/lib/db/schema";
+import { flowRunRepository } from "@/lib/repositories/flow-runs";
 import { requireSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
@@ -11,22 +9,17 @@ import { cn } from "@/lib/utils";
  * Index of the signed-in user's recent flow runs. `app/runs/[id]` already
  * renders one run's trace; without this page `/runs` 404'd even though it is
  * linked from the command palette and referenced by `robots.ts`.
+ *
+ * SQL lives in `FlowRunRepository`; the pageable contract is
+ * `GET /api/v1/runs` (keyset cursor).
  */
 export default async function RunsPage() {
   const session = await requireSession();
 
-  const runs = await db
-    .select({
-      id: flowRuns.id,
-      status: flowRuns.status,
-      triggerKind: flowRuns.triggerKind,
-      startedAt: flowRuns.startedAt,
-      finishedAt: flowRuns.finishedAt,
-    })
-    .from(flowRuns)
-    .where(eq(flowRuns.userId, session.user.id))
-    .orderBy(desc(flowRuns.startedAt))
-    .limit(100);
+  const runs = await flowRunRepository.listForUser({
+    userId: session.user.id,
+    limit: 100,
+  });
 
   return (
     <div className="flex h-full flex-col">

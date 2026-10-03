@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { z } from "zod";
 
 import { createRegistryActionExecutor } from "@/lib/agent/confirmation";
 import { buildAgentContext } from "@/lib/agent/context";
 import { toSafeError } from "@/lib/agent/errors";
 import { createLoggingEventSink } from "@/lib/agent/events";
 import { createDefaultToolRegistry } from "@/lib/agent/tools";
+import { confirmActionBody as bodySchema } from "@/lib/api/contracts/agent";
 import { apiError, apiErrorFrom, ok, withUser } from "@/lib/api/http";
 import { emailService } from "@/lib/services/email-service";
 import { actionService, toActionDto } from "@/lib/services/action-service";
@@ -21,14 +21,6 @@ import { actionService, toActionDto } from "@/lib/services/action-service";
  * Every step before the atomic transition is a guard; the race itself is won or
  * lost by the conditional UPDATE inside `ActionService.confirmAction`.
  */
-
-const bodySchema = z.object({
-  /**
-   * Optional restatement of the frozen arguments. When supplied it must hash to
-   * the stored value, so a tampered client payload is rejected.
-   */
-  args: z.record(z.string(), z.unknown()).optional(),
-});
 
 export const POST = withUser<{ params: Promise<{ id: string }> }>(
   async (userId, request, context) => {

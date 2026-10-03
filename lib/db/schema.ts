@@ -455,6 +455,11 @@ export const mailboxes = pgTable(
     /** "copilot" (draft for approval) | "autopilot" (send directly). */
     autonomy: text("autonomy").notNull().default("copilot"),
     lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+    /**
+     * Short, content-free sync failure marker (no bodies/tokens). Surfaced by
+     * the watch/sync health panel so a silently stalled mailbox is visible.
+     */
+    syncError: text("sync_error"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -533,6 +538,12 @@ export const messages = pgTable(
     snippet: text("snippet"),
     /** Bulk-mail headers (List-Unsubscribe / List-Id / Precedence). */
     unsubscribe: jsonb("unsubscribe").$type<MessageUnsubscribeInfo | null>(),
+    /**
+     * True when the message carries an auto-reply/bounce marker
+     * (`Auto-Submitted`, `X-Autoreply`). Used by the `auto_responder`
+     * guardrail so autopilot never replies to robots. Header only; no content.
+     */
+    autoSubmitted: boolean("auto_submitted"),
     sentAt: timestamp("sent_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
@@ -976,6 +987,116 @@ export const drafts = pgTable(
   (t) => [
     index("drafts_thread_status_idx").on(t.threadId, t.status),
     index("drafts_user_status_idx").on(t.userId, t.status),
+    // Powers the autopilot send caps: count AI sends in the last hour/day.
+    index("drafts_user_sentby_decided_idx").on(
+      t.userId,
+      t.sentBy,
+      t.decidedAt,
+    ),
+  ],
+);
+
+/* -------------------------------------------------------------------------- */
+/*  24/7 autopilot — policy + content-free decision audit                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The mailbox-scoped send policy for 24/7 Autopilot. Disabled by default; the
+ * user opts in. `mode` gates *when* it may send; the remaining fields gate
+ * *what* it may send. Caps are clamped to the platform ceilings on write.
+ */
+export const autopilotPolicies = pgTable(
+  "autopilot_policies",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    mailboxId: text("mailbox_id")
+      .notNull()
+      .references(() => mailboxes.id, { onDelete: "cascade" }),
+    /** Opt-in. Off unless the user enables it. */
+    enabled: boolean("enabled").notNull().default(false),
+    /** "window" (send only inside the window) | "always". */
+    mode: text("mode").notNull().default("window"),
+    timezone: text("timezone").notNull().default("UTC"),
+    /** ISO weekdays (1=Mon..7=Sun) the window applies to. */
+    days: jsonb("days").$type<number[]>().notNull().default([1, 2, 3, 4, 5, 6, 7]),
+    /** Local hour 0..23. Wrapping windows (e.g. 22 → 7) are supported. */
+    windowStartHour: integer("window_start_hour").notNull().default(22),
+    windowEndHour: integer("window_end_hour").notNull().default(7),
+    /** "HIGH" | "MEDIUM" | "LOW" — the minimum model confidence to auto-send. */
+    minConfidence: text("min_confidence").notNull().default("HIGH"),
+    requireKnownSender: boolean("require_known_sender").notNull().default(true),
+    allowedCategories: jsonb("allowed_categories")
+      .$type<string[]>()
+      .notNull()
+      .default(["needs_reply"]),
+    maxPerHour: integer("max_per_hour").notNull().default(10),
+    maxPerDay: integer("max_per_day").notNull().default(50),
+    maxPerThread: integer("max_per_thread").notNull().default(3),
+    /** Stop auto-replying after N consecutive automated exchanges in a thread. */
+    loopThreshold: integer("loop_threshold").notNull().default(3),
+    morningReview: boolean("morning_review").notNull().default(true),
+    policyVersion: integer("policy_version").notNull().default(1),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("autopilot_policies_mailbox_unique").on(t.mailboxId),
+    index("autopilot_policies_user_idx").on(t.userId),
+  ],
+);
+
+/**
+ * One row per `egress` evaluation on the autopilot path (allowed or blocked).
+ *
+ * Deliberately **content-free** (INV-11): IDs, reason code, category,
+ * confidence and boolean checks only — never subject, body or tokens. The UI
+ * joins to `threads` for display, scoped by `user_id`.
+ */
+export const autopilotDecisions = pgTable(
+  "autopilot_decisions",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    mailboxId: text("mailbox_id")
+      .notNull()
+      .references(() => mailboxes.id, { onDelete: "cascade" }),
+    threadId: text("thread_id").references(() => threads.id, {
+      onDelete: "set null",
+    }),
+    runId: text("run_id").references(() => flowRuns.id, {
+      onDelete: "set null",
+    }),
+    draftId: text("draft_id").references(() => drafts.id, {
+      onDelete: "set null",
+    }),
+    contactEmail: text("contact_email"),
+    /** "send" | "draft". */
+    decision: text("decision").notNull(),
+    reason: text("reason").notNull(),
+    /** thread | contact | mailbox. */
+    autonomySource: text("autonomy_source"),
+    category: text("category"),
+    confidence: text("confidence"),
+    /** Boolean check outcomes only — never message content. */
+    checks: jsonb("checks").$type<Record<string, boolean>>(),
+    policyVersion: integer("policy_version").notNull().default(1),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("autopilot_decisions_user_created_idx").on(t.userId, t.createdAt),
+    index("autopilot_decisions_thread_idx").on(t.threadId, t.createdAt),
   ],
 );
 
@@ -1071,6 +1192,14 @@ export const assistantSettings = pgTable("assistant_settings", {
    * Off by default — it costs a model call per handled thread.
    */
   memoryAutoExtract: boolean("memory_auto_extract").notNull().default(false),
+  /** 24/7 autopilot: show the overnight review block in the morning catch-up. */
+  overnightReviewEnabled: boolean("overnight_review_enabled")
+    .notNull()
+    .default(true),
+  /** When the overnight review was last composed (cron throttle). */
+  overnightReviewLastAt: timestamp("overnight_review_last_at", {
+    withTimezone: true,
+  }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
     .notNull(),
@@ -1789,6 +1918,8 @@ export const schema = {
   commitments,
   threadSettings,
   drafts,
+  autopilotPolicies,
+  autopilotDecisions,
   aiUsageEvents,
   assistantSettings,
   replyMemories,

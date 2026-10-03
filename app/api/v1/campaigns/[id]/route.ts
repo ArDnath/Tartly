@@ -1,6 +1,5 @@
-import { z } from "zod";
-
 import { apiError, ok, withUser } from "@/lib/api/http";
+import { campaignPatchBody as patchSchema } from "@/lib/api/contracts/campaigns";
 import {
   campaignStats,
   getCampaign,
@@ -52,21 +51,6 @@ export const GET = withUser<Ctx>(async (userId, _request, context) => {
     })),
     enabled: isCampaignsEnabled(),
   });
-});
-
-const patchSchema = z.object({
-  name: z.string().min(1).max(200).optional(),
-  template: z
-    .object({
-      subject: z.string().max(500),
-      body: z.string().min(1).max(20_000),
-      inlineImageIds: z.array(z.string()).max(20).optional(),
-      attachmentIds: z.array(z.string()).max(20).optional(),
-    })
-    .optional(),
-  replyPolicy: z.enum(["off", "drafts", "autopilot"]).optional(),
-  footerAddress: z.string().max(500).nullable().optional(),
-  throttlePerHour: z.number().int().min(1).max(500).optional(),
 });
 
 export const PATCH = withUser<Ctx>(async (userId, request, context) => {

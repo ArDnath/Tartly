@@ -46,6 +46,7 @@ This repository is the Next.js application server for Lunabox (mirrored here as
 | **Meeting scheduling** | `/calendar` | Detects meeting intent, finds free slots against your working hours and Calendar, proposes times, then books the event with a Google Meet link. |
 | **Follow-ups** | `/followups` | Tracks threads waiting on a reply and nudges — or drafts the nudge — with stop rules (reply detection, caps, quiet hours, opt-out detection). |
 | **Agent chat** | `/assistant` | A tool-using agent that can search/read mail, draft, send (with confirmation), schedule, and research. |
+| **24/7 Autopilot** | `/settings/autopilot` | Opt-in: let a mailbox send *safe* replies on its own inside a window you choose. Risk checks, caps and loop protection; anything risky becomes a draft. |
 | **Activity & traces** | `/activity`, `/runs` | Counts of runs, drafts, sends, meetings, follow-ups, plus a per-run step trace for debugging. |
 | **Settings** | `/settings/calendar` | Working hours, timezone, meeting duration and buffer, plus autonomy (copilot vs. autopilot). |
 
@@ -69,6 +70,7 @@ inbox + calendar → meeting preferences**, then lands them in the app.
 | `/activity` | Operator activity dashboard (charts, budget, activity log). |
 | `/runs` · `/runs/[id]` | Flow-run index and step trace. |
 | `/settings/calendar` | Calendar, working-hours and autonomy settings. |
+| `/settings/autopilot` | 24/7 Autopilot: master switch, send window, risk limits, preview and pause. |
 | `/privacy`, `/terms` | Legal pages. |
 | `/dev-profile` | Local development profile harness (excluded from the proxy guard). |
 
@@ -185,6 +187,10 @@ Defined in `lib/db/schema.ts`; migrations live in `drizzle/`.
 **Meetings & follow-ups** — `meetings`, `followup_sequences`,
 `followup_enrollments`, `drafts`.
 
+**24/7 Autopilot** — `autopilot_policies` (per-mailbox send policy) and
+`autopilot_decisions` (content-free audit: reason, category, confidence and
+boolean checks only).
+
 Apply migrations with:
 
 ```bash
@@ -289,7 +295,8 @@ Google account by shimming `server-only` (`scripts/onboarding-test-shims`).
 ```bash
 npm run test:onboarding
 npm run test:ai-chat
-npm run test:email-operator        # phases 1–6
+npm run test:email-operator        # phases 1–8 + autopilot
+npm run test:autopilot             # 24/7 Autopilot gate + audit only
 npm run test:agent                 # phase 1
 npm run test:agent:phase2 … phase7
 npm run test:agent:evals
@@ -349,10 +356,11 @@ and return `{ data }` or `{ error: { code, message } }`.
 | **Drafts** | `POST /api/v1/drafts/[id]/approve` · `POST /api/v1/drafts/[id]/discard` |
 | **Meetings** | `GET/POST /api/v1/meetings` · `POST /api/v1/meetings/book` · `GET/PATCH/DELETE /api/v1/meetings/[id]` |
 | **Follow-ups** | `GET /api/v1/followups` · `POST …/[id]/pause` · `POST …/[id]/stop` |
-| **Settings** | `GET/PATCH /api/v1/settings/calendar` · `GET/PATCH /api/v1/settings/autonomy` |
+| **Settings** | `GET/PATCH /api/v1/settings/calendar` · `GET/PATCH /api/v1/settings/autonomy` · `GET/PATCH /api/v1/settings/autopilot` · `POST /api/v1/settings/autopilot/pause` · `POST /api/v1/settings/autopilot/preview` |
+| **Autopilot audit** | `GET /api/v1/autopilot/decisions` (content-free decision feed; `?threadId=` for the latest per thread) |
 | **Agent** | `POST /api/v1/agent/chat` · `GET /api/v1/agent/events` (SSE) · `GET /api/v1/agent/actions` · `GET /api/v1/agent/actions/[id]` · `POST …/confirm` · `POST …/cancel` · `GET /api/v1/agent/conversations/[conversationId]` |
 | **Observability** | `GET /api/v1/metrics` · `GET /api/v1/runs/[id]` |
-| **Cron** | `GET /api/v1/cron/daily` · `GET /api/v1/cron/drain` · `GET /api/v1/cron/followups` (Bearer `CRON_SECRET`) |
+| **Cron** | `GET /api/v1/cron/daily` · `GET /api/v1/cron/drain` · `GET /api/v1/cron/followups` · `GET /api/v1/cron/autopilot` (Bearer `CRON_SECRET`) |
 | **Webhook** | `POST /api/webhooks/gmail` (OIDC-verified Pub/Sub push) |
 
 ---
@@ -417,6 +425,11 @@ architecture and phased build plans.
   separate, explicit consent step; access is limited to the approved scopes.
 - Lunabox never sends mail silently in `copilot` mode; the `egress` gate plus
   `send_ledger` guarantee user approval and at-most-once delivery.
+- **24/7 Autopilot** is off by default. Even when a mailbox policy is enabled,
+  every automatic send must pass the ordered gate (window, confidence, category,
+  known sender, caps, loop) and all guardrails; any ambiguity or error becomes a
+  draft. `AUTOPILOT_ENABLED=false` is a no-deploy global kill switch. The
+  `autopilot_decisions` audit is content-free by construction.
 - Sessions are durable in Postgres, with Redis as a best-effort speed layer.
 - Webhook and cron routes are fail-closed and require OIDC verification /
   `CRON_SECRET` respectively.

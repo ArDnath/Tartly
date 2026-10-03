@@ -42,6 +42,8 @@ export type InboxItem = {
   isColdEmail: boolean;
   /** Phase 4 Reply Zero: "needs_reply" | "awaiting_them" | "none" | null. */
   replyStatus: string | null;
+  /** 24/7 autopilot: an AI reply was sent for this thread overnight. */
+  handledOvernight: boolean;
   /** The bucket this row is in, so the UI can trust the assignment. */
   bucket: InboxView;
 };

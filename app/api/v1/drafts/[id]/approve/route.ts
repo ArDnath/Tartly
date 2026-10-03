@@ -1,12 +1,7 @@
-import { z } from "zod";
-
 import { ok, apiError, withUser } from "@/lib/api/http";
+import { approveDraftBody as bodySchema } from "@/lib/api/contracts/agent";
 import { invalidateBriefing } from "@/lib/briefing/service";
 import { approveDraft } from "@/lib/inbox/service";
-
-const bodySchema = z.object({
-  editedBody: z.string().max(20_000).optional(),
-});
 
 export const POST = withUser<{ params: Promise<{ id: string }> }>(
   async (userId, request, context) => {

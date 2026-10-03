@@ -1,10 +1,9 @@
 import "server-only";
 
-import { and, desc, eq, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
-import { db } from "@/lib/db";
 import { assets, type AssetKind } from "@/lib/db/schema";
+import { assetRepository } from "@/lib/repositories/assets";
 import {
   assetAllowedMime,
   assetMaxBytes,
@@ -122,20 +121,16 @@ export async function createAsset({
   const kind: AssetKind = isImageMime(mimeType) ? "image" : "file";
   const dimensions = kind === "image" ? imageDimensions(bytes, mimeType) : { width: null, height: null };
 
-  const existing = await db
-    .select()
-    .from(assets)
-    .where(and(eq(assets.userId, userId), eq(assets.sha256, sha)))
-    .limit(1);
-  if (existing[0] && !existing[0].deletedAt) {
-    return { ok: true, asset: existing[0], deduped: true };
+  const existing = await assetRepository.findByUserAndSha(userId, sha);
+  if (existing && !existing.deletedAt) {
+    return { ok: true, asset: existing, deduped: true };
   }
 
   const storageKey = assetStorageKey(userId, bytes);
   await putAssetObject({ key: storageKey, body: bytes, contentType: mimeType });
 
   const row = {
-    id: existing[0]?.id ?? nanoid(),
+    id: existing?.id ?? nanoid(),
     userId,
     kind,
     filename: filename.slice(0, 240) || "file",
@@ -149,25 +144,12 @@ export async function createAsset({
     deletedAt: null,
   };
 
-  const inserted = await db
-    .insert(assets)
-    .values(row)
-    .onConflictDoUpdate({
-      target: [assets.userId, assets.sha256],
-      set: {
-        filename: row.filename,
-        mimeType: row.mimeType,
-        sizeBytes: row.sizeBytes,
-        width: row.width,
-        height: row.height,
-        storageKey: row.storageKey,
-        deletedAt: null,
-        ...(altText !== undefined ? { altText: row.altText } : {}),
-      },
-    })
-    .returning();
+  const asset = await assetRepository.upsert({
+    row,
+    altTextProvided: altText !== undefined,
+  });
 
-  return { ok: true, asset: inserted[0]!, deduped: false };
+  return { ok: true, asset, deduped: false };
 }
 
 /** Clamp a client-reported image dimension; `null` when implausible. */
@@ -231,17 +213,13 @@ export async function registerUploadedAsset({
       ? { width: clampDimension(width), height: clampDimension(height) }
       : { width: null, height: null };
 
-  const existing = await db
-    .select()
-    .from(assets)
-    .where(and(eq(assets.userId, userId), eq(assets.sha256, digest)))
-    .limit(1);
-  if (existing[0] && !existing[0].deletedAt) {
-    return { ok: true, asset: existing[0], deduped: true };
+  const existing = await assetRepository.findByUserAndSha(userId, digest);
+  if (existing && !existing.deletedAt) {
+    return { ok: true, asset: existing, deduped: true };
   }
 
   const row = {
-    id: existing[0]?.id ?? nanoid(),
+    id: existing?.id ?? nanoid(),
     userId,
     kind,
     filename: filename.slice(0, 240) || "file",
@@ -255,25 +233,12 @@ export async function registerUploadedAsset({
     deletedAt: null,
   };
 
-  const inserted = await db
-    .insert(assets)
-    .values(row)
-    .onConflictDoUpdate({
-      target: [assets.userId, assets.sha256],
-      set: {
-        filename: row.filename,
-        mimeType: row.mimeType,
-        sizeBytes: row.sizeBytes,
-        width: row.width,
-        height: row.height,
-        storageKey: row.storageKey,
-        deletedAt: null,
-        ...(altText !== undefined ? { altText: row.altText } : {}),
-      },
-    })
-    .returning();
+  const asset = await assetRepository.upsert({
+    row,
+    altTextProvided: altText !== undefined,
+  });
 
-  return { ok: true, asset: inserted[0]!, deduped: false };
+  return { ok: true, asset, deduped: false };
 }
 
 export async function listAssets({
@@ -285,14 +250,11 @@ export async function listAssets({
   kind?: AssetKind;
   limit?: number;
 }): Promise<AssetRecord[]> {
-  const conditions = [eq(assets.userId, userId), isNull(assets.deletedAt)];
-  if (kind) conditions.push(eq(assets.kind, kind));
-  return db
-    .select()
-    .from(assets)
-    .where(and(...conditions))
-    .orderBy(desc(assets.createdAt))
-    .limit(Math.min(limit, 200));
+  return assetRepository.listActive({
+    userId,
+    kind,
+    limit: Math.min(limit, 200),
+  });
 }
 
 export async function getAsset({
@@ -302,12 +264,7 @@ export async function getAsset({
   userId: string;
   id: string;
 }): Promise<AssetRecord | null> {
-  const rows = await db
-    .select()
-    .from(assets)
-    .where(and(eq(assets.id, id), eq(assets.userId, userId), isNull(assets.deletedAt)))
-    .limit(1);
-  return rows[0] ?? null;
+  return (await assetRepository.findActiveByIdForUser(userId, id)) ?? null;
 }
 
 /** Read bytes by id, scoped to the owner. Used by the proxy route and MIME. */
@@ -334,12 +291,12 @@ export async function updateAssetAltText({
   id: string;
   altText: string | null;
 }): Promise<AssetRecord | null> {
-  const updated = await db
-    .update(assets)
-    .set({ altText: altText?.slice(0, 500) ?? null, updatedAt: new Date() })
-    .where(and(eq(assets.id, id), eq(assets.userId, userId)))
-    .returning();
-  return updated[0] ?? null;
+  return assetRepository.updateAltText({
+    userId,
+    id,
+    altText: altText?.slice(0, 500) ?? null,
+    now: new Date(),
+  });
 }
 
 export async function deleteAsset({
@@ -349,12 +306,8 @@ export async function deleteAsset({
   userId: string;
   id: string;
 }): Promise<boolean> {
-  const updated = await db
-    .update(assets)
-    .set({ deletedAt: new Date(), updatedAt: new Date() })
-    .where(and(eq(assets.id, id), eq(assets.userId, userId)))
-    .returning({ id: assets.id });
-  return updated.length > 0;
+  const now = new Date();
+  return assetRepository.softDelete({ userId, id, now });
 }
 
 /** Hard-remove bytes for assets soft-deleted long ago (best-effort cleanup). */
@@ -365,14 +318,9 @@ export async function purgeAssetBytes({
   userId: string;
   id: string;
 }): Promise<boolean> {
-  const rows = await db
-    .select()
-    .from(assets)
-    .where(and(eq(assets.id, id), eq(assets.userId, userId)))
-    .limit(1);
-  const asset = rows[0];
+  const asset = await assetRepository.findByIdForUser(userId, id);
   if (!asset) return false;
   await deleteAssetObject(asset.storageKey).catch(() => undefined);
-  await db.delete(assets).where(eq(assets.id, asset.id));
+  await assetRepository.hardDelete(asset.id);
   return true;
 }

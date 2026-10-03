@@ -1,13 +1,11 @@
 import "server-only";
 
-import { and, desc, eq, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { generateObject } from "@/lib/ai/generate";
-import { db } from "@/lib/db";
+import { replyMemoryRepository, type ReplyMemory } from "@/lib/repositories/reply-memory";
 import {
-  replyMemories,
   REPLY_MEMORY_KINDS,
   REPLY_MEMORY_SCOPES,
   type ReplyMemoryKind,
@@ -34,7 +32,7 @@ export const MAX_SELECTED_REPLY_MEMORIES = 6;
 export const MAX_EXISTING_MEMORIES_IN_PROMPT = 16;
 export const MAX_MEMORY_CONTENT_CHARS = 400;
 
-export type ReplyMemory = typeof replyMemories.$inferSelect;
+export type { ReplyMemory };
 
 export type ReplyMemoryCandidate = Pick<
   ReplyMemory,
@@ -311,7 +309,7 @@ export async function storeReplyMemories({
     const key = `${memory.scopeType}:${memory.scopeValue}:${normalizeText(memory.content)}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    await db.insert(replyMemories).values({
+    await replyMemoryRepository.insert({
       id: nanoid(),
       userId,
       kind: memory.kind,
@@ -380,12 +378,7 @@ export async function listReplyMemories({
   userId: string;
   limit?: number;
 }): Promise<ReplyMemory[]> {
-  return db
-    .select()
-    .from(replyMemories)
-    .where(and(eq(replyMemories.userId, userId), isNull(replyMemories.archivedAt)))
-    .orderBy(desc(replyMemories.updatedAt))
-    .limit(Math.min(Math.max(limit, 1), 500));
+  return replyMemoryRepository.listActive(userId, Math.min(Math.max(limit, 1), 500));
 }
 
 export async function archiveReplyMemory({
@@ -395,12 +388,7 @@ export async function archiveReplyMemory({
   userId: string;
   memoryId: string;
 }): Promise<boolean> {
-  const updated = await db
-    .update(replyMemories)
-    .set({ archivedAt: new Date() })
-    .where(and(eq(replyMemories.id, memoryId), eq(replyMemories.userId, userId)))
-    .returning({ id: replyMemories.id });
-  return updated.length > 0;
+  return replyMemoryRepository.archive({ userId, memoryId, now: new Date() });
 }
 
 /* -------------------------------------------------------------------------- */

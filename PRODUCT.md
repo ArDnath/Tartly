@@ -55,6 +55,16 @@ confirmation), schedule, and research; activity/runs observability. Sending is
 gated so it is safe to retry (idempotency via `send_ledger` / `event_log`). All
 Google access is scope-limited and approved separately from sign-in.
 
+**24/7 Autopilot** extends the send gate with an opt-in mailbox policy. When it
+is enabled, Lunabox may send safe replies on its own inside a window the user
+chooses (mode, timezone, days, hours), subject to a minimum confidence, a
+known-sender requirement, a category allowlist, per-hour/day/thread caps and loop
+protection. Any guardrail violation, unknown category/confidence, or error
+resolves to a draft. It is off by default, adds no OAuth scopes, and can be
+paused per mailbox or disabled platform-wide with `AUTOPILOT_ENABLED=false`. Every
+evaluation is audited in `autopilot_decisions` — reason codes and boolean checks
+only, never message content.
+
 ## Brand Commitments
 
 - Name: **Lunabox**. Support contact: support@lunabox.app.

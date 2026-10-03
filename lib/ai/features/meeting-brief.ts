@@ -1,12 +1,14 @@
 import "server-only";
 
-import { and, desc, eq, inArray, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { contentHash, getCached, setCached, singleFlight } from "@/lib/ai/cache";
 import { generateObject } from "@/lib/ai/generate";
-import { db } from "@/lib/db";
-import { commitments, mailboxes, meetings, messages, threads } from "@/lib/db/schema";
+import { commitmentRepository } from "@/lib/repositories/commitments";
+import { mailboxRepository } from "@/lib/repositories/mailboxes";
+import { meetingRepository } from "@/lib/repositories/meetings";
+import { messageRepository } from "@/lib/repositories/messages";
+import { threadRepository } from "@/lib/repositories/threads";
 import { isMeetingBriefsEnabled } from "@/lib/env";
 
 /**
@@ -144,32 +146,16 @@ export async function loadMeetingBriefContext({
   userId: string;
   meetingId: string;
 }): Promise<MeetingBriefContext | null> {
-  const meetingRows = await db
-    .select()
-    .from(meetings)
-    .where(and(eq(meetings.id, meetingId), eq(meetings.userId, userId)))
-    .limit(1);
-  const meeting = meetingRows[0];
+  const meeting = await meetingRepository.findByIdForUser(userId, meetingId);
   if (!meeting) return null;
 
-  const mailboxRows = await db
-    .select({ email: mailboxes.email })
-    .from(mailboxes)
-    .where(eq(mailboxes.userId, userId))
-    .limit(1);
-  const selfEmail = mailboxRows[0]?.email?.toLowerCase() ?? null;
+  const selfEmail = (await mailboxRepository.findFirstEmailForUser(userId))?.toLowerCase() ?? null;
 
   const attendees = new Set<string>();
 
   // Attendees come from the linked thread's participants.
   if (meeting.threadId) {
-    const rows = await db
-      .select({
-        fromAddr: messages.fromAddr,
-        toAddr: messages.toAddr,
-      })
-      .from(messages)
-      .where(eq(messages.threadId, meeting.threadId));
+    const rows = await messageRepository.listAddressPairsByThread(meeting.threadId);
     for (const row of rows) {
       if (row.fromAddr) attendees.add(row.fromAddr.toLowerCase());
       for (const address of row.toAddr ?? []) attendees.add(address.toLowerCase());
@@ -180,25 +166,12 @@ export async function loadMeetingBriefContext({
 
   let priorThreads: BriefThread[] = [];
   if (attendeeEmails.length > 0) {
-    const rows = await db
-      .selectDistinctOn([threads.id], {
-        threadId: threads.id,
-        subject: threads.subject,
-        lastMessageAt: threads.lastMessageAt,
-        snippet: messages.snippet,
-        bodyText: messages.bodyText,
-      })
-      .from(messages)
-      .innerJoin(threads, eq(threads.id, messages.threadId))
-      .where(
-        and(
-          eq(threads.userId, userId),
-          inArray(messages.fromAddr, attendeeEmails),
-          meeting.threadId ? ne(threads.id, meeting.threadId) : undefined,
-        ),
-      )
-      .orderBy(threads.id, desc(messages.sentAt))
-      .limit(MAX_PRIOR_THREADS);
+    const rows = await threadRepository.listPriorThreadsWithSenders({
+      userId,
+      senderEmails: attendeeEmails,
+      excludeThreadId: meeting.threadId,
+      limit: MAX_PRIOR_THREADS,
+    });
 
     priorThreads = rows
       .sort(
@@ -215,16 +188,11 @@ export async function loadMeetingBriefContext({
 
   const openCommitments = meeting.threadId
     ? (
-        await db
-          .select({ description: commitments.description })
-          .from(commitments)
-          .where(
-            and(
-              eq(commitments.threadId, meeting.threadId),
-              eq(commitments.status, "open"),
-            ),
-          )
-          .limit(6)
+        await commitmentRepository.listOpenByThread({
+          userId,
+          threadId: meeting.threadId,
+          limit: 6,
+        })
       ).map((row) => row.description)
     : [];
 

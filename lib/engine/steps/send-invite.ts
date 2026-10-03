@@ -1,12 +1,12 @@
 import "server-only";
 
-import { eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { db } from "@/lib/db";
-import { mailboxes, meetings, threads } from "@/lib/db/schema";
 import { defineStep } from "@/lib/engine/step";
 import { sendEmail } from "@/lib/gmail/send";
+import { meetingRepository } from "@/lib/repositories/meetings";
+import { threadRepository } from "@/lib/repositories/threads";
+import { mailboxRepository } from "@/lib/repositories/mailboxes";
 import { requireThreadId } from "./helpers";
 
 /** Emails the confirmed meeting details (time + Meet link). Idempotent. */
@@ -22,28 +22,13 @@ export const sendInviteStep = defineStep({
       return { sent: false, skipped: true };
     }
 
-    const meetingRows = await db
-      .select()
-      .from(meetings)
-      .where(eq(meetings.id, meetingId))
-      .limit(1);
-    const meeting = meetingRows[0];
+    const meeting = await meetingRepository.findById(meetingId);
     if (!meeting) throw new Error(`Meeting ${meetingId} not found.`);
 
-    const threadRows = await db
-      .select()
-      .from(threads)
-      .where(eq(threads.id, threadId))
-      .limit(1);
-    const thread = threadRows[0];
+    const thread = await threadRepository.findById(threadId);
     if (!thread) throw new Error(`Thread ${threadId} not found.`);
 
-    const mailboxRows = await db
-      .select()
-      .from(mailboxes)
-      .where(eq(mailboxes.id, thread.mailboxId))
-      .limit(1);
-    const mailbox = mailboxRows[0];
+    const mailbox = await mailboxRepository.findById(thread.mailboxId);
     if (!mailbox) throw new Error(`Mailbox ${thread.mailboxId} not found.`);
 
     const latest = ctx.state.latestMessage as { from?: string | null } | undefined;

@@ -18,6 +18,8 @@ const eslintConfig = defineConfig([
     // tsconfig too and target a newer React Compiler lint ruleset than this
     // app; linting them only produces noise about third-party code.
     "components/ai-elements/**",
+    // Generated coverage output (already gitignored) is not source.
+    "coverage/**",
   ]),
 ]);
 

@@ -1,12 +1,6 @@
-import { z } from "zod";
-
 import { ok, apiError, withUser } from "@/lib/api/http";
+import { meetingBookBody as bodySchema } from "@/lib/api/contracts/meetings";
 import { bookSlot } from "@/lib/calendar/booking";
-
-const bodySchema = z.object({
-  threadId: z.string().min(1),
-  slotIndex: z.number().int().min(0).max(9),
-});
 
 export const POST = withUser(async (userId, request) => {
   const parsed = bodySchema.safeParse(await request.json().catch(() => ({})));

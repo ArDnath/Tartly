@@ -128,6 +128,14 @@ export const InboxRow = memo(function InboxRow({
               Draft
             </span>
           ) : null}
+          {item.handledOvernight ? (
+            <span
+              title="Handled overnight by 24/7 Autopilot"
+              className="shrink-0 rounded border border-border px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-foreground/70"
+            >
+              Overnight
+            </span>
+          ) : null}
         </div>
 
         <div className="flex items-center gap-2">

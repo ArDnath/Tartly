@@ -1,6 +1,5 @@
-import { z } from "zod";
-
 import { ok, apiError, withUser } from "@/lib/api/http";
+import { calendarPatchBody as patchSchema } from "@/lib/api/contracts/settings";
 import {
   DEFAULT_CALENDAR_SETTINGS,
   getCalendarSettings,
@@ -10,15 +9,6 @@ import {
 export const GET = withUser(async (userId) => {
   const settings = await getCalendarSettings(userId);
   return ok(settings ?? { userId, ...DEFAULT_CALENDAR_SETTINGS });
-});
-
-const patchSchema = z.object({
-  timezone: z.string().min(1).max(100).optional(),
-  workDays: z.array(z.number().int().min(1).max(7)).min(1).max(7).optional(),
-  workStartHour: z.number().int().min(0).max(23).optional(),
-  workEndHour: z.number().int().min(1).max(24).optional(),
-  bufferMins: z.number().int().min(0).max(180).optional(),
-  defaultDurationMins: z.number().int().min(5).max(480).optional(),
 });
 
 export const PATCH = withUser(async (userId, request) => {

@@ -1,6 +1,5 @@
 import "server-only";
 
-import { and, desc, eq, gte, inArray, notInArray } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
@@ -9,17 +8,11 @@ import {
   getAssistantSettings,
   updateAssistantSettings,
 } from "@/lib/ai/features/draft-context";
-import { db } from "@/lib/db";
-import {
-  NOISE_CATEGORIES,
-  digestItems,
-  digests,
-  messages,
-  senderProfiles,
-  threadStates,
-  threads,
-  type DigestGroup,
-} from "@/lib/db/schema";
+import { digestRepository } from "@/lib/repositories/digests";
+import { messageRepository } from "@/lib/repositories/messages";
+import { senderProfileRepository } from "@/lib/repositories/sender-profiles";
+import { threadRepository } from "@/lib/repositories/threads";
+import { NOISE_CATEGORIES, type DigestGroup } from "@/lib/db/schema";
 import { matchesView } from "@/lib/inbox/service";
 import type {
   DigestKind,
@@ -110,44 +103,25 @@ async function loadCandidates({
   since: Date;
   limit?: number;
 }): Promise<CandidateThread[]> {
-  const rows = await db
-    .select({
-      threadId: threads.id,
-      subject: threads.subject,
-      category: threadStates.category,
-      action: threadStates.action,
-      replyStatus: threadStates.replyStatus,
-      priority: threadStates.priority,
-      reason: threadStates.reason,
-      lastMessageAt: threads.lastMessageAt,
-    })
-    .from(threads)
-    .leftJoin(threadStates, eq(threadStates.threadId, threads.id))
-    .where(and(eq(threads.userId, userId), gte(threads.lastMessageAt, since)))
-    .orderBy(desc(threadStates.priority), desc(threads.lastMessageAt))
-    .limit(limit);
+  const rows = await threadRepository.listRecentWithState({ userId, since, limit });
 
-  const threadIds = rows.map((row) => row.threadId);
+  const threadIds = rows.map((row) => row.thread.id);
   if (threadIds.length === 0) return [];
 
-  const latest = await db
-    .selectDistinctOn([messages.threadId])
-    .from(messages)
-    .where(inArray(messages.threadId, threadIds))
-    .orderBy(messages.threadId, desc(messages.sentAt));
+  const latest = await messageRepository.latestByThreadIds(threadIds);
 
   const latestByThread = new Map(latest.map((message) => [message.threadId, message]));
 
   return rows.map((row) => {
-    const message = latestByThread.get(row.threadId);
+    const message = latestByThread.get(row.thread.id);
     return {
-      threadId: row.threadId,
-      subject: row.subject,
-      category: row.category,
-      action: row.action,
-      replyStatus: row.replyStatus,
-      priority: row.priority ?? 0,
-      reason: row.reason,
+      threadId: row.thread.id,
+      subject: row.thread.subject,
+      category: row.state?.category ?? null,
+      action: row.state?.action ?? null,
+      replyStatus: row.state?.replyStatus ?? null,
+      priority: row.state?.priority ?? 0,
+      reason: row.state?.reason ?? null,
       from: message?.fromAddr ?? null,
       snippet: message?.snippet ?? message?.bodyText?.slice(0, 160) ?? null,
     };
@@ -220,12 +194,7 @@ export async function buildDigestLines({
     .filter((value): value is string => Boolean(value));
   const noiseSenders = new Set<string>();
   if (froms.length > 0) {
-    const profiles = await db
-      .select({ email: senderProfiles.email, category: senderProfiles.category })
-      .from(senderProfiles)
-      .where(
-        and(eq(senderProfiles.userId, userId), inArray(senderProfiles.email, froms)),
-      );
+    const profiles = await senderProfileRepository.listByEmails(userId, froms);
     for (const profile of profiles) {
       if ((NOISE_CATEGORIES as readonly string[]).includes(profile.category)) {
         noiseSenders.add(profile.email);
@@ -280,7 +249,7 @@ export async function generateDigest({
   const digestId = nanoid();
 
   if (persist) {
-    await db.insert(digests).values({
+    await digestRepository.insertDigest({
       id: digestId,
       userId,
       kind,
@@ -295,7 +264,7 @@ export async function generateDigest({
       generatedAt: now,
     });
     if (lines.length > 0) {
-      await db.insert(digestItems).values(
+      await digestRepository.insertItems(
         lines.map((line) => ({
           id: nanoid(),
           digestId,
@@ -330,40 +299,17 @@ export async function generateDigest({
 }
 
 async function pruneDigests(userId: string): Promise<void> {
-  const keep = await db
-    .select({ id: digests.id })
-    .from(digests)
-    .where(eq(digests.userId, userId))
-    .orderBy(desc(digests.generatedAt))
-    .limit(5);
+  const keep = await digestRepository.listRecentIds(userId, 5);
   if (keep.length === 0) return;
-  await db.delete(digests).where(
-    and(
-      eq(digests.userId, userId),
-      notInArray(
-        digests.id,
-        keep.map((row) => row.id),
-      ),
-    ),
-  );
+  await digestRepository.deleteAllExcept(userId, keep);
 }
 
 /** The most recent digest plus its items, for the inbox panel. */
 export async function getLatestDigest(userId: string): Promise<DigestPayload | null> {
-  const rows = await db
-    .select()
-    .from(digests)
-    .where(eq(digests.userId, userId))
-    .orderBy(desc(digests.generatedAt))
-    .limit(1);
-  const digest = rows[0];
+  const digest = await digestRepository.findLatest(userId);
   if (!digest) return null;
 
-  const items = await db
-    .select()
-    .from(digestItems)
-    .where(eq(digestItems.digestId, digest.id))
-    .orderBy(desc(digestItems.priority));
+  const items = await digestRepository.listItems(digest.id);
 
   return {
     id: digest.id,

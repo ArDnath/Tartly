@@ -1,6 +1,5 @@
 import "server-only";
 
-import { and, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
@@ -13,10 +12,11 @@ import {
   type ConfidenceLevel,
 } from "@/lib/ai/features/draft-context";
 import { generateObject } from "@/lib/ai/generate";
-import { db } from "@/lib/db";
-import { drafts, user } from "@/lib/db/schema";
 import { defineStep } from "@/lib/engine/step";
 import { loadThreadContext } from "@/lib/email-operator/thread-context";
+import { draftRepository } from "@/lib/repositories/drafts";
+import { engineDraftRepository } from "@/lib/repositories/engine-drafts";
+import { userRepository } from "@/lib/repositories/users";
 import { requireThreadId } from "./helpers";
 
 type DraftState = {
@@ -107,12 +107,8 @@ export const draftReplyStep = defineStep({
         : null;
     }
 
-    const senderRows = await db
-      .select({ name: user.name })
-      .from(user)
-      .where(eq(user.id, ctx.userId))
-      .limit(1);
-    const senderName = senderRows[0]?.name ?? "The team";
+    const senderName =
+      (await userRepository.findNameById(ctx.userId)) ?? "The team";
 
     const options = state.options ?? [];
     const optionBlock = options.length
@@ -186,29 +182,23 @@ export const draftReplyStep = defineStep({
       });
 
     // One pending draft per thread: regenerate updates it in place.
-    const existing = await db
-      .select({ id: drafts.id })
-      .from(drafts)
-      .where(and(eq(drafts.threadId, threadId), eq(drafts.status, "pending")))
-      .limit(1);
+    const existing = await draftRepository.findAnyPendingByThread(threadId);
 
     let draftId: string;
-    if (existing[0]) {
-      draftId = existing[0].id;
-      await db
-        .update(drafts)
-        .set({
-          body,
-          runId: ctx.runId,
-          editedBody: null,
-          confidence,
-          suppressed,
-          pipelineVersion: DRAFT_PIPELINE_VERSION,
-        })
-        .where(eq(drafts.id, draftId));
+    if (existing) {
+      draftId = existing.id;
+      await engineDraftRepository.updatePending({
+        draftId,
+        body,
+        runId: ctx.runId,
+        editedBody: null,
+        confidence,
+        suppressed,
+        pipelineVersion: DRAFT_PIPELINE_VERSION,
+      });
     } else {
       draftId = nanoid();
-      await db.insert(drafts).values({
+      await engineDraftRepository.insert({
         id: draftId,
         userId: ctx.userId,
         threadId,

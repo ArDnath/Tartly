@@ -1,12 +1,11 @@
 import "server-only";
 
-import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { contentHash, getCached, setCached, singleFlight } from "@/lib/ai/cache";
 import { generateObject } from "@/lib/ai/generate";
-import { db } from "@/lib/db";
-import { messages, threads } from "@/lib/db/schema";
+import { messageRepository } from "@/lib/repositories/messages";
+import { threadRepository } from "@/lib/repositories/threads";
 
 /**
  * Thread summarization (C8).
@@ -114,30 +113,13 @@ export async function loadThreadForSummary({
   userId: string;
   threadId: string;
 }): Promise<LoadedThread | null> {
-  const threadRows = await db
-    .select({
-      id: threads.id,
-      subject: threads.subject,
-      lastMessageAt: threads.lastMessageAt,
-    })
-    .from(threads)
-    .where(and(eq(threads.id, threadId), eq(threads.userId, userId)))
-    .limit(1);
-  const thread = threadRows[0];
+  const thread = await threadRepository.findByIdForUser(userId, threadId);
   if (!thread) return null;
 
-  const rows = await db
-    .select({
-      direction: messages.direction,
-      fromAddr: messages.fromAddr,
-      sentAt: messages.sentAt,
-      bodyText: messages.bodyText,
-      snippet: messages.snippet,
-    })
-    .from(messages)
-    .where(eq(messages.threadId, threadId))
-    .orderBy(asc(messages.sentAt))
-    .limit(MAX_SUMMARY_MESSAGES);
+  const rows = await messageRepository.listOldestByThread(
+    threadId,
+    MAX_SUMMARY_MESSAGES,
+  );
 
   return {
     threadId: thread.id,

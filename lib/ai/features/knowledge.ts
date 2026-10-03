@@ -1,10 +1,12 @@
 import "server-only";
 
-import { and, desc, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
-import { db } from "@/lib/db";
-import { knowledgeEntries, snippets } from "@/lib/db/schema";
+import {
+  knowledgeRepository,
+  type KnowledgeEntry,
+  type Snippet,
+} from "@/lib/repositories/knowledge";
 
 /**
  * Knowledge base + snippets (C3).
@@ -20,8 +22,7 @@ export const MAX_SNIPPET_CONTENT_CHARS = 4_000;
 export const MAX_ENTRY_CONTENT_CHARS = 8_000;
 export const DEFAULT_KNOWLEDGE_RESULTS = 5;
 
-export type KnowledgeEntry = typeof knowledgeEntries.$inferSelect;
-export type Snippet = typeof snippets.$inferSelect;
+export type { KnowledgeEntry, Snippet };
 
 const STOP_WORDS = new Set([
   "the", "and", "for", "you", "your", "with", "that", "this", "are", "was",
@@ -140,12 +141,10 @@ export async function listKnowledgeEntries({
   userId: string;
   limit?: number;
 }): Promise<KnowledgeEntry[]> {
-  return db
-    .select()
-    .from(knowledgeEntries)
-    .where(eq(knowledgeEntries.userId, userId))
-    .orderBy(desc(knowledgeEntries.updatedAt))
-    .limit(Math.min(Math.max(limit, 1), MAX_KNOWLEDGE_ENTRIES));
+  return knowledgeRepository.listEntries(
+    userId,
+    Math.min(Math.max(limit, 1), MAX_KNOWLEDGE_ENTRIES),
+  );
 }
 
 export async function createKnowledgeEntry({
@@ -157,16 +156,12 @@ export async function createKnowledgeEntry({
   title: string;
   content: string;
 }): Promise<KnowledgeEntry> {
-  const inserted = await db
-    .insert(knowledgeEntries)
-    .values({
-      id: nanoid(),
-      userId,
-      title: title.trim().slice(0, 200),
-      content: content.trim().slice(0, MAX_ENTRY_CONTENT_CHARS),
-    })
-    .returning();
-  return inserted[0]!;
+  return knowledgeRepository.insertEntry({
+    id: nanoid(),
+    userId,
+    title: title.trim().slice(0, 200),
+    content: content.trim().slice(0, MAX_ENTRY_CONTENT_CHARS),
+  });
 }
 
 export async function updateKnowledgeEntry({
@@ -180,20 +175,15 @@ export async function updateKnowledgeEntry({
   title?: string;
   content?: string;
 }): Promise<boolean> {
-  const updated = await db
-    .update(knowledgeEntries)
-    .set({
-      ...(title !== undefined ? { title: title.trim().slice(0, 200) } : {}),
-      ...(content !== undefined
-        ? { content: content.trim().slice(0, MAX_ENTRY_CONTENT_CHARS) }
-        : {}),
-      updatedAt: new Date(),
-    })
-    .where(
-      and(eq(knowledgeEntries.id, id), eq(knowledgeEntries.userId, userId)),
-    )
-    .returning({ id: knowledgeEntries.id });
-  return updated.length > 0;
+  return knowledgeRepository.updateEntry({
+    userId,
+    id,
+    ...(title !== undefined ? { title: title.trim().slice(0, 200) } : {}),
+    ...(content !== undefined
+      ? { content: content.trim().slice(0, MAX_ENTRY_CONTENT_CHARS) }
+      : {}),
+    now: new Date(),
+  });
 }
 
 export async function deleteKnowledgeEntry({
@@ -203,13 +193,7 @@ export async function deleteKnowledgeEntry({
   userId: string;
   id: string;
 }): Promise<boolean> {
-  const deleted = await db
-    .delete(knowledgeEntries)
-    .where(
-      and(eq(knowledgeEntries.id, id), eq(knowledgeEntries.userId, userId)),
-    )
-    .returning({ id: knowledgeEntries.id });
-  return deleted.length > 0;
+  return knowledgeRepository.deleteEntry({ userId, id });
 }
 
 /* -------------------------------------------------------------------------- */
@@ -234,12 +218,7 @@ export async function listSnippets({
   userId: string;
   limit?: number;
 }): Promise<Snippet[]> {
-  return db
-    .select()
-    .from(snippets)
-    .where(eq(snippets.userId, userId))
-    .orderBy(desc(snippets.updatedAt))
-    .limit(Math.min(Math.max(limit, 1), 500));
+  return knowledgeRepository.listSnippets(userId, Math.min(Math.max(limit, 1), 500));
 }
 
 export async function createSnippet({
@@ -251,16 +230,12 @@ export async function createSnippet({
   shortcut: string;
   content: string;
 }): Promise<Snippet> {
-  const inserted = await db
-    .insert(snippets)
-    .values({
-      id: nanoid(),
-      userId,
-      shortcut: normalizeShortcut(shortcut),
-      content: content.trim().slice(0, MAX_SNIPPET_CONTENT_CHARS),
-    })
-    .returning();
-  return inserted[0]!;
+  return knowledgeRepository.insertSnippet({
+    id: nanoid(),
+    userId,
+    shortcut: normalizeShortcut(shortcut),
+    content: content.trim().slice(0, MAX_SNIPPET_CONTENT_CHARS),
+  });
 }
 
 export async function updateSnippet({
@@ -274,18 +249,15 @@ export async function updateSnippet({
   shortcut?: string;
   content?: string;
 }): Promise<boolean> {
-  const updated = await db
-    .update(snippets)
-    .set({
-      ...(shortcut !== undefined ? { shortcut: normalizeShortcut(shortcut) } : {}),
-      ...(content !== undefined
-        ? { content: content.trim().slice(0, MAX_SNIPPET_CONTENT_CHARS) }
-        : {}),
-      updatedAt: new Date(),
-    })
-    .where(and(eq(snippets.id, id), eq(snippets.userId, userId)))
-    .returning({ id: snippets.id });
-  return updated.length > 0;
+  return knowledgeRepository.updateSnippet({
+    userId,
+    id,
+    ...(shortcut !== undefined ? { shortcut: normalizeShortcut(shortcut) } : {}),
+    ...(content !== undefined
+      ? { content: content.trim().slice(0, MAX_SNIPPET_CONTENT_CHARS) }
+      : {}),
+    now: new Date(),
+  });
 }
 
 export async function deleteSnippet({
@@ -295,11 +267,7 @@ export async function deleteSnippet({
   userId: string;
   id: string;
 }): Promise<boolean> {
-  const deleted = await db
-    .delete(snippets)
-    .where(and(eq(snippets.id, id), eq(snippets.userId, userId)))
-    .returning({ id: snippets.id });
-  return deleted.length > 0;
+  return knowledgeRepository.deleteSnippet({ userId, id });
 }
 
 export function normalizeShortcut(shortcut: string): string {

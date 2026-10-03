@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { apiError, ok, withUser } from "@/lib/api/http";
+import { apiError, created, ok, withUser } from "@/lib/api/http";
 import { mapRowsToRecipients, parseSpreadsheet } from "@/lib/campaigns/import";
 import { addSuppression, createCampaign, listCampaignsWithStats } from "@/lib/campaigns/service";
 import { campaignMaxRecipients, isCampaignsEnabled } from "@/lib/env";
@@ -142,7 +142,10 @@ export const POST = withUser(async (userId, request) => {
         | string
         | null,
     });
-    return ok({ campaignId, summary, truncated: sheet.truncated });
+    return created(
+      { campaignId, summary, truncated: sheet.truncated },
+      { location: `/api/v1/campaigns/${campaignId}` },
+    );
   }
 
   // --- JSON: small lists (and tests) ---
@@ -168,7 +171,10 @@ export const POST = withUser(async (userId, request) => {
     replyPolicy: parsed.data.replyPolicy ?? "drafts",
     footerAddress: parsed.data.footerAddress ?? null,
   });
-  return ok({ campaignId, summary });
+  return created(
+    { campaignId, summary },
+    { location: `/api/v1/campaigns/${campaignId}` },
+  );
 });
 
 function parseJsonArray(value: FormDataEntryValue | null): string[] {

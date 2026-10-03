@@ -1,15 +1,14 @@
 import "server-only";
 
-import { and, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
-import { db, pool } from "@/lib/db";
-import { mailboxes } from "@/lib/db/schema";
+import { pool } from "@/lib/db";
 import { JOB_KIND_MAILBOX_SYNC } from "@/lib/email-operator/job-kinds";
 import { getGmailProfile } from "@/lib/gmail/sync";
 import { enqueueJob } from "@/lib/queue/queue";
+import { mailboxRepository, type Mailbox } from "@/lib/repositories/mailboxes";
 
-export type MailboxRow = typeof mailboxes.$inferSelect;
+export type MailboxRow = Mailbox;
 
 /** Creates (or returns) the mailbox row for a connected Google account. */
 export async function ensureMailbox({
@@ -21,60 +20,41 @@ export async function ensureMailbox({
   email: string;
   historyId?: string | null;
 }): Promise<MailboxRow> {
-  const inserted = await db
-    .insert(mailboxes)
-    .values({
-      id: nanoid(),
-      userId,
-      email,
-      provider: "google",
-      historyId: historyId ?? null,
-    })
-    .onConflictDoUpdate({
-      target: [mailboxes.userId, mailboxes.email],
-      set: {
-        ...(historyId ? { historyId } : {}),
-        updatedAt: new Date(),
-      },
-    })
-    .returning();
+  const inserted = await mailboxRepository.upsert({
+    id: nanoid(),
+    userId,
+    email,
+    provider: "google",
+    historyId: historyId ?? null,
+  });
 
-  return inserted[0];
+  return inserted;
 }
 
 export async function getMailboxForUser(
   userId: string,
 ): Promise<MailboxRow | null> {
-  const rows = await db
-    .select()
-    .from(mailboxes)
-    .where(eq(mailboxes.userId, userId))
-    .limit(1);
-  return rows[0] ?? null;
+  const mailbox = await mailboxRepository.findByUser(userId);
+  return mailbox ?? null;
 }
 
 export async function getMailboxForUserById(
   userId: string,
   mailboxId: string,
 ): Promise<MailboxRow | null> {
-  const rows = await db
-    .select()
-    .from(mailboxes)
-    .where(and(eq(mailboxes.id, mailboxId), eq(mailboxes.userId, userId)))
-    .limit(1);
-  return rows[0] ?? null;
+  const mailbox = await mailboxRepository.findByIdForUser(
+    userId,
+    mailboxId,
+  );
+  return mailbox ?? null;
 }
 
 /** Resolves the mailbox a Pub/Sub notification belongs to. */
 export async function findMailboxByEmail(
   email: string,
 ): Promise<MailboxRow | null> {
-  const rows = await db
-    .select()
-    .from(mailboxes)
-    .where(eq(mailboxes.email, email.toLowerCase()))
-    .limit(1);
-  return rows[0] ?? null;
+  const mailbox = await mailboxRepository.findByEmail(email);
+  return mailbox ?? null;
 }
 
 /**

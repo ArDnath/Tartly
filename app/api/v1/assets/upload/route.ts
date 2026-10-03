@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 
 import { apiError, withUser } from "@/lib/api/http";
+import { uploadTicketBody as clientPayloadSchema } from "@/lib/api/contracts/assets";
 import { AuthorizationError, ValidationError } from "@/lib/agent/errors";
 import { assetStorageKeyForSha } from "@/lib/assets/storage";
 import { mimeAllowed } from "@/lib/assets/service";
@@ -26,13 +27,6 @@ import {
  */
 
 export const runtime = "nodejs";
-
-const clientPayloadSchema = z.object({
-  filename: z.string().min(1).max(240),
-  mimeType: z.string().min(3).max(120),
-  sizeBytes: z.number().int().positive(),
-  sha256: z.string().regex(/^[a-f0-9]{64}$/i),
-});
 
 export const POST = withUser(
   {

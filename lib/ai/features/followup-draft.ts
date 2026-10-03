@@ -1,14 +1,12 @@
 import "server-only";
 
-import { and, asc, eq } from "drizzle-orm";
-
 import {
   buildDraftContext,
   buildDraftContextPrompt,
 } from "@/lib/ai/features/draft-context";
 import { generateText } from "@/lib/ai/generate";
-import { db } from "@/lib/db";
-import { messages, threads } from "@/lib/db/schema";
+import { messageRepository } from "@/lib/repositories/messages";
+import { threadRepository } from "@/lib/repositories/threads";
 import { isFollowupAiEnabled } from "@/lib/env";
 
 /**
@@ -88,12 +86,8 @@ export async function generateFollowupDraft({
   userId: string;
   threadId: string;
 }): Promise<FollowupDraftResult> {
-  const threadRows = await db
-    .select({ subject: threads.subject })
-    .from(threads)
-    .where(and(eq(threads.id, threadId), eq(threads.userId, userId)))
-    .limit(1);
-  const subject = threadRows[0]?.subject ?? null;
+  const thread = await threadRepository.findByIdForUser(userId, threadId);
+  const subject = thread?.subject ?? null;
   const fallback = buildFallbackFollowupBody(subject);
 
   if (!isFollowupAiEnabled()) {
@@ -101,17 +95,7 @@ export async function generateFollowupDraft({
   }
 
   try {
-    const rows = await db
-      .select({
-        direction: messages.direction,
-        fromAddr: messages.fromAddr,
-        bodyText: messages.bodyText,
-        snippet: messages.snippet,
-      })
-      .from(messages)
-      .where(eq(messages.threadId, threadId))
-      .orderBy(asc(messages.sentAt))
-      .limit(MAX_HISTORY);
+    const rows = await messageRepository.listOldestByThread(threadId, MAX_HISTORY);
 
     const history: HistoryMessage[] = rows.map((row) => ({
       direction: row.direction,

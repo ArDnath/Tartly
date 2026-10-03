@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { db } from "../../lib/db";
 import {
+  autopilotPolicies,
   drafts,
   flowRuns,
   flows,
@@ -247,20 +248,59 @@ export async function run(): Promise<void> {
     const gateGraph: FlowGraph = {
       nodes: [
         { id: "a", type: "emit", config: { key: "forcedDraft", value: false } },
+        {
+          id: "b",
+          type: "emit",
+          config: { key: "category", value: "needs_reply" },
+        },
+        { id: "c", type: "emit", config: { key: "confidence", value: "HIGH" } },
         { id: "e", type: "egress" },
       ],
-      edges: [{ from: "a", to: "e" }],
+      edges: [
+        { from: "a", to: "b" },
+        { from: "b", to: "c" },
+        { from: "c", to: "e" },
+      ],
     };
 
     await db
       .update(mailboxes)
       .set({ autonomy: "autopilot" })
       .where(eq(mailboxes.id, mailbox.id));
+
+    // Autonomy alone is not enough: the policy must be enabled (INV-03).
+    const autoOff = await createRun(userId, gateGraph, { threadId });
+    const autoOffEgress = autoOff.result.trace.find((entry) => entry.nodeId === "e");
+    assert(
+      (autoOffEgress?.output as { decision?: string })?.decision === "draft",
+      "autopilot without an enabled policy drafts (fail-safe)",
+    );
+    assert(
+      (autoOffEgress?.output as { reason?: string })?.reason ===
+        "autopilot_disabled",
+      "reason names the disabled policy",
+    );
+
+    await db
+      .insert(autopilotPolicies)
+      .values({
+        id: nanoid(),
+        userId,
+        mailboxId: mailbox.id,
+        enabled: true,
+        mode: "always",
+        requireKnownSender: false,
+      })
+      .onConflictDoUpdate({
+        target: autopilotPolicies.mailboxId,
+        set: { enabled: true, mode: "always", requireKnownSender: false },
+      });
+
     const auto = await createRun(userId, gateGraph, { threadId });
     const autoEgress = auto.result.trace.find((entry) => entry.nodeId === "e");
     assert(
       (autoEgress?.output as { decision?: string })?.decision === "send",
-      "autopilot mailbox sends",
+      "autopilot with an enabled policy sends",
     );
 
     const guarded = await createRun(

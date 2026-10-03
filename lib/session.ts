@@ -1,11 +1,9 @@
-import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
 
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
-import { user } from "@/lib/db/schema";
+import { userRepository } from "@/lib/repositories/users";
 import {
   cacheSessionUser,
   invalidateSessionUserCache,
@@ -40,13 +38,9 @@ export const getSession = cache(async () => {
     const userId = session.user.id;
     if (await isSessionUserCached(userId)) return session;
 
-    const existing = await db
-      .select({ id: user.id })
-      .from(user)
-      .where(eq(user.id, userId))
-      .limit(1);
+    const existing = await userRepository.existsById(userId);
 
-    if (!existing[0]) {
+    if (!existing) {
       await invalidateSessionUserCache(userId);
       return null;
     }

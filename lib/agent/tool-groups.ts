@@ -24,6 +24,7 @@ export const TOOL_GROUPS = [
   "rules",
   "assets",
   "campaigns",
+  "autopilot",
 ] as const;
 
 export type ToolGroup = (typeof TOOL_GROUPS)[number];
@@ -43,6 +44,7 @@ export const TOOL_GROUP_DESCRIPTIONS: Readonly<Record<ToolGroup, string>> = {
   rules: "Create automation rules and search the user's saved knowledge base.",
   assets: "List and add reusable images and files.",
   campaigns: "Start and inspect bulk campaigns and manage the suppression list.",
+  autopilot: "Review overnight decisions, explain a send, and adjust autopilot policy.",
 };
 
 /**
@@ -100,6 +102,12 @@ export const TOOL_GROUP_BY_NAME: Readonly<Record<string, ToolGroup>> = {
   start_campaign: "campaigns",
   get_campaign_status: "campaigns",
   add_suppression: "campaigns",
+
+  // autopilot — review and control unattended sending
+  get_overnight_summary: "autopilot",
+  explain_autopilot_decision: "autopilot",
+  set_autopilot_policy: "autopilot",
+  pause_autopilot: "autopilot",
 };
 
 /** The group a tool belongs to. Unknown tools stay visible as `core`. */

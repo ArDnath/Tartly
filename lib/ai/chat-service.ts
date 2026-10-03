@@ -1,13 +1,14 @@
 import "server-only";
 
-import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import { nanoid } from "nanoid";
 
 import { buildWorkspaceSetupKickoffMessageText } from "@/lib/ai/prompts";
 import type { ChatThread } from "@/lib/ai/chat-types";
-import { db } from "@/lib/db";
-import { agentChatMessage, agentChatThread } from "@/lib/db/schema";
+import {
+  agentChatRepository,
+  type AgentChatThread as AgentChatThreadRow,
+} from "@/lib/repositories/agent-chat";
 import type {
   WorkspaceSetupChatMessage,
   WorkspaceSetupChatOutcome,
@@ -28,8 +29,6 @@ export function buildWorkspaceSetupThreadId(userId: string): string {
 /*  General chat threads (the assistant chat)                                  */
 /* -------------------------------------------------------------------------- */
 
-type AgentChatThreadRow = typeof agentChatThread.$inferSelect;
-
 function toChatThread(row: AgentChatThreadRow): ChatThread {
   return {
     id: row.id,
@@ -47,15 +46,7 @@ export async function listChatThreads(
   userId: string,
   { includeArchived = false }: { includeArchived?: boolean } = {},
 ): Promise<ChatThread[]> {
-  const rows = await db
-    .select()
-    .from(agentChatThread)
-    .where(
-      includeArchived
-        ? eq(agentChatThread.userId, userId)
-        : and(eq(agentChatThread.userId, userId), isNull(agentChatThread.archivedAt)),
-    )
-    .orderBy(desc(agentChatThread.updatedAt));
+  const rows = await agentChatRepository.listThreads({ userId, includeArchived });
 
   // The briefing conversation is retired: its old rows stay in the database
   // (historical messages still rehydrate) but are hidden from the thread list,
@@ -67,27 +58,21 @@ export async function createChatThread(
   userId: string,
   { title = null }: { title?: string | null } = {},
 ): Promise<ChatThread> {
-  const inserted = await db
-    .insert(agentChatThread)
-    .values({ id: nanoid(), userId, title })
-    .returning();
+  const inserted = await agentChatRepository.insertThread({
+    id: nanoid(),
+    userId,
+    title,
+  });
 
-  return toChatThread(inserted[0]);
+  return toChatThread(inserted);
 }
 
 export async function findThreadForUser(
   userId: string,
   threadId: string,
 ): Promise<ChatThread | null> {
-  const rows = await db
-    .select()
-    .from(agentChatThread)
-    .where(
-      and(eq(agentChatThread.id, threadId), eq(agentChatThread.userId, userId)),
-    )
-    .limit(1);
-
-  return rows[0] ? toChatThread(rows[0]) : null;
+  const row = await agentChatRepository.findThreadForUser(userId, threadId);
+  return row ? toChatThread(row) : null;
 }
 
 export async function renameChatThread(
@@ -95,15 +80,13 @@ export async function renameChatThread(
   threadId: string,
   title: string,
 ): Promise<ChatThread | null> {
-  const updated = await db
-    .update(agentChatThread)
-    .set({ title: title.trim().slice(0, 120) || null })
-    .where(
-      and(eq(agentChatThread.id, threadId), eq(agentChatThread.userId, userId)),
-    )
-    .returning();
+  const updated = await agentChatRepository.updateThreadTitle(
+    userId,
+    threadId,
+    title.trim().slice(0, 120) || null,
+  );
 
-  return updated[0] ? toChatThread(updated[0]) : null;
+  return updated ? toChatThread(updated) : null;
 }
 
 export async function setChatThreadArchived(
@@ -111,29 +94,21 @@ export async function setChatThreadArchived(
   threadId: string,
   archived: boolean,
 ): Promise<ChatThread | null> {
-  const updated = await db
-    .update(agentChatThread)
-    .set({ archivedAt: archived ? new Date() : null })
-    .where(
-      and(eq(agentChatThread.id, threadId), eq(agentChatThread.userId, userId)),
-    )
-    .returning();
+  const updated = await agentChatRepository.setThreadArchived(
+    userId,
+    threadId,
+    archived,
+    new Date(),
+  );
 
-  return updated[0] ? toChatThread(updated[0]) : null;
+  return updated ? toChatThread(updated) : null;
 }
 
 export async function deleteChatThread(
   userId: string,
   threadId: string,
 ): Promise<boolean> {
-  const deleted = await db
-    .delete(agentChatThread)
-    .where(
-      and(eq(agentChatThread.id, threadId), eq(agentChatThread.userId, userId)),
-    )
-    .returning({ id: agentChatThread.id });
-
-  return deleted.length > 0;
+  return agentChatRepository.deleteThreadForUser(userId, threadId);
 }
 
 /** Deterministic first title so the sidebar is useful without a model call. */
@@ -160,23 +135,13 @@ export async function ensureChatThreadTitle(
 }
 
 export async function findThreadById(threadId: string) {
-  const rows = await db
-    .select()
-    .from(agentChatThread)
-    .where(eq(agentChatThread.id, threadId))
-    .limit(1);
-
-  return rows[0] ?? null;
+  return (await agentChatRepository.findThreadById(threadId)) ?? null;
 }
 
 export async function loadThreadMessages(
   threadId: string,
 ): Promise<WorkspaceSetupChatMessage[]> {
-  const rows = await db
-    .select()
-    .from(agentChatMessage)
-    .where(eq(agentChatMessage.threadId, threadId))
-    .orderBy(asc(agentChatMessage.createdAt));
+  const rows = await agentChatRepository.listMessages(threadId);
 
   return rows.map((row) => ({
     id: row.id,
@@ -201,23 +166,15 @@ export async function appendMessage({
   text: string;
   hidden?: boolean;
 }): Promise<WorkspaceSetupChatMessage> {
-  const inserted = await db
-    .insert(agentChatMessage)
-    .values({
-      id: nanoid(),
-      threadId,
-      role,
-      parts: [{ type: "text", text }],
-      hidden,
-    })
-    .returning();
+  const row = await agentChatRepository.insertMessage({
+    id: nanoid(),
+    threadId,
+    role,
+    parts: [{ type: "text", text }],
+    hidden,
+  });
 
-  const row = inserted[0];
-
-  await db
-    .update(agentChatThread)
-    .set({ updatedAt: new Date(), lastMessageAt: new Date() })
-    .where(eq(agentChatThread.id, threadId));
+  await agentChatRepository.touchThread(threadId, new Date());
 
   return {
     id: row.id,
@@ -278,18 +235,15 @@ export async function startWorkspaceSetupChat({
     };
   }
 
-  const insertedThread = await db
-    .insert(agentChatThread)
-    .values({
-      id: threadId,
-      userId,
-      title: WORKSPACE_SETUP_THREAD_TITLE,
-      isWorkspaceSetup: true,
-    })
-    .onConflictDoNothing()
-    .returning();
+  const insertedThread = await agentChatRepository.insertThreadIfAbsent({
+    id: threadId,
+    userId,
+    title: WORKSPACE_SETUP_THREAD_TITLE,
+    isWorkspaceSetup: true,
+  });
 
-  const resolvedThread = insertedThread[0] ?? (await findThreadById(threadId));
+  const resolvedThread =
+    insertedThread ?? (await agentChatRepository.findThreadById(threadId));
   if (!resolvedThread) {
     // The insert lost a delete race; the caller can retry rather than crash.
     return { outcome: "UNAVAILABLE", thread: null, messages: [] };

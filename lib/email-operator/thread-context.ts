@@ -1,14 +1,17 @@
 import "server-only";
 
-import { and, asc, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
-import { db } from "@/lib/db";
-import { contacts, messages, threads } from "@/lib/db/schema";
+import {
+  contactPersistenceRepository,
+  type Contact,
+} from "@/lib/repositories/contact-persistence";
+import { messageRepository, type Message } from "@/lib/repositories/messages";
+import { threadRepository, type Thread } from "@/lib/repositories/threads";
 
-export type ThreadRow = typeof threads.$inferSelect;
-export type MessageRow = typeof messages.$inferSelect;
-export type ContactRow = typeof contacts.$inferSelect;
+export type ThreadRow = Thread;
+export type MessageRow = Message;
+export type ContactRow = Contact;
 
 /** Creates/updates a contact keyed on (userId, email). */
 export async function upsertContact({
@@ -23,26 +26,13 @@ export async function upsertContact({
   source?: string;
 }): Promise<ContactRow> {
   const normalizedEmail = email.toLowerCase();
-  const inserted = await db
-    .insert(contacts)
-    .values({
-      id: nanoid(),
-      userId,
-      email: normalizedEmail,
-      name: name ?? null,
-      nameLower: name?.toLowerCase() ?? null,
-      source,
-    })
-    .onConflictDoUpdate({
-      target: [contacts.userId, contacts.email],
-      set: {
-        ...(name ? { name, nameLower: name.toLowerCase() } : {}),
-        updatedAt: new Date(),
-      },
-    })
-    .returning();
-
-  return inserted[0];
+  return contactPersistenceRepository.upsert({
+    id: nanoid(),
+    userId,
+    email: normalizedEmail,
+    name,
+    source,
+  });
 }
 
 export type ThreadContext = {
@@ -67,21 +57,13 @@ export async function loadThreadContext({
   threadId: string;
   historyLimit?: number;
 }): Promise<ThreadContext | null> {
-  const threadRows = await db
-    .select()
-    .from(threads)
-    .where(and(eq(threads.id, threadId), eq(threads.userId, userId)))
-    .limit(1);
-
-  const thread = threadRows[0];
+  const thread = await threadRepository.findByIdForUser(userId, threadId);
   if (!thread) return null;
 
-  const history = await db
-    .select()
-    .from(messages)
-    .where(eq(messages.threadId, threadId))
-    .orderBy(asc(messages.sentAt))
-    .limit(historyLimit);
+  const history = await messageRepository.listOldestByThread(
+    threadId,
+    historyLimit,
+  );
 
   const latestInbound =
     [...history].reverse().find((message) => message.direction === "inbound") ??

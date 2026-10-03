@@ -1,21 +1,16 @@
 import "server-only";
 
-import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { contentHash, getCached, setCached, singleFlight } from "@/lib/ai/cache";
 import { generateObject } from "@/lib/ai/generate";
-import { db } from "@/lib/db";
-import {
-  drafts,
-  followupEnrollments,
-  meetings,
-  messages,
-  ruleExecutions,
-  senderProfiles,
-  threadStates,
-  threads,
-} from "@/lib/db/schema";
+import { automationRuleRepository } from "@/lib/repositories/automation-rules";
+import { draftRepository } from "@/lib/repositories/drafts";
+import { followupEnrollmentRepository } from "@/lib/repositories/followup-enrollments";
+import { meetingRepository } from "@/lib/repositories/meetings";
+import { messageRepository } from "@/lib/repositories/messages";
+import { senderProfileRepository } from "@/lib/repositories/sender-profiles";
+import { threadStateRepository } from "@/lib/repositories/thread-states";
 import { isInsightsEnabled } from "@/lib/env";
 import type {
   ReportMetrics,
@@ -123,11 +118,6 @@ export function buildFallbackReport(metrics: ReportMetrics): {
   return { headline, summary, suggestions };
 }
 
-async function scalar(query: Promise<Array<{ n: number }>>): Promise<number> {
-  const rows = await query;
-  return Number(rows[0]?.n ?? 0);
-}
-
 /** Compute the window's metrics. Always works with no model. */
 export async function computeReportMetrics({
   userId,
@@ -148,87 +138,14 @@ export async function computeReportMetrics({
     senderRows,
     windowMessages,
   ] = await Promise.all([
-    db
-      .select({
-        category: threadStates.category,
-        replyStatus: threadStates.replyStatus,
-        n: sql<number>`count(*)::int`,
-      })
-      .from(threadStates)
-      .innerJoin(threads, eq(threads.id, threadStates.threadId))
-      .where(and(eq(threads.userId, userId), gte(threads.lastMessageAt, since)))
-      .groupBy(threadStates.category, threadStates.replyStatus),
-    scalar(
-      db
-        .select({ n: sql<number>`count(*)::int` })
-        .from(drafts)
-        .where(and(eq(drafts.userId, userId), gte(drafts.createdAt, since))),
-    ),
-    scalar(
-      db
-        .select({ n: sql<number>`count(*)::int` })
-        .from(drafts)
-        .where(
-          and(
-            eq(drafts.userId, userId),
-            eq(drafts.status, "sent"),
-            gte(drafts.decidedAt, since),
-          ),
-        ),
-    ),
-    scalar(
-      db
-        .select({ n: sql<number>`count(*)::int` })
-        .from(meetings)
-        .where(and(eq(meetings.userId, userId), gte(meetings.createdAt, since))),
-    ),
-    scalar(
-      db
-        .select({ n: sql<number>`count(*)::int` })
-        .from(followupEnrollments)
-        .where(
-          and(
-            eq(followupEnrollments.userId, userId),
-            eq(followupEnrollments.status, "active"),
-          ),
-        ),
-    ),
-    scalar(
-      db
-        .select({ n: sql<number>`count(*)::int` })
-        .from(ruleExecutions)
-        .where(
-          and(
-            eq(ruleExecutions.userId, userId),
-            eq(ruleExecutions.status, "applied"),
-            gte(ruleExecutions.createdAt, since),
-          ),
-        ),
-    ),
-    db
-      .select({ email: messages.fromAddr, n: sql<number>`count(*)::int` })
-      .from(messages)
-      .innerJoin(threads, eq(threads.id, messages.threadId))
-      .where(
-        and(
-          eq(threads.userId, userId),
-          eq(messages.direction, "inbound"),
-          gte(messages.sentAt, since),
-        ),
-      )
-      .groupBy(messages.fromAddr)
-      .orderBy(desc(sql`count(*)`))
-      .limit(5),
-    db
-      .select({
-        threadId: messages.threadId,
-        direction: messages.direction,
-        sentAt: messages.sentAt,
-      })
-      .from(messages)
-      .innerJoin(threads, eq(threads.id, messages.threadId))
-      .where(and(eq(threads.userId, userId), gte(messages.sentAt, since)))
-      .orderBy(messages.sentAt),
+    threadStateRepository.countByCategoryAndReplyStatus({ userId, since }),
+    draftRepository.countCreatedSince(userId, since),
+    draftRepository.countSentSinceDecided(userId, since),
+    meetingRepository.countCreatedSince(userId, since),
+    followupEnrollmentRepository.countActive(userId),
+    automationRuleRepository.countAppliedSince(userId, since),
+    messageRepository.countInboundBySender({ userId, since, limit: 5 }),
+    messageRepository.listWindowForResponseTime({ userId, since }),
   ]);
 
   let needsReply = 0;
@@ -255,15 +172,10 @@ export async function computeReportMetrics({
   }
 
   // Noise also includes senders categorised as Newsletters/Marketing.
-  const froms = await db
-    .select({ email: senderProfiles.email })
-    .from(senderProfiles)
-    .where(
-      and(
-        eq(senderProfiles.userId, userId),
-        inArray(senderProfiles.category, ["Newsletters", "Marketing"]),
-      ),
-    );
+  const froms = await senderProfileRepository.listEmailsByCategories(userId, [
+    "Newsletters",
+    "Marketing",
+  ]);
   const noiseFromCount = froms.length > 0 ? froms.length : 0;
 
   const threadsProcessed = needsReply + waitingOnThem + handled;

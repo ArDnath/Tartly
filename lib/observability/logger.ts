@@ -76,12 +76,13 @@ function emit(level: LogLevel, message: string, fields?: LogFields): void {
       message,
       ...(context
         ? {
-            trace_id: context.requestId,
+            trace_id: context.traceId ?? context.requestId,
             request_id: context.requestId,
             method: context.method,
             path: context.path,
           }
         : {}),
+      ...(context?.traceId ? { parent_span_id: context.parentId } : {}),
       ...(context?.userId ? { user_id: context.userId } : {}),
     };
 

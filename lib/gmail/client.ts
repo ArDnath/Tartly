@@ -1,11 +1,9 @@
 import "server-only";
 
-import { and, eq } from "drizzle-orm";
 import { cache } from "react";
 
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
-import { account } from "@/lib/db/schema";
+import { googleAccountRepository } from "@/lib/repositories/google-account";
 
 /**
  * Thin Gmail REST client.
@@ -49,15 +47,12 @@ export class GmailApiError extends Error {
  */
 export const getGoogleAuthAccountId = cache(
   async (userId: string): Promise<string | null> => {
-    const rows = await db
-      .select({ id: account.id })
-      .from(account)
-      .where(
-        and(eq(account.userId, userId), eq(account.providerId, "google")),
-      )
-      .limit(1);
+    const id = await googleAccountRepository.findIdByUserAndProvider({
+      userId,
+      providerId: "google",
+    });
 
-    return rows[0]?.id ?? null;
+    return id ?? null;
   },
 );
 

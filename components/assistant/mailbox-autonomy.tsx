@@ -1,6 +1,7 @@
 "use client";
 
-import { ShieldCheckIcon, ZapIcon } from "lucide-react";
+import { Settings2, ShieldCheckIcon, ZapIcon } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useSyncExternalStore } from "react";
 
 import {
@@ -151,64 +152,81 @@ export function AutonomySwitch({ className }: { className?: string }) {
   }, []);
 
   return (
-    <div
-      role="radiogroup"
-      aria-label="Autonomy mode"
-      aria-busy={saving}
-      className={cn(
-        "flex items-center rounded-full border border-border bg-muted/40 p-0.5",
-        !loaded && "opacity-60",
-        className,
-      )}
-    >
-      {OPTIONS.map((option) => {
-        const active = autonomy === option.value;
-        const Icon = option.icon;
-        return (
-          <Tooltip key={option.value}>
+    <div className={cn("flex items-center gap-1", className)}>
+      <div
+        role="radiogroup"
+        aria-label="Autonomy mode"
+        aria-busy={saving}
+        className={cn(
+          "flex items-center rounded-full border border-border bg-muted/40 p-0.5",
+          !loaded && "opacity-60",
+        )}
+      >
+        {OPTIONS.map((option) => {
+          const active = autonomy === option.value;
+          const Icon = option.icon;
+          return (
+            <Tooltip key={option.value}>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    onClick={() => void writeMailboxAutonomy(option.value)}
+                    className={cn(
+                      "flex h-7 items-center gap-1.5 rounded-full px-2.5 text-[11px] font-medium transition-colors",
+                      active
+                        ? option.value === "autopilot"
+                          ? "bg-foreground text-background"
+                          : "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    <Icon className="size-3.5" aria-hidden />
+                    <span className="hidden sm:inline">{option.label}</span>
+                    <span className="sr-only sm:hidden">{option.label}</span>
+                  </button>
+                }
+              />
+              <TooltipContent side="top" className="max-w-56">
+                {option.description}
+              </TooltipContent>
+            </Tooltip>
+          );
+        })}
+        {failed ? (
+          <Tooltip>
             <TooltipTrigger
               render={
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={active}
-                  onClick={() => void writeMailboxAutonomy(option.value)}
-                  className={cn(
-                    "flex h-7 items-center gap-1.5 rounded-full px-2.5 text-[11px] font-medium transition-colors",
-                    active
-                      ? option.value === "autopilot"
-                        ? "bg-foreground text-background"
-                        : "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  <Icon className="size-3.5" aria-hidden />
-                  <span className="hidden sm:inline">{option.label}</span>
-                  <span className="sr-only sm:hidden">{option.label}</span>
-                </button>
+                <span
+                  aria-hidden
+                  className="ml-1 mr-1.5 size-1.5 shrink-0 rounded-full bg-amber-500"
+                />
               }
             />
-            <TooltipContent side="top" className="max-w-56">
-              {option.description}
+            <TooltipContent side="top">
+              Couldn&apos;t save the mode. It will stay on the last saved value.
             </TooltipContent>
           </Tooltip>
-        );
-      })}
-      {failed ? (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <span
-                aria-hidden
-                className="ml-1 mr-1.5 size-1.5 shrink-0 rounded-full bg-amber-500"
-              />
-            }
-          />
-          <TooltipContent side="top">
-            Couldn&apos;t save the mode. It will stay on the last saved value.
-          </TooltipContent>
-        </Tooltip>
-      ) : null}
+        ) : null}
+      </div>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Link
+              href="/settings/autopilot"
+              aria-label="24/7 Autopilot settings"
+              className="flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <Settings2 className="size-3.5" aria-hidden />
+            </Link>
+          }
+        />
+        <TooltipContent side="top">
+          Set the send window and limits for 24/7 Autopilot
+        </TooltipContent>
+      </Tooltip>
     </div>
   );
 }

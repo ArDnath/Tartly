@@ -1,9 +1,6 @@
 import "server-only";
 
-import { and, asc, eq, gt, inArray } from "drizzle-orm";
-
-import { db } from "@/lib/db";
-import { threads } from "@/lib/db/schema";
+import { threadActivityRepository } from "@/lib/repositories/thread-activity";
 
 /**
  * Mirror activity feed for the realtime mail notification.
@@ -31,20 +28,11 @@ export async function listThreadActivitySince(input: {
   limit?: number;
 }): Promise<ThreadActivity[]> {
   const limit = Math.min(Math.max(input.limit ?? MAX_ACTIVITY_BATCH, 1), 200);
-  return db
-    .select({
-      id: threads.id,
-      gmailThreadId: threads.gmailThreadId,
-      subject: threads.subject,
-      lastMessageAt: threads.lastMessageAt,
-      isUnread: threads.isUnread,
-    })
-    .from(threads)
-    .where(
-      and(eq(threads.userId, input.userId), gt(threads.lastMessageAt, input.since)),
-    )
-    .orderBy(asc(threads.lastMessageAt))
-    .limit(limit);
+  return threadActivityRepository.listSince({
+    userId: input.userId,
+    since: input.since,
+    limit,
+  });
 }
 
 export type ThreadActivityWithUser = ThreadActivity & { userId: string };
@@ -65,22 +53,9 @@ export async function listThreadActivitySinceMany(input: {
     200,
   );
   const total = Math.min(perUser * userIds.length, 1000);
-  return db
-    .select({
-      id: threads.id,
-      userId: threads.userId,
-      gmailThreadId: threads.gmailThreadId,
-      subject: threads.subject,
-      lastMessageAt: threads.lastMessageAt,
-      isUnread: threads.isUnread,
-    })
-    .from(threads)
-    .where(
-      and(
-        inArray(threads.userId, userIds),
-        gt(threads.lastMessageAt, input.since),
-      ),
-    )
-    .orderBy(asc(threads.lastMessageAt))
-    .limit(total);
+  return threadActivityRepository.listSinceMany({
+    userIds,
+    since: input.since,
+    limit: total,
+  });
 }

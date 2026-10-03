@@ -1,15 +1,8 @@
-import { z } from "zod";
-
 import { apiError, ok } from "@/lib/api/http";
+import { mailDraftBody as schema } from "@/lib/api/contracts/mail";
 import { expandSnippets } from "@/lib/ai/features/knowledge";
 import { generateMailBody } from "@/lib/mail/ai-draft";
 import { withMailUser } from "@/lib/mail/route";
-
-const schema = z.object({
-  to: z.array(z.string()).optional(),
-  subject: z.string().optional(),
-  instruction: z.string().optional(),
-});
 
 /** "Draft with AI": returns a suggested body. Never sends. */
 export const POST = withMailUser(async (userId, request) => {

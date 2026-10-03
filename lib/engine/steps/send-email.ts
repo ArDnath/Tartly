@@ -1,13 +1,14 @@
 import "server-only";
 
-import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
-import { db } from "@/lib/db";
-import { drafts, mailboxes, messages, threads } from "@/lib/db/schema";
 import { defineStep } from "@/lib/engine/step";
 import { sendEmail } from "@/lib/gmail/send";
+import { draftRepository } from "@/lib/repositories/drafts";
+import { threadRepository } from "@/lib/repositories/threads";
+import { mailboxRepository } from "@/lib/repositories/mailboxes";
+import { messageRepository } from "@/lib/repositories/messages";
 import { requireThreadId } from "./helpers";
 
 /**
@@ -26,20 +27,10 @@ export const sendEmailStep = defineStep({
       return { sent: false, skipped: true, gmailMessageId: null };
     }
 
-    const threadRows = await db
-      .select()
-      .from(threads)
-      .where(eq(threads.id, threadId))
-      .limit(1);
-    const thread = threadRows[0];
+    const thread = await threadRepository.findById(threadId);
     if (!thread) throw new Error(`Thread ${threadId} not found.`);
 
-    const mailboxRows = await db
-      .select()
-      .from(mailboxes)
-      .where(eq(mailboxes.id, thread.mailboxId))
-      .limit(1);
-    const mailbox = mailboxRows[0];
+    const mailbox = await mailboxRepository.findById(thread.mailboxId);
     if (!mailbox) throw new Error(`Mailbox ${thread.mailboxId} not found.`);
 
     const latest = ctx.state.latestMessage as
@@ -66,28 +57,26 @@ export const sendEmailStep = defineStep({
 
     // Mirror the sent message so the thread view reflects it immediately.
     if (result.gmailMessageId) {
-      await db
-        .insert(messages)
-        .values({
-          id: nanoid(),
-          threadId,
-          gmailMessageId: result.gmailMessageId,
-          direction: "outbound",
-          fromAddr: mailbox.email,
-          toAddr: [recipient],
-          subject: thread.subject ? `Re: ${thread.subject}` : "Re:",
-          bodyText: body,
-          sentAt: new Date(),
-        })
-        .onConflictDoNothing({ target: messages.gmailMessageId });
+      await messageRepository.insert({
+        id: nanoid(),
+        threadId,
+        gmailMessageId: result.gmailMessageId,
+        direction: "outbound",
+        fromAddr: mailbox.email,
+        toAddr: [recipient],
+        subject: thread.subject ? `Re: ${thread.subject}` : "Re:",
+        bodyText: body,
+        sentAt: new Date(),
+      });
     }
 
     const draftId = typeof ctx.state.draftId === "string" ? ctx.state.draftId : null;
     if (draftId) {
-      await db
-        .update(drafts)
-        .set({ status: "sent", sentBy: "ai", decidedAt: new Date() })
-        .where(eq(drafts.id, draftId));
+      await draftRepository.markSent({
+        draftId,
+        sentBy: "ai",
+        decidedAt: new Date(),
+      });
     }
 
     ctx.log("send-email", { deduped: result.deduped, id: result.gmailMessageId });

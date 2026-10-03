@@ -23,6 +23,15 @@
     "test:agent:phase7": "NODE_PATH=./scripts/onboarding-test-shims tsx scripts/agent/phase7.ts",
     "test:agent:evals": "NODE_PATH=./scripts/onboarding-test-shims tsx scripts/agent/evals.ts",
     "test:email-operator": "NODE_PATH=./scripts/onboarding-test-shims tsx scripts/email-operator/run-all.ts",
+    "test:autopilot": "NODE_PATH=./scripts/onboarding-test-shims tsx scripts/email-operator/phase-autopilot.ts",
+    "worker": "NODE_PATH=./scripts/onboarding-test-shims tsx scripts/worker.ts",
+    "test:unit": "vitest run",
+    "test:unit:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:integration": "vitest run --config vitest.integration.config.mts",
+    "openapi:generate": "tsx scripts/openapi/generate.ts",
+    "openapi:check": "tsx scripts/openapi/generate.ts --check",
+    "openapi:breaking": "tsx scripts/openapi/breaking-check.ts",
     "test": "npm run test:onboarding && npm run test:ai-chat && npm run test:email-operator && npm run test:agent && npm run test:agent:phase2 && npm run test:agent:phase3 && npm run test:agent:phase4 && npm run test:agent:phase5 && npm run test:agent:phase6 && npm run test:agent:phase7 && npm run test:agent:evals"
   },
   "dependencies": {
@@ -77,17 +86,22 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@testcontainers/postgresql": "^11.14.0",
     "@types/d3-scale": "^4.0.9",
     "@types/d3-shape": "^3.2.0",
     "@types/node": "^20",
     "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@vitest/coverage-v8": "^4.1.11",
     "drizzle-kit": "^0.31.10",
     "eslint": "^9",
     "eslint-config-next": "16.3.5",
     "tailwindcss": "^4",
+    "testcontainers": "^11.14.0",
     "tsx": "^4.23.13",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.11",
+    "yaml": "^2.9.1"
   }
 }

@@ -1,20 +1,17 @@
 import type { ModelMessage } from "ai";
-import { z } from "zod";
 
 import { jsonError } from "@/lib/api/error-envelope";
+import { aiChatBody as bodySchema } from "@/lib/api/contracts/legacy";
+import { enforceUserRateLimit } from "@/lib/api/http";
 import { appendMessage, loadThreadMessages } from "@/lib/ai/chat-service";
 import { buildFallbackSetupResponse } from "@/lib/ai/fallback-response";
 import { WORKSPACE_SETUP_SYSTEM_PROMPT } from "@/lib/ai/prompts";
 import { createAssistantReplyStream } from "@/lib/ai/stream-reply";
+import { agentRateLimitPerMin } from "@/lib/env";
 import { userOwnsThread } from "@/lib/onboarding/server";
 import { getSession } from "@/lib/session";
 
 export const maxDuration = 60;
-
-const bodySchema = z.object({
-  threadId: z.string().min(1),
-  message: z.string().max(8_000).optional(),
-});
 
 /**
  * SSE chat endpoint.
@@ -28,6 +25,12 @@ export async function POST(request: Request) {
   if (!session?.user) {
     return jsonError("unauthorized", "Unauthorized", 401);
   }
+
+  const limited = await enforceUserRateLimit(session.user.id, {
+    limit: agentRateLimitPerMin(),
+    scope: "ai",
+  });
+  if (limited) return limited;
 
   const parsed = bodySchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {

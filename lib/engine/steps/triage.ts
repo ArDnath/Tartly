@@ -10,11 +10,10 @@ import {
   type TriageResult,
 } from "@/lib/ai/features/triage";
 import { deriveReplyStatus } from "@/lib/ai/features/thread-status";
-import { db } from "@/lib/db";
-import { threadStates } from "@/lib/db/schema";
 import { defineStep } from "@/lib/engine/step";
 import { isReplyStatusEnabled } from "@/lib/env";
 import { loadThreadContext } from "@/lib/email-operator/thread-context";
+import { engineThreadStateRepository } from "@/lib/repositories/engine-thread-states";
 import { requireThreadId } from "./helpers";
 
 // Re-exported so existing callers/tests keep working; the implementation now
@@ -86,9 +85,8 @@ export const triageStep = defineStep({
       ? result.replyStatus ?? deriveReplyStatus({ lastDirection, subject, body })
       : deriveReplyStatus({ lastDirection, subject, body });
 
-    await db
-      .insert(threadStates)
-      .values({
+    await engineThreadStateRepository.upsert({
+      values: {
         threadId,
         category: result.category,
         priority: result.priority,
@@ -96,19 +94,17 @@ export const triageStep = defineStep({
         reason: result.reason ?? null,
         triageVersion: TRIAGE_PIPELINE_VERSION,
         replyStatus,
-      })
-      .onConflictDoUpdate({
-        target: threadStates.threadId,
-        set: {
-          category: result.category,
-          priority: result.priority,
-          action: result.action,
-          reason: result.reason ?? null,
-          triageVersion: TRIAGE_PIPELINE_VERSION,
-          replyStatus,
-          updatedAt: new Date(),
-        },
-      });
+      },
+      set: {
+        category: result.category,
+        priority: result.priority,
+        action: result.action,
+        reason: result.reason ?? null,
+        triageVersion: TRIAGE_PIPELINE_VERSION,
+        replyStatus,
+        updatedAt: new Date(),
+      },
+    });
 
     ctx.log("triage", { ...result, replyStatus });
     return { ...result, replyStatus };

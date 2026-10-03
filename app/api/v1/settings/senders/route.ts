@@ -1,5 +1,5 @@
-import { z } from "zod";
-
+import { apiError, ok, withUser } from "@/lib/api/http";
+import { sendersPatchBody as patchSchema } from "@/lib/api/contracts/settings";
 import {
   getAssistantSettings,
   updateAssistantSettings,
@@ -8,7 +8,6 @@ import {
   getSenderCategoryCounts,
   listSenderProfiles,
 } from "@/lib/ai/features/sender-profiles";
-import { apiError, ok, withUser } from "@/lib/api/http";
 
 /**
  * Sender intelligence settings (Phase 2).
@@ -44,12 +43,6 @@ export const GET = withUser(async (userId) => {
       lastSeenAt: profile.lastSeenAt,
     })),
   });
-});
-
-const patchSchema = z.object({
-  senderIntelEnabled: z.boolean().optional(),
-  coldEmailAction: z.enum(["label", "archive", "none"]).optional(),
-  autoArchiveNoise: z.boolean().optional(),
 });
 
 export const PATCH = withUser(async (userId, request) => {

@@ -1,6 +1,5 @@
-import { z } from "zod";
-
 import { apiError, ok, withUser } from "@/lib/api/http";
+import { campaignActionBody as schema } from "@/lib/api/contracts/campaigns";
 import { checkCampaignTemplate } from "@/lib/ai/features/spam-check";
 import {
   cancelCampaign,
@@ -18,12 +17,6 @@ import { nanoid } from "nanoid";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
-
-const schema = z.object({
-  action: z.enum(["check", "start", "pause", "resume", "cancel", "test"]),
-  /** The review gate: `start` requires an explicit confirmation. */
-  confirm: z.boolean().optional(),
-});
 
 /**
  * Campaign actions (Phase 7). `check` runs the pre-send quality gate, `start` is

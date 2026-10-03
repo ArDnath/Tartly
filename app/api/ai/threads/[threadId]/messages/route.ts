@@ -1,8 +1,9 @@
 import type { ModelMessage } from "ai";
 import { NextResponse } from "next/server";
-import { z } from "zod";
 
 import { jsonError } from "@/lib/api/error-envelope";
+import { aiThreadMessageBody as sendSchema } from "@/lib/api/contracts/legacy";
+import { enforceUserRateLimit } from "@/lib/api/http";
 import {
   appendMessage,
   ensureChatThreadTitle,
@@ -12,15 +13,12 @@ import {
 import { buildFallbackChatResponse } from "@/lib/ai/fallback-response";
 import { GENERAL_CHAT_SYSTEM_PROMPT } from "@/lib/ai/prompts";
 import { createAssistantReplyStream } from "@/lib/ai/stream-reply";
+import { agentRateLimitPerMin } from "@/lib/env";
 import { getSession } from "@/lib/session";
 
 export const maxDuration = 60;
 
 type RouteContext = { params: Promise<{ threadId: string }> };
-
-const sendSchema = z.object({
-  message: z.string().min(1).max(8_000),
-});
 
 /** Visible (non-hidden) conversation history for a thread. */
 export async function GET(_request: Request, { params }: RouteContext) {
@@ -53,6 +51,12 @@ export async function POST(request: Request, { params }: RouteContext) {
   if (!session?.user) {
     return jsonError("unauthorized", "Unauthorized", 401);
   }
+
+  const limited = await enforceUserRateLimit(session.user.id, {
+    limit: agentRateLimitPerMin(),
+    scope: "ai",
+  });
+  if (limited) return limited;
 
   const { threadId } = await params;
 

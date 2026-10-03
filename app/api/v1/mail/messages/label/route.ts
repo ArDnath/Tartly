@@ -1,13 +1,7 @@
-import { z } from "zod";
-
 import { apiError, ok } from "@/lib/api/http";
+import { mailLabelMessagesBody as schema } from "@/lib/api/contracts/mail";
 import { withMailUser } from "@/lib/mail/route";
 import { applyLabel } from "@/lib/mail/service";
-
-const schema = z.object({
-  ids: z.array(z.string().min(1)).min(1),
-  label: z.string().trim().min(1),
-});
 
 export const POST = withMailUser(async (userId, request) => {
   const parsed = schema.safeParse(await request.json().catch(() => ({})));

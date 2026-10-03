@@ -1,16 +1,14 @@
 import "server-only";
 
-import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
-import { db } from "@/lib/db";
-import { sendLedger } from "@/lib/db/schema";
 import {
   defaultGmailTransport,
   gmailJson,
   type GmailTransport,
 } from "@/lib/gmail/client";
 import { buildRawMessage, type OutboundEmail } from "@/lib/gmail/mime";
+import { gmailSendLedgerRepository } from "@/lib/repositories/gmail-send-ledger";
 
 type SendResponse = { id?: string; threadId?: string | null };
 
@@ -46,39 +44,26 @@ export async function sendEmail({
   jobId?: string | null;
   transport?: GmailTransport;
 }): Promise<SendEmailResult> {
-  const inserted = await db
-    .insert(sendLedger)
-    .values({
-      id: nanoid(),
-      userId,
-      jobId: jobId ?? null,
-      idempotencyKey,
-      status: "pending",
-      seq: 1,
-    })
-    .onConflictDoNothing({ target: sendLedger.idempotencyKey })
-    .returning();
+  const inserted = await gmailSendLedgerRepository.claim({
+    id: nanoid(),
+    userId,
+    jobId: jobId ?? null,
+    idempotencyKey,
+    status: "pending",
+    seq: 1,
+  });
 
-  if (!inserted[0]) {
-    const existing = (
-      await db
-        .select({ status: sendLedger.status })
-        .from(sendLedger)
-        .where(eq(sendLedger.idempotencyKey, idempotencyKey))
-        .limit(1)
-    )[0];
+  if (!inserted) {
+    const status = await gmailSendLedgerRepository.findStatus(idempotencyKey);
 
     // accepted → already delivered. pending → another attempt is in flight.
     // Both short-circuit so at-most-once holds.
-    if (existing?.status === "accepted" || existing?.status === "pending") {
+    if (status === "accepted" || status === "pending") {
       return { gmailMessageId: null, gmailThreadId: null, deduped: true };
     }
 
     // A previous attempt failed: reclaim the ledger row for a retry.
-    await db
-      .update(sendLedger)
-      .set({ status: "pending" })
-      .where(eq(sendLedger.idempotencyKey, idempotencyKey));
+    await gmailSendLedgerRepository.updateStatus(idempotencyKey, "pending");
   }
 
   const raw = buildRawMessage(email);
@@ -97,10 +82,7 @@ export async function sendEmail({
       transport,
     );
 
-    await db
-      .update(sendLedger)
-      .set({ status: "accepted" })
-      .where(eq(sendLedger.idempotencyKey, idempotencyKey));
+    await gmailSendLedgerRepository.updateStatus(idempotencyKey, "accepted");
 
     return {
       gmailMessageId: response.id ?? null,
@@ -108,10 +90,7 @@ export async function sendEmail({
       deduped: false,
     };
   } catch (error) {
-    await db
-      .update(sendLedger)
-      .set({ status: "failed" })
-      .where(eq(sendLedger.idempotencyKey, idempotencyKey));
+    await gmailSendLedgerRepository.updateStatus(idempotencyKey, "failed");
     throw error;
   }
 }

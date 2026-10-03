@@ -144,6 +144,9 @@ function hmac(key: Buffer | string, data: string): Buffer {
   return createHmac("sha256", key).update(data).digest();
 }
 
+/** Bound the object-store control calls (metadata probe, server PUT/GET). */
+const S3_REQUEST_TIMEOUT_MS = 30_000;
+
 function encodeKeyPath(key: string): string {
   return key
     .split("/")
@@ -220,6 +223,7 @@ async function s3Request({
     method,
     headers: { ...headers, authorization },
     ...(method === "PUT" && body ? { body: new Uint8Array(body) } : {}),
+    signal: AbortSignal.timeout(S3_REQUEST_TIMEOUT_MS),
   });
 }
 

@@ -1,25 +1,11 @@
-import { z } from "zod";
-
 import { apiError } from "@/lib/api/http";
-import {
-  COMPOSE_ASSIST_ACTIONS,
-  composeAssistStream,
-} from "@/lib/ai/features/compose-assist";
+import { mailAssistBody as schema } from "@/lib/api/contracts/mail";
+import { composeAssistStream } from "@/lib/ai/features/compose-assist";
 import { isComposeAssistEnabled } from "@/lib/env";
 import { withMailUser } from "@/lib/mail/route";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
-
-const schema = z.object({
-  action: z.enum(COMPOSE_ASSIST_ACTIONS),
-  body: z.string().max(20_000),
-  selection: z.string().max(8_000).optional(),
-  subject: z.string().max(500).optional(),
-  to: z.array(z.string().max(320)).max(20).optional(),
-  targetLanguage: z.string().max(40).optional(),
-  instruction: z.string().max(2_000).optional(),
-});
 
 /**
  * Smart compose (Phase 4). Streams a suggestion as `text/plain`; the composer

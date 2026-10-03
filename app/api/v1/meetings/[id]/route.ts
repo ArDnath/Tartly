@@ -1,6 +1,5 @@
-import { z } from "zod";
-
-import { apiError, ok, withUser } from "@/lib/api/http";
+import { apiError, noContent, ok, withUser } from "@/lib/api/http";
+import { meetingRescheduleBody as rescheduleSchema } from "@/lib/api/contracts/meetings";
 import {
   cancelMeeting,
   rescheduleMeeting,
@@ -8,11 +7,6 @@ import {
 } from "@/lib/calendar/manage";
 
 type RouteContext = { params: Promise<{ id: string }> };
-
-const rescheduleSchema = z.object({
-  startAt: z.string().datetime(),
-  endAt: z.string().datetime(),
-});
 
 /** Moves a booked meeting to a new time (and updates its Google event). */
 export const PATCH = withUser<RouteContext>(async (userId, request, context) => {
@@ -28,7 +22,8 @@ export const PATCH = withUser<RouteContext>(async (userId, request, context) => 
   const startUtc = new Date(parsed.data.startAt);
   const endUtc = new Date(parsed.data.endAt);
   if (!(startUtc < endUtc)) {
-    return apiError("bad_request", "End must be after start", 400);
+    // Syntactically valid, but violates the domain rule: 422 (SKILL §2.3).
+    return apiError("validation", "End must be after start.", 422);
   }
 
   const meeting = await rescheduleMeeting({
@@ -49,5 +44,5 @@ export const DELETE = withUser<RouteContext>(async (userId, _request, context) =
   const meeting = await cancelMeeting({ userId, meetingId: id });
   if (!meeting) return apiError("not_found", "Meeting not found", 404);
 
-  return ok({ meeting: toMeetingDto(meeting) });
+  return noContent();
 });

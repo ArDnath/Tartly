@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 
 import { jsonError } from "@/lib/api/error-envelope";
+import { aiThreadPatchBody as patchSchema } from "@/lib/api/contracts/legacy";
+import { enforceUserRateLimit } from "@/lib/api/http";
 import {
   deleteChatThread,
   findThreadForUser,
@@ -12,11 +13,6 @@ import { getSession } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
-const patchSchema = z.object({
-  title: z.string().min(1).max(120).optional(),
-  archived: z.boolean().optional(),
-});
-
 type RouteContext = { params: Promise<{ threadId: string }> };
 
 export async function PATCH(request: Request, { params }: RouteContext) {
@@ -24,6 +20,11 @@ export async function PATCH(request: Request, { params }: RouteContext) {
   if (!session?.user) {
     return jsonError("unauthorized", "Unauthorized", 401);
   }
+
+  const limited = await enforceUserRateLimit(session.user.id, {
+    scope: "legacy",
+  });
+  if (limited) return limited;
 
   const { threadId } = await params;
 
@@ -63,6 +64,11 @@ export async function DELETE(_request: Request, { params }: RouteContext) {
     return jsonError("unauthorized", "Unauthorized", 401);
   }
 
+  const limited = await enforceUserRateLimit(session.user.id, {
+    scope: "legacy",
+  });
+  if (limited) return limited;
+
   const { threadId } = await params;
   const deleted = await deleteChatThread(session.user.id, threadId);
 
@@ -70,5 +76,5 @@ export async function DELETE(_request: Request, { params }: RouteContext) {
     return jsonError("not_found", "Thread not found", 404);
   }
 
-  return NextResponse.json({ ok: true });
+  return new NextResponse(null, { status: 204 });
 }

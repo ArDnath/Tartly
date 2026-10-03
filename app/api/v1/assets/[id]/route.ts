@@ -1,6 +1,5 @@
-import { z } from "zod";
-
-import { apiError, ok, withUser } from "@/lib/api/http";
+import { apiError, noContent, ok, withUser } from "@/lib/api/http";
+import { assetPatchBody as patchSchema } from "@/lib/api/contracts/assets";
 import {
   deleteAsset,
   getAsset,
@@ -44,8 +43,6 @@ export const GET = withUser<Ctx>(async (userId, _request, context) => {
   return ok({ asset: serialize(asset) });
 });
 
-const patchSchema = z.object({ altText: z.string().max(500).nullable() });
-
 export const PATCH = withUser<Ctx>(async (userId, request, context) => {
   const { id } = await context.params;
   const parsed = patchSchema.safeParse(await request.json().catch(() => ({})));
@@ -64,5 +61,5 @@ export const DELETE = withUser<Ctx>(async (userId, _request, context) => {
   const { id } = await context.params;
   const deleted = await deleteAsset({ userId, id });
   if (!deleted) return apiError("not_found", "Asset not found", 404);
-  return ok({ deleted: true });
+  return noContent();
 });

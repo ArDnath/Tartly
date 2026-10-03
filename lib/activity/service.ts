@@ -1,27 +1,25 @@
 import "server-only";
 
-import { and, desc, eq, gte, sql } from "drizzle-orm";
-
 import {
   DEFAULT_AI_DAILY_BUDGET,
   budgetKey,
   isBudgetDisabled,
 } from "@/lib/ai/budget";
 import { getAiUsageSummary, type AiUsageSummary } from "@/lib/ai/usage";
-import { db, pool } from "@/lib/db";
-import {
-  agentRuns,
-  drafts,
-  flowRuns,
-  followupEnrollments,
-  mailboxes,
-  meetings,
-  onboardingState,
-  pendingActions,
-} from "@/lib/db/schema";
+import { pool } from "@/lib/db";
 import { redis } from "@/lib/redis";
+import { activityRepository } from "@/lib/repositories/activity";
+import { autopilotRepository } from "@/lib/repositories/autopilot";
+import { followupEnrollmentRepository } from "@/lib/repositories/followup-enrollments";
+import { meetingRepository } from "@/lib/repositories/meetings";
+import { getUnhealthyWatches } from "@/lib/gmail/watch";
+import {
+  autopilotReasonLabel,
+  getAutopilotPolicy,
+} from "@/lib/settings/autopilot";
 
 import type {
+  ActivityAutopilot,
   ActivityDashboard,
   ActivityEmailMixItem,
   ActivityFeedItem,
@@ -279,15 +277,6 @@ async function readUsageSummary(
 /*  Small helpers                                                      */
 /* ------------------------------------------------------------------ */
 
-type CountRow = { n: number };
-
-async function scalar(query: Promise<CountRow[]>): Promise<number> {
-  const rows = await query;
-  return rows[0]?.n ?? 0;
-}
-
-type LifetimeRow = { runs: number; tokens: string | number };
-
 function mean(values: number[]): number {
   if (values.length === 0) return 0;
   return values.reduce((total, value) => total + value, 0) / values.length;
@@ -317,216 +306,50 @@ export async function getActivityDashboard({
   dayStart.setUTCHours(0, 0, 0, 0);
 
   const [
-    timezoneRows,
+    timezoneRaw,
     runs,
     flowWindow,
     draftsByStatus,
     meetingsBooked,
     followupsActive,
     pendingByStatus,
-    mailboxRows,
+    autonomy,
     recentDrafts,
     recentMeetings,
     recentActions,
     budgetUsed,
-    lifetimeRows,
-    previousRows,
-    toolRows,
-    distinctToolRows,
-    emailMixRows,
+    lifetime,
+    previous,
+    toolsRaw,
+    distinctTools,
+    emailMixRaw,
     todayUsage,
-    senderWeekRows,
-    senderMonthRows,
+    senderWeek,
+    senderMonth,
   ] = await Promise.all([
-    db
-      .select({ tz: onboardingState.calendarTimezone })
-      .from(onboardingState)
-      .where(eq(onboardingState.userId, userId))
-      .limit(1),
-    db
-      .select({
-        id: agentRuns.id,
-        status: agentRuns.status,
-        model: agentRuns.model,
-        stepCount: agentRuns.stepCount,
-        promptTokens: agentRuns.promptTokens,
-        completionTokens: agentRuns.completionTokens,
-        latencyMs: agentRuns.latencyMs,
-        startedAt: agentRuns.startedAt,
-      })
-      .from(agentRuns)
-      .where(and(eq(agentRuns.userId, userId), gte(agentRuns.startedAt, since)))
-      .orderBy(desc(agentRuns.startedAt)),
-    db
-      .select({
-        id: flowRuns.id,
-        triggerKind: flowRuns.triggerKind,
-        status: flowRuns.status,
-        startedAt: flowRuns.startedAt,
-      })
-      .from(flowRuns)
-      .where(and(eq(flowRuns.userId, userId), gte(flowRuns.startedAt, since)))
-      .orderBy(desc(flowRuns.startedAt)),
-    db
-      .select({ status: drafts.status, n: sql<number>`count(*)::int` })
-      .from(drafts)
-      .where(and(eq(drafts.userId, userId), gte(drafts.createdAt, since)))
-      .groupBy(drafts.status),
-    scalar(
-      db
-        .select({ n: sql<number>`count(*)::int` })
-        .from(meetings)
-        .where(
-          and(eq(meetings.userId, userId), gte(meetings.createdAt, since)),
-        ),
-    ),
-    scalar(
-      db
-        .select({ n: sql<number>`count(*)::int` })
-        .from(followupEnrollments)
-        .where(
-          and(
-            eq(followupEnrollments.userId, userId),
-            eq(followupEnrollments.status, "active"),
-          ),
-        ),
-    ),
-    db
-      .select({ status: pendingActions.status, n: sql<number>`count(*)::int` })
-      .from(pendingActions)
-      .where(
-        and(
-          eq(pendingActions.userId, userId),
-          gte(pendingActions.createdAt, since),
-        ),
-      )
-      .groupBy(pendingActions.status),
-    db
-      .select({ autonomy: mailboxes.autonomy })
-      .from(mailboxes)
-      .where(eq(mailboxes.userId, userId))
-      .limit(1),
-    db
-      .select({
-        id: drafts.id,
-        status: drafts.status,
-        createdAt: drafts.createdAt,
-      })
-      .from(drafts)
-      .where(and(eq(drafts.userId, userId), gte(drafts.createdAt, since)))
-      .orderBy(desc(drafts.createdAt))
-      .limit(3),
-    db
-      .select({
-        id: meetings.id,
-        subject: meetings.subject,
-        status: meetings.status,
-        createdAt: meetings.createdAt,
-      })
-      .from(meetings)
-      .where(and(eq(meetings.userId, userId), gte(meetings.createdAt, since)))
-      .orderBy(desc(meetings.createdAt))
-      .limit(2),
-    db
-      .select({
-        id: pendingActions.id,
-        toolName: pendingActions.toolName,
-        status: pendingActions.status,
-        createdAt: pendingActions.createdAt,
-      })
-      .from(pendingActions)
-      .where(
-        and(
-          eq(pendingActions.userId, userId),
-          gte(pendingActions.createdAt, since),
-        ),
-      )
-      .orderBy(desc(pendingActions.createdAt))
-      .limit(3),
+    activityRepository.findCalendarTimezone(userId),
+    activityRepository.listRunsSince({ userId, since }),
+    activityRepository.listFlowRunsSince({ userId, since }),
+    activityRepository.countDraftsByStatusSince({ userId, since }),
+    meetingRepository.countCreatedSince(userId, since),
+    followupEnrollmentRepository.countActive(userId),
+    activityRepository.countPendingActionsByStatusSince({ userId, since }),
+    activityRepository.findFirstMailboxAutonomy(userId),
+    activityRepository.listRecentDrafts({ userId, since, limit: 3 }),
+    activityRepository.listRecentMeetings({ userId, since, limit: 2 }),
+    activityRepository.listRecentPendingActions({ userId, since, limit: 3 }),
     readDailyBudgetUsed(userId, now),
-    pool.query<LifetimeRow>(
-      `select count(*)::int as runs,
-              coalesce(sum(prompt_tokens + completion_tokens), 0)::bigint as tokens
-         from agent_runs
-        where user_id = $1`,
-      [userId],
-    ),
-    pool.query<LifetimeRow>(
-      `select count(*)::int as runs,
-              coalesce(sum(prompt_tokens + completion_tokens), 0)::bigint as tokens
-         from agent_runs
-        where user_id = $1 and started_at >= $2 and started_at < $3`,
-      [userId, previousSince, since],
-    ),
-    pool.query<{ name: string; calls: number; errors: number }>(
-      `select e->>'toolName' as name,
-              count(*)::int as calls,
-              (count(*) filter (where e->>'status' is distinct from 'ok'))::int as errors
-         from agent_runs a
-         cross join lateral jsonb_array_elements(a.trace) e
-        where a.user_id = $1
-          and a.started_at >= $2
-          and jsonb_typeof(a.trace) = 'array'
-          and e->>'toolName' is not null
-        group by 1
-        order by calls desc
-        limit 8`,
-      [userId, since],
-    ),
-    pool.query<{ n: number }>(
-      `select count(distinct e->>'toolName')::int as n
-         from agent_runs a
-         cross join lateral jsonb_array_elements(a.trace) e
-        where a.user_id = $1
-          and jsonb_typeof(a.trace) = 'array'
-          and e->>'toolName' is not null`,
-      [userId],
-    ),
-    pool.query<{ category: string; n: number }>(
-      `select coalesce(sp.category, 'Other') as category,
-              count(*)::int as n
-         from messages m
-         join threads t on t.id = m.thread_id
-         left join sender_profiles sp
-           on sp.user_id = t.user_id
-          and sp.email = lower(m.from_addr)
-        where t.user_id = $1
-          and m.direction = 'inbound'
-          and m.sent_at >= $2
-        group by 1
-        order by n desc`,
-      [userId, since],
-    ),
+    activityRepository.getLifetimeRunStats(userId),
+    activityRepository.getRunStatsBetween({ userId, from: previousSince, to: since }),
+    activityRepository.listToolUsage({ userId, since, limit: 8 }),
+    activityRepository.countDistinctTools(userId),
+    activityRepository.listInboundByCategory({ userId, since }),
     readUsageSummary(userId, dayStart, now),
-    pool.query<{ email: string; n: number }>(
-      `select lower(m.from_addr) as email, count(*)::int as n
-         from messages m
-         join threads t on t.id = m.thread_id
-        where t.user_id = $1
-          and m.direction = 'inbound'
-          and m.from_addr is not null
-          and m.sent_at >= $2
-        group by 1
-        order by n desc
-        limit 6`,
-      [userId, weekSince],
-    ),
-    pool.query<{ email: string; n: number }>(
-      `select lower(m.from_addr) as email, count(*)::int as n
-         from messages m
-         join threads t on t.id = m.thread_id
-        where t.user_id = $1
-          and m.direction = 'inbound'
-          and m.from_addr is not null
-          and m.sent_at >= $2
-        group by 1
-        order by n desc
-        limit 6`,
-      [userId, monthSince],
-    ),
+    activityRepository.listTopSenders({ userId, since: weekSince, limit: 6 }),
+    activityRepository.listTopSenders({ userId, since: monthSince, limit: 6 }),
   ]);
 
-  const timezone = timezoneRows[0]?.tz ?? "UTC";
+  const timezone = timezoneRaw ?? "UTC";
 
   /* ---- day lattice ---- */
   const dayKeys: string[] = [];
@@ -574,7 +397,6 @@ export async function getActivityDashboard({
     0,
   );
 
-  const previous = previousRows.rows[0] ?? { runs: 0, tokens: 0 };
   const previousRuns = Number(previous.runs ?? 0);
   const previousTokens = Number(previous.tokens ?? 0);
 
@@ -713,11 +535,11 @@ export async function getActivityDashboard({
     .sort((a, b) => b.tokens - a.tokens);
 
   /* ---- tools ---- */
-  const totalToolCalls = toolRows.rows.reduce(
+  const totalToolCalls = toolsRaw.reduce(
     (total, row) => total + Number(row.calls),
     0,
   );
-  const tools: ActivityTool[] = toolRows.rows.map((row) => ({
+  const tools: ActivityTool[] = toolsRaw.map((row) => ({
     name: row.name,
     label: toolLabel(row.name),
     calls: Number(row.calls),
@@ -726,11 +548,11 @@ export async function getActivityDashboard({
   }));
 
   /* ---- email mix (inbound mail by sender category) ---- */
-  const emailTotal = emailMixRows.rows.reduce(
+  const emailTotal = emailMixRaw.reduce(
     (total, row) => total + Number(row.n),
     0,
   );
-  const emailMix: ActivityEmailMixItem[] = emailMixRows.rows.map((row) => ({
+  const emailMix: ActivityEmailMixItem[] = emailMixRaw.map((row) => ({
     category: row.category,
     label: EMAIL_CATEGORY_LABELS[row.category] ?? row.category,
     count: Number(row.n),
@@ -738,10 +560,8 @@ export async function getActivityDashboard({
   }));
 
   /* ---- lifetime + milestones ---- */
-  const lifetime = lifetimeRows.rows[0] ?? { runs: 0, tokens: 0 };
   const lifetimeRuns = Number(lifetime.runs ?? 0);
   const lifetimeTokens = Number(lifetime.tokens ?? 0);
-  const distinctTools = Number(distinctToolRows.rows[0]?.n ?? 0);
   const successRate = resolved > 0 ? completed / resolved : 1;
 
   const milestones: ActivityMilestone[] = [
@@ -965,6 +785,13 @@ export async function getActivityDashboard({
 
   const hasData = lifetimeRuns > 0 || flowWindow.length > 0;
 
+  const autopilot = await buildAutopilotActivity({
+    userId,
+    now,
+    dayStart,
+    weekSince,
+  }).catch(() => emptyAutopilot());
+
   return {
     timezone,
     windowDays: WINDOW_DAYS,
@@ -1005,12 +832,12 @@ export async function getActivityDashboard({
     feed: feed.slice(0, FEED_LIMIT),
     emailMix,
     senders: {
-      week: senderWeekRows.rows.map((row) => ({
+      week: senderWeek.map((row) => ({
         email: row.email,
         label: senderLabel(row.email),
         messages: Number(row.n),
       })),
-      month: senderMonthRows.rows.map((row) => ({
+      month: senderMonth.map((row) => ({
         email: row.email,
         label: senderLabel(row.email),
         messages: Number(row.n),
@@ -1041,11 +868,99 @@ export async function getActivityDashboard({
       approvalsPending,
       approvalsFailed,
       autonomy:
-        mailboxRows[0]?.autonomy === "autopilot" ? "autopilot" : "copilot",
+        autonomy === "autopilot" ? "autopilot" : "copilot",
       resolvedShare:
         approvalsResolved + approvalsPending > 0
           ? approvalsResolved / (approvalsResolved + approvalsPending)
           : 1,
     },
+    autopilot,
+  };
+}
+
+function emptyAutopilot(): ActivityAutopilot {
+  return {
+    enabled: false,
+    mode: "window",
+    windowLabel: "Off",
+    sendsToday: 0,
+    sendsWindow: 0,
+    held: 0,
+    capHits: 0,
+    decisions: [],
+    watchUnhealthy: 0,
+    deadJobs: 0,
+  };
+}
+
+const CAP_REASONS = new Set(["hour_cap", "day_cap", "thread_cap"]);
+
+async function buildAutopilotActivity({
+  userId,
+  now,
+  dayStart,
+  weekSince,
+}: {
+  userId: string;
+  now: Date;
+  dayStart: Date;
+  weekSince: Date;
+}): Promise<ActivityAutopilot> {
+  const [policy, decisions, watches, dead] = await Promise.all([
+    getAutopilotPolicy(userId),
+    autopilotRepository.listDecisionsSince(userId, weekSince, 500),
+    getUnhealthyWatches({ now }).catch(() => []),
+    pool
+      .query<{ count: string }>(
+        `select count(*)::text as count from job_queue where user_id = $1 and status = 'dead'`,
+        [userId],
+      )
+      .then((result) => Number(result.rows[0]?.count ?? 0))
+      .catch(() => 0),
+  ]);
+
+  const byReason = new Map<string, number>();
+  let sendsToday = 0;
+  let sendsWindow = 0;
+  let held = 0;
+  let capHits = 0;
+
+  for (const row of decisions) {
+    byReason.set(row.reason, (byReason.get(row.reason) ?? 0) + 1);
+    if (row.decision === "send") {
+      sendsWindow += 1;
+      if (row.createdAt.getTime() >= dayStart.getTime()) sendsToday += 1;
+    } else {
+      held += 1;
+    }
+    if (CAP_REASONS.has(row.reason)) capHits += 1;
+  }
+
+  const pad = (hour: number) => `${String(hour).padStart(2, "0")}:00`;
+  const windowLabel =
+    policy.mode === "always"
+      ? "Any time"
+      : policy.enabled
+        ? `${pad(policy.windowStartHour)}–${pad(policy.windowEndHour)} (${policy.timezone})`
+        : "Off";
+
+  return {
+    enabled: policy.enabled,
+    mode: policy.mode,
+    windowLabel,
+    sendsToday,
+    sendsWindow,
+    held,
+    capHits,
+    decisions: [...byReason.entries()]
+      .map(([reason, count]) => ({
+        reason,
+        label: autopilotReasonLabel(reason),
+        count,
+      }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 6),
+    watchUnhealthy: watches.filter((watch) => watch.userId === userId).length,
+    deadJobs: dead,
   };
 }

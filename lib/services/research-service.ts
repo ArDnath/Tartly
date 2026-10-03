@@ -2,14 +2,17 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 
-import { and, eq, gt } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { AuthenticationError, ValidationError } from "@/lib/agent/errors";
-import { db } from "@/lib/db";
-import { researchCache } from "@/lib/db/schema";
+import {
+  ResearchCacheRepository,
+  researchCacheRepository,
+} from "@/lib/repositories/research-cache";
 import { getWebSearchAdapter } from "@/lib/research";
+import { isBlockedHostname, SsrfBlockedError } from "@/lib/security/ssrf";
 import type {
+  WebPage,
   WebSearchAdapter,
   WebSearchHit,
 } from "@/lib/research/types";
@@ -73,6 +76,7 @@ export class ResearchService {
     private readonly cacheTtlMs: number = Number(
       process.env.RESEARCH_CACHE_TTL_MS,
     ) || DEFAULT_RESEARCH_CACHE_TTL_MS,
+    private readonly cache: ResearchCacheRepository = researchCacheRepository,
   ) {}
 
   isConfigured(): boolean {
@@ -162,10 +166,19 @@ export class ResearchService {
       };
     }
 
-    const page = await this.adapter.fetchPage({
-      url,
-      ...(input.signal ? { signal: input.signal } : {}),
-    });
+    let page: WebPage;
+    try {
+      page = await this.adapter.fetchPage({
+        url,
+        ...(input.signal ? { signal: input.signal } : {}),
+      });
+    } catch (error) {
+      // A blocked outbound address is a client error, not a provider failure.
+      if (error instanceof SsrfBlockedError) {
+        throw new ValidationError(error.message);
+      }
+      throw error;
+    }
     const retrievedAt = new Date().toISOString();
     const value = {
       title: page.title ?? null,
@@ -241,18 +254,7 @@ export class ResearchService {
     userId: string,
     cacheKey: string,
   ): Promise<unknown | null> {
-    const rows = await db
-      .select({ result: researchCache.result })
-      .from(researchCache)
-      .where(
-        and(
-          eq(researchCache.userId, userId),
-          eq(researchCache.cacheKey, cacheKey),
-          gt(researchCache.expiresAt, new Date()),
-        ),
-      )
-      .limit(1);
-    return rows[0]?.result ?? null;
+    return this.cache.findResult({ userId, cacheKey, now: new Date() });
   }
 
   private async writeCache(input: {
@@ -264,26 +266,15 @@ export class ResearchService {
   }): Promise<void> {
     const now = new Date();
     const expiresAt = new Date(now.getTime() + this.cacheTtlMs);
-    await db
-      .insert(researchCache)
-      .values({
-        id: nanoid(),
-        userId: input.userId,
-        cacheKey: input.cacheKey,
-        provider: input.provider,
-        query: input.query.slice(0, MAX_RESEARCH_QUERY_CHARS),
-        result: input.value as Record<string, unknown>,
-        expiresAt,
-      })
-      .onConflictDoUpdate({
-        target: [researchCache.userId, researchCache.cacheKey],
-        set: {
-          provider: input.provider,
-          query: input.query.slice(0, MAX_RESEARCH_QUERY_CHARS),
-          result: input.value as Record<string, unknown>,
-          expiresAt,
-        },
-      });
+    await this.cache.upsert({
+      id: nanoid(),
+      userId: input.userId,
+      cacheKey: input.cacheKey,
+      provider: input.provider,
+      query: input.query.slice(0, MAX_RESEARCH_QUERY_CHARS),
+      result: input.value as Record<string, unknown>,
+      expiresAt,
+    });
   }
 
   private requireUser(userId: string): string {
@@ -344,6 +335,11 @@ function normalizeUrl(value: string): string {
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new ValidationError("Only http(s) URLs can be opened.");
+  }
+  // Reject literal private/loopback/metadata hosts synchronously; the adapter
+  // additionally DNS-resolves the host before fetching (SSRF).
+  if (isBlockedHostname(url.hostname)) {
+    throw new ValidationError("That address cannot be opened.");
   }
   url.hash = "";
   return url.toString();

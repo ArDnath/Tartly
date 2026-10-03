@@ -1,6 +1,5 @@
 import "server-only";
 
-import { and, count, desc, eq, inArray, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { checkCampaignTemplate, type SpamCheckResult } from "@/lib/ai/features/spam-check";
@@ -11,16 +10,8 @@ import {
   impliesCommitment,
   type CampaignReplyClass,
 } from "@/lib/ai/features/campaign-reply";
-import { db, pool } from "@/lib/db";
+import { pool } from "@/lib/db";
 import {
-  bulkCampaigns,
-  bulkRecipients,
-  campaignEvents,
-  contacts,
-  drafts,
-  mailboxes,
-  suppressionList,
-  threads,
   type CampaignRecipientStatus,
   type CampaignSendWindow,
   type CampaignStatus,
@@ -36,6 +27,15 @@ import { sendEmail } from "@/lib/gmail/send";
 import { JOB_KIND_BULK_SEND } from "@/lib/email-operator/job-kinds";
 import { reactivityOnInbound } from "@/lib/followup/service";
 import { enqueueJob } from "@/lib/queue/queue";
+import {
+  campaignRepository,
+  type Campaign,
+  type CampaignRecipient,
+} from "@/lib/repositories/campaigns";
+import { contactRepository } from "@/lib/repositories/contacts";
+import { draftRepository } from "@/lib/repositories/drafts";
+import { mailboxRepository } from "@/lib/repositories/mailboxes";
+import { threadRepository } from "@/lib/repositories/threads";
 
 /**
  * Bulk campaign service (Phase 7).
@@ -46,8 +46,8 @@ import { enqueueJob } from "@/lib/queue/queue";
  * the guardrails (suppression, throttle, review gate) they depend on.
  */
 
-export type CampaignRow = typeof bulkCampaigns.$inferSelect;
-export type RecipientRow = typeof bulkRecipients.$inferSelect;
+export type CampaignRow = Campaign;
+export type RecipientRow = CampaignRecipient;
 
 const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const NO_REPLY_PATTERN = /^(no-?reply|do-?not-?reply|donotreply|bounce|postmaster|mailer-daemon)@/i;
@@ -77,17 +77,7 @@ export async function isSuppressed({
   userId: string;
   email: string;
 }): Promise<boolean> {
-  const rows = await db
-    .select({ id: suppressionList.id })
-    .from(suppressionList)
-    .where(
-      and(
-        eq(suppressionList.userId, userId),
-        eq(suppressionList.email, email.toLowerCase()),
-      ),
-    )
-    .limit(1);
-  return rows.length > 0;
+  return campaignRepository.isSuppressed(userId, email);
 }
 
 export async function addSuppression({
@@ -99,19 +89,16 @@ export async function addSuppression({
   email: string;
   reason: string;
 }): Promise<void> {
-  await db
-    .insert(suppressionList)
-    .values({ id: nanoid(), userId, email: email.toLowerCase(), reason })
-    .onConflictDoNothing({ target: [suppressionList.userId, suppressionList.email] });
+  await campaignRepository.addSuppression({
+    id: nanoid(),
+    userId,
+    email,
+    reason,
+  });
 }
 
 export async function listSuppression(userId: string) {
-  return db
-    .select()
-    .from(suppressionList)
-    .where(eq(suppressionList.userId, userId))
-    .orderBy(desc(suppressionList.createdAt))
-    .limit(500);
+  return campaignRepository.listSuppression(userId, 500);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -142,7 +129,7 @@ export async function createCampaign({
   sendWindow?: CampaignSendWindow | null;
 }): Promise<{ campaignId: string; summary: ImportSummary }> {
   const campaignId = nanoid();
-  await db.insert(bulkCampaigns).values({
+  await campaignRepository.insertCampaign({
     id: campaignId,
     userId,
     name: name.slice(0, 200) || "Untitled campaign",
@@ -198,17 +185,11 @@ export async function importRecipients({
   if (candidates.length === 0) return summary;
   const emails = candidates.map((candidate) => candidate.email);
 
-  const [suppressedRows, contactRows] = await Promise.all([
-    db
-      .select({ email: suppressionList.email })
-      .from(suppressionList)
-      .where(and(eq(suppressionList.userId, userId), inArray(suppressionList.email, emails))),
-    db
-      .select({ email: contacts.email })
-      .from(contacts)
-      .where(and(eq(contacts.userId, userId), inArray(contacts.email, emails))),
+  const [suppressedEmails, contactRows] = await Promise.all([
+    campaignRepository.listSuppressedEmails(userId, emails),
+    contactRepository.listNamesByEmails(userId, emails),
   ]);
-  const suppressed = new Set(suppressedRows.map((row) => row.email));
+  const suppressed = new Set(suppressedEmails);
   const existing = new Set(contactRows.map((row) => row.email));
 
   for (const candidate of candidates) {
@@ -220,20 +201,16 @@ export async function importRecipients({
       summary.existing += 1;
       continue;
     }
-    const inserted = await db
-      .insert(bulkRecipients)
-      .values({
-        id: nanoid(),
-        campaignId,
-        userId,
-        email: candidate.email,
-        name: candidate.name ?? null,
-        rowData: candidate.rowData,
-        status: "pending",
-      })
-      .onConflictDoNothing({ target: [bulkRecipients.campaignId, bulkRecipients.email] })
-      .returning({ id: bulkRecipients.id });
-    if (inserted.length > 0) summary.imported += 1;
+    const inserted = await campaignRepository.insertRecipient({
+      id: nanoid(),
+      campaignId,
+      userId,
+      email: candidate.email,
+      name: candidate.name ?? null,
+      rowData: candidate.rowData,
+      status: "pending",
+    });
+    if (inserted) summary.imported += 1;
     else summary.duplicate += 1;
   }
 
@@ -247,21 +224,14 @@ export async function getCampaign({
   userId: string;
   campaignId: string;
 }): Promise<CampaignRow | null> {
-  const rows = await db
-    .select()
-    .from(bulkCampaigns)
-    .where(and(eq(bulkCampaigns.id, campaignId), eq(bulkCampaigns.userId, userId)))
-    .limit(1);
-  return rows[0] ?? null;
+  return (
+    (await campaignRepository.findCampaignByIdForUser(userId, campaignId)) ??
+    null
+  );
 }
 
 export async function listCampaigns(userId: string) {
-  return db
-    .select()
-    .from(bulkCampaigns)
-    .where(eq(bulkCampaigns.userId, userId))
-    .orderBy(desc(bulkCampaigns.createdAt))
-    .limit(100);
+  return campaignRepository.listCampaignsForUser(userId, 100);
 }
 
 export async function updateCampaign({
@@ -288,38 +258,34 @@ export async function updateCampaign({
     throw new Error("This campaign is already sending; pause it before editing.");
   }
 
-  const updated = await db
-    .update(bulkCampaigns)
-    .set({
-      ...(patch.name !== undefined ? { name: patch.name.slice(0, 200) } : {}),
-      ...(patch.template !== undefined ? { template: patch.template } : {}),
-      ...(patch.senderName !== undefined ? { senderName: patch.senderName } : {}),
-      ...(patch.replyTo !== undefined ? { replyTo: patch.replyTo } : {}),
-      ...(patch.replyPolicy !== undefined
-        ? {
-            replyPolicy:
-              patch.replyPolicy === "off" || patch.replyPolicy === "autopilot"
-                ? patch.replyPolicy
-                : "drafts",
-          }
-        : {}),
-      ...(patch.footerAddress !== undefined
-        ? { footerAddress: patch.footerAddress }
-        : {}),
-      ...(patch.throttlePerHour !== undefined
-        ? {
-            throttlePerHour: Math.max(
-              1,
-              Math.min(patch.throttlePerHour, campaignMaxPerHour()),
-            ),
-          }
-        : {}),
-      ...(patch.sendWindow !== undefined ? { sendWindow: patch.sendWindow } : {}),
-      updatedAt: new Date(),
-    })
-    .where(eq(bulkCampaigns.id, campaignId))
-    .returning();
-  return updated[0] ?? null;
+  const updated = await campaignRepository.updateCampaignById(campaignId, {
+    ...(patch.name !== undefined ? { name: patch.name.slice(0, 200) } : {}),
+    ...(patch.template !== undefined ? { template: patch.template } : {}),
+    ...(patch.senderName !== undefined ? { senderName: patch.senderName } : {}),
+    ...(patch.replyTo !== undefined ? { replyTo: patch.replyTo } : {}),
+    ...(patch.replyPolicy !== undefined
+      ? {
+          replyPolicy:
+            patch.replyPolicy === "off" || patch.replyPolicy === "autopilot"
+              ? patch.replyPolicy
+              : "drafts",
+        }
+      : {}),
+    ...(patch.footerAddress !== undefined
+      ? { footerAddress: patch.footerAddress }
+      : {}),
+    ...(patch.throttlePerHour !== undefined
+      ? {
+          throttlePerHour: Math.max(
+            1,
+            Math.min(patch.throttlePerHour, campaignMaxPerHour()),
+          ),
+        }
+      : {}),
+    ...(patch.sendWindow !== undefined ? { sendWindow: patch.sendWindow } : {}),
+    updatedAt: new Date(),
+  });
+  return updated;
 }
 
 export type CampaignStats = {
@@ -328,11 +294,7 @@ export type CampaignStats = {
 };
 
 export async function campaignStats(campaignId: string): Promise<CampaignStats> {
-  const rows = await db
-    .select({ status: bulkRecipients.status, n: sql<number>`count(*)::int` })
-    .from(bulkRecipients)
-    .where(eq(bulkRecipients.campaignId, campaignId))
-    .groupBy(bulkRecipients.status);
+  const rows = await campaignRepository.countByStatus(campaignId);
 
   const byStatus: Record<CampaignRecipientStatus, number> = {
     pending: 0,
@@ -346,8 +308,8 @@ export async function campaignStats(campaignId: string): Promise<CampaignStats> 
   };
   let total = 0;
   for (const row of rows) {
-    byStatus[row.status] = Number(row.n);
-    total += Number(row.n);
+    byStatus[row.status] = row.n;
+    total += row.n;
   }
   return { total, byStatus };
 }
@@ -361,12 +323,11 @@ export async function listRecipients({
   userId: string;
   limit?: number;
 }): Promise<RecipientRow[]> {
-  return db
-    .select()
-    .from(bulkRecipients)
-    .where(and(eq(bulkRecipients.campaignId, campaignId), eq(bulkRecipients.userId, userId)))
-    .orderBy(desc(bulkRecipients.createdAt))
-    .limit(Math.min(limit, 500));
+  return campaignRepository.listRecipients({
+    campaignId,
+    userId,
+    limit: Math.min(limit, 500),
+  });
 }
 
 export async function recordCampaignEvent({
@@ -383,9 +344,14 @@ export async function recordCampaignEvent({
   payload?: Record<string, unknown>;
 }): Promise<void> {
   try {
-    await db
-      .insert(campaignEvents)
-      .values({ id: nanoid(), userId, campaignId, recipientId, type, payload });
+    await campaignRepository.insertEvent({
+      id: nanoid(),
+      userId,
+      campaignId,
+      recipientId,
+      type,
+      payload,
+    });
   } catch (error) {
     console.warn("[campaigns] failed to record event", error);
   }
@@ -432,23 +398,19 @@ export async function startCampaign({
   // Recover any rows a crashed previous run left in `sending`.
   await resetStaleClaims({ campaignId });
 
-  const pending = await db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(bulkRecipients)
-    .where(
-      and(
-        eq(bulkRecipients.campaignId, campaignId),
-        inArray(bulkRecipients.status, ["pending", "failed"]),
-      ),
-    );
-  if (Number(pending[0]?.n ?? 0) === 0) {
+  const pendingCount = await campaignRepository.countRecipientsByStatuses(
+    campaignId,
+    ["pending", "failed"],
+  );
+  if (pendingCount === 0) {
     return { ok: false, blocked: false, reason: "There are no pending recipients." };
   }
 
-  await db
-    .update(bulkCampaigns)
-    .set({ status: "sending", startedAt: campaign.startedAt ?? new Date(), updatedAt: new Date() })
-    .where(eq(bulkCampaigns.id, campaignId));
+  await campaignRepository.updateCampaignById(campaignId, {
+    status: "sending",
+    startedAt: campaign.startedAt ?? new Date(),
+    updatedAt: new Date(),
+  });
 
   await recordCampaignEvent({ userId, campaignId, type: "started" });
   await enqueueJob(pool, userId, {
@@ -468,21 +430,15 @@ export async function pauseCampaign({
   userId: string;
   campaignId: string;
 }): Promise<boolean> {
-  const updated = await db
-    .update(bulkCampaigns)
-    .set({ status: "paused", updatedAt: new Date() })
-    .where(
-      and(
-        eq(bulkCampaigns.id, campaignId),
-        eq(bulkCampaigns.userId, userId),
-        eq(bulkCampaigns.status, "sending"),
-      ),
-    )
-    .returning({ id: bulkCampaigns.id });
-  if (updated.length > 0) {
+  const paused = await campaignRepository.pauseSendingOwned({
+    userId,
+    campaignId,
+    now: new Date(),
+  });
+  if (paused) {
     await recordCampaignEvent({ userId, campaignId, type: "paused" });
   }
-  return updated.length > 0;
+  return paused;
 }
 
 export async function resumeCampaign({
@@ -497,15 +453,7 @@ export async function resumeCampaign({
     return { ok: false, blocked: false, reason: "Campaign is not paused." };
   }
   // A pause can land mid-batch; return any in-flight rows to pending.
-  await db
-    .update(bulkRecipients)
-    .set({ status: "pending" })
-    .where(
-      and(
-        eq(bulkRecipients.campaignId, campaignId),
-        eq(bulkRecipients.status, "sending"),
-      ),
-    );
+  await campaignRepository.resetSendingToPending(campaignId);
   return startCampaign({ userId, campaignId, skipQualityCheck: true });
 }
 
@@ -521,19 +469,12 @@ export async function cancelCampaign({
   if (!campaign || campaign.status === "done" || campaign.status === "cancelled") {
     return false;
   }
-  await db
-    .update(bulkCampaigns)
-    .set({ status: "cancelled", finishedAt: new Date(), updatedAt: new Date() })
-    .where(eq(bulkCampaigns.id, campaignId));
-  await db
-    .update(bulkRecipients)
-    .set({ status: "skipped" })
-    .where(
-      and(
-        eq(bulkRecipients.campaignId, campaignId),
-        inArray(bulkRecipients.status, ["pending", "failed", "sending"]),
-      ),
-    );
+  await campaignRepository.updateCampaignById(campaignId, {
+    status: "cancelled",
+    finishedAt: new Date(),
+    updatedAt: new Date(),
+  });
+  await campaignRepository.skipUnfinished(campaignId);
   await recordCampaignEvent({ userId, campaignId, type: "cancelled" });
   return true;
 }
@@ -554,42 +495,15 @@ export async function campaignSendAllowance({
   const hourAgo = new Date(now.getTime() - 3_600_000);
   const dayAgo = new Date(now.getTime() - 86_400_000);
 
-  const [hourRows, dayRows, campaignHourRows] = await Promise.all([
-    db
-      .select({ n: sql<number>`count(*)::int` })
-      .from(bulkRecipients)
-      .where(
-        and(
-          eq(bulkRecipients.userId, userId),
-          eq(bulkRecipients.status, "sent"),
-          sql`${bulkRecipients.sentAt} >= ${hourAgo.toISOString()}`,
-        ),
-      ),
-    db
-      .select({ n: sql<number>`count(*)::int` })
-      .from(bulkRecipients)
-      .where(
-        and(
-          eq(bulkRecipients.userId, userId),
-          eq(bulkRecipients.status, "sent"),
-          sql`${bulkRecipients.sentAt} >= ${dayAgo.toISOString()}`,
-        ),
-      ),
-    db
-      .select({ n: sql<number>`count(*)::int` })
-      .from(bulkRecipients)
-      .where(
-        and(
-          eq(bulkRecipients.campaignId, campaign.id),
-          eq(bulkRecipients.status, "sent"),
-          sql`${bulkRecipients.sentAt} >= ${hourAgo.toISOString()}`,
-        ),
-      ),
+  const [hourSent, daySent, campaignHourSent] = await Promise.all([
+    campaignRepository.countSentSinceForUser(userId, hourAgo),
+    campaignRepository.countSentSinceForUser(userId, dayAgo),
+    campaignRepository.countSentSinceForCampaign(campaign.id, hourAgo),
   ]);
 
-  const hourRemaining = campaignMaxPerHour() - Number(hourRows[0]?.n ?? 0);
-  const dayRemaining = campaignMaxPerDay() - Number(dayRows[0]?.n ?? 0);
-  const campaignRemaining = campaign.throttlePerHour - Number(campaignHourRows[0]?.n ?? 0);
+  const hourRemaining = campaignMaxPerHour() - hourSent;
+  const dayRemaining = campaignMaxPerDay() - daySent;
+  const campaignRemaining = campaign.throttlePerHour - campaignHourSent;
   if (dayRemaining <= 0) return { allowed: 0, reason: "Daily limit reached" };
   if (hourRemaining <= 0) return { allowed: 0, reason: "Hourly limit reached" };
   if (campaignRemaining <= 0) {
@@ -615,22 +529,7 @@ export async function claimRecipientBatch({
   campaignId: string;
   limit?: number;
 }): Promise<RecipientRow[]> {
-  const result = await pool.query<RecipientRow>(
-    `update bulk_recipients r
-        set attempts = attempts + 1,
-            status = 'sending',
-            updated_at = now()
-      where r.id in (
-        select id from bulk_recipients
-         where campaign_id = $1 and status = 'pending'
-         order by created_at
-         limit $2
-         for update skip locked
-      )
-      returning r.*`,
-    [campaignId, limit],
-  );
-  return result.rows;
+  return campaignRepository.claimRecipientBatch(campaignId, limit);
 }
 
 /** Return rows stuck in `sending` (a crashed batch) to `pending`. */
@@ -641,19 +540,10 @@ export async function resetStaleClaims({
   campaignId: string;
   olderThanMs?: number;
 }): Promise<number> {
-  const cutoff = new Date(Date.now() - olderThanMs);
-  const updated = await db
-    .update(bulkRecipients)
-    .set({ status: "pending" })
-    .where(
-      and(
-        eq(bulkRecipients.campaignId, campaignId),
-        eq(bulkRecipients.status, "sending"),
-        sql`${bulkRecipients.updatedAt} < ${cutoff.toISOString()}`,
-      ),
-    )
-    .returning({ id: bulkRecipients.id });
-  return updated.length;
+  return campaignRepository.resetStaleClaims({
+    campaignId,
+    cutoff: new Date(Date.now() - olderThanMs),
+  });
 }
 
 export async function markRecipientSent({
@@ -667,17 +557,14 @@ export async function markRecipientSent({
   threadId: string | null;
   personalizedBody: string;
 }): Promise<void> {
-  await db
-    .update(bulkRecipients)
-    .set({
-      status: "sent",
-      gmailMessageId,
-      threadId,
-      personalizedBody,
-      sentAt: new Date(),
-      lastError: null,
-    })
-    .where(eq(bulkRecipients.id, recipientId));
+  await campaignRepository.updateRecipientById(recipientId, {
+    status: "sent",
+    gmailMessageId,
+    threadId,
+    personalizedBody,
+    sentAt: new Date(),
+    lastError: null,
+  });
 }
 
 export async function markRecipientFailed({
@@ -687,42 +574,34 @@ export async function markRecipientFailed({
   recipientId: string;
   error: string;
 }): Promise<void> {
-  await db
-    .update(bulkRecipients)
-    .set({ status: "failed", lastError: error.slice(0, 500) })
-    .where(eq(bulkRecipients.id, recipientId));
+  await campaignRepository.updateRecipientById(recipientId, {
+    status: "failed",
+    lastError: error.slice(0, 500),
+  });
 }
 
 export async function markRecipientSkipped(recipientId: string): Promise<void> {
-  await db
-    .update(bulkRecipients)
-    .set({ status: "skipped" })
-    .where(eq(bulkRecipients.id, recipientId));
+  await campaignRepository.updateRecipientById(recipientId, {
+    status: "skipped",
+  });
 }
 
 export async function countPending(campaignId: string): Promise<number> {
-  const rows = await db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(bulkRecipients)
-    .where(
-      and(eq(bulkRecipients.campaignId, campaignId), eq(bulkRecipients.status, "pending")),
-    );
-  return Number(rows[0]?.n ?? 0);
+  return campaignRepository.countPending(campaignId);
 }
 
 export async function finishCampaignIfDone(campaignId: string): Promise<boolean> {
   const pending = await countPending(campaignId);
   if (pending > 0) return false;
-  const campaign = (
-    await db.select().from(bulkCampaigns).where(eq(bulkCampaigns.id, campaignId)).limit(1)
-  )[0];
+  const campaign = await campaignRepository.findCampaignById(campaignId);
   if (!campaign || campaign.status === "cancelled" || campaign.status === "done") {
     return false;
   }
-  await db
-    .update(bulkCampaigns)
-    .set({ status: "done", finishedAt: new Date(), updatedAt: new Date() })
-    .where(eq(bulkCampaigns.id, campaignId));
+  await campaignRepository.updateCampaignById(campaignId, {
+    status: "done",
+    finishedAt: new Date(),
+    updatedAt: new Date(),
+  });
   await recordCampaignEvent({ userId: campaign.userId, campaignId, type: "done" });
   return true;
 }
@@ -742,26 +621,18 @@ export async function findCampaignRecipientForReply({
   fromEmail: string | null;
 }): Promise<RecipientRow | null> {
   if (threadId) {
-    const byThread = await db
-      .select()
-      .from(bulkRecipients)
-      .where(and(eq(bulkRecipients.userId, userId), eq(bulkRecipients.threadId, threadId)))
-      .limit(1);
-    if (byThread[0]) return byThread[0];
+    const byThread = await campaignRepository.findRecipientForReplyByThread(
+      userId,
+      threadId,
+    );
+    if (byThread) return byThread;
   }
   if (fromEmail) {
-    const byEmail = await db
-      .select()
-      .from(bulkRecipients)
-      .where(
-        and(
-          eq(bulkRecipients.userId, userId),
-          eq(bulkRecipients.email, fromEmail.toLowerCase()),
-          eq(bulkRecipients.status, "sent"),
-        ),
-      )
-      .limit(1);
-    if (byEmail[0]) return byEmail[0];
+    const byEmail = await campaignRepository.findSentRecipientByEmail(
+      userId,
+      fromEmail,
+    );
+    if (byEmail) return byEmail;
   }
   return null;
 }
@@ -794,9 +665,7 @@ export async function handleCampaignReply({
   mirrorThreadId?: string | null;
   idempotencyKeyPrefix?: string;
 }): Promise<ReplyAutomationOutcome> {
-  const campaign = (
-    await db.select().from(bulkCampaigns).where(eq(bulkCampaigns.id, recipient.campaignId)).limit(1)
-  )[0];
+  const campaign = await campaignRepository.findCampaignById(recipient.campaignId);
   const policy = campaign?.replyPolicy ?? "drafts";
 
   const verdict = await classifyCampaignReply({
@@ -812,10 +681,9 @@ export async function handleCampaignReply({
 
   if (verdict.classification === "unsubscribe") {
     await addSuppression({ userId, email: recipient.email, reason: "unsubscribe" });
-    await db
-      .update(bulkRecipients)
-      .set({ status: "unsubscribed" })
-      .where(eq(bulkRecipients.id, recipient.id));
+    await campaignRepository.updateRecipientById(recipient.id, {
+      status: "unsubscribed",
+    });
     await recordCampaignEvent({
       userId,
       campaignId: recipient.campaignId,
@@ -827,10 +695,9 @@ export async function handleCampaignReply({
 
   if (verdict.classification === "bounce") {
     await addSuppression({ userId, email: recipient.email, reason: "bounce" });
-    await db
-      .update(bulkRecipients)
-      .set({ status: "bounced" })
-      .where(eq(bulkRecipients.id, recipient.id));
+    await campaignRepository.updateRecipientById(recipient.id, {
+      status: "bounced",
+    });
     await recordCampaignEvent({
       userId,
       campaignId: recipient.campaignId,
@@ -840,10 +707,9 @@ export async function handleCampaignReply({
     return { classification: verdict.classification, action: "suppressed" };
   }
 
-  await db
-    .update(bulkRecipients)
-    .set({ status: "replied" })
-    .where(eq(bulkRecipients.id, recipient.id));
+  await campaignRepository.updateRecipientById(recipient.id, {
+    status: "replied",
+  });
   await recordCampaignEvent({
     userId,
     campaignId: recipient.campaignId,
@@ -860,12 +726,7 @@ export async function handleCampaignReply({
     !impliesCommitment(body, subject)
   ) {
     const ack = buildOutOfOfficeAck();
-    const mailboxRows = await db
-      .select({ email: mailboxes.email })
-      .from(mailboxes)
-      .where(eq(mailboxes.userId, userId))
-      .limit(1);
-    const fromEmail = mailboxRows[0]?.email;
+    const fromEmail = await mailboxRepository.findFirstEmailForUser(userId);
     try {
       if (!fromEmail) throw new Error("No connected mailbox");
       await sendEmail({
@@ -896,18 +757,9 @@ export async function handleCampaignReply({
     mirrorThreadId &&
     (verdict.classification === "interested" || verdict.classification === "question")
   ) {
-    const existing = await db
-      .select({ id: drafts.id })
-      .from(drafts)
-      .where(
-        and(
-          eq(drafts.threadId, mirrorThreadId),
-          eq(drafts.status, "pending"),
-        ),
-      )
-      .limit(1);
-    if (!existing[0]) {
-      await db.insert(drafts).values({
+    const existing = await draftRepository.findAnyPendingByThread(mirrorThreadId);
+    if (!existing) {
+      await draftRepository.insert({
         id: nanoid(),
         userId,
         threadId: mirrorThreadId,
@@ -931,12 +783,7 @@ function buildReplyStub(classification: CampaignReplyClass): string {
 
 /** A thread's owning user + subject, for reply routing from the inbound job. */
 export async function loadThreadForCampaignReply(threadId: string) {
-  const rows = await db
-    .select({ userId: threads.userId, subject: threads.subject })
-    .from(threads)
-    .where(eq(threads.id, threadId))
-    .limit(1);
-  return rows[0] ?? null;
+  return (await threadRepository.findOwnerAndSubjectById(threadId)) ?? null;
 }
 
 /** Counts for the dashboard list view. */
@@ -944,20 +791,12 @@ export async function listCampaignsWithStats(userId: string) {
   const campaigns = await listCampaigns(userId);
   if (campaigns.length === 0) return [];
   const ids = campaigns.map((campaign) => campaign.id);
-  const counts = await db
-    .select({
-      campaignId: bulkRecipients.campaignId,
-      status: bulkRecipients.status,
-      n: count(),
-    })
-    .from(bulkRecipients)
-    .where(inArray(bulkRecipients.campaignId, ids))
-    .groupBy(bulkRecipients.campaignId, bulkRecipients.status);
+  const counts = await campaignRepository.countByStatusForCampaigns(ids);
 
   const byId = new Map<string, Partial<Record<CampaignRecipientStatus, number>>>();
   for (const row of counts) {
     const bucket = byId.get(row.campaignId) ?? {};
-    bucket[row.status] = Number(row.n);
+    bucket[row.status] = row.n;
     byId.set(row.campaignId, bucket);
   }
 
@@ -974,10 +813,7 @@ export async function listCampaignsWithStats(userId: string) {
  * Deduped per campaign per day so a double-fired cron cannot stack jobs.
  */
 export async function recoverStuckCampaigns(userId: string): Promise<number> {
-  const stuck = await db
-    .select({ id: bulkCampaigns.id })
-    .from(bulkCampaigns)
-    .where(and(eq(bulkCampaigns.userId, userId), eq(bulkCampaigns.status, "sending")));
+  const stuck = await campaignRepository.listStuckSending(userId);
   if (stuck.length === 0) return 0;
 
   let reenqueued = 0;

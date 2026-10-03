@@ -1,8 +1,7 @@
-import { and, eq } from "drizzle-orm";
 import { NextResponse, type NextRequest } from "next/server";
 
-import { db, pool } from "@/lib/db";
-import { account } from "@/lib/db/schema";
+import { pool } from "@/lib/db";
+import { googleAccountRepository } from "@/lib/repositories/google-account";
 import { JOB_KIND_MAILBOX_SYNC } from "@/lib/email-operator/job-kinds";
 import { ensureMailbox } from "@/lib/email-operator/mailbox";
 import { env } from "@/lib/env";
@@ -38,17 +37,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL("/auth", origin));
   }
 
-  const accounts = await db
-    .select({ scope: account.scope })
-    .from(account)
-    .where(
-      and(
-        eq(account.userId, session.user.id),
-        eq(account.providerId, GOOGLE_EMAIL_PROVIDER),
-      ),
-    );
-
-  const grantedScopeStrings = accounts.map((row) => row.scope);
+  const grantedScopeStrings =
+    await googleAccountRepository.listScopesByUserAndProvider({
+      userId: session.user.id,
+      providerId: GOOGLE_EMAIL_PROVIDER,
+    });
   const connected = grantedScopeStrings.some((scope) =>
     hasGrantedScopes(scope, GOOGLE_CONNECT_SCOPES),
   );

@@ -63,8 +63,15 @@ export function CatchUpGate() {
           data?: { catchUp?: CatchUp };
         };
         const next = payload.data?.catchUp;
+        const overnightActivity = next?.overnight
+          ? next.overnight.totals.sent +
+            next.overnight.totals.drafted +
+            next.overnight.totals.blocked
+          : 0;
         // Only interrupt when there is genuinely something to say.
-        if (!cancelled && next && next.total > 0) setCatchUp(next);
+        if (!cancelled && next && (next.total > 0 || overnightActivity > 0)) {
+          setCatchUp(next);
+        }
       } catch {
         // Offline or request aborted — the app loads without the popup.
       }

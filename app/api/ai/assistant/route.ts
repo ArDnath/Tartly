@@ -1,16 +1,11 @@
-import { z } from "zod";
-
 import { jsonError } from "@/lib/api/error-envelope";
+import { aiAssistantBody as bodySchema } from "@/lib/api/contracts/legacy";
+import { enforceUserRateLimit } from "@/lib/api/http";
 import { createAssistantStream } from "@/lib/ai/assistant";
+import { agentRateLimitPerMin } from "@/lib/env";
 import { getSession } from "@/lib/session";
 
 export const maxDuration = 60;
-
-const bodySchema = z.object({
-  scope: z.enum(["mail", "calendar"]),
-  question: z.string().min(1).max(4_000),
-  context: z.record(z.string(), z.unknown()).optional(),
-});
 
 /**
  * Route-scoped assistant endpoint for the Mail and Calendar rails. Streams a
@@ -22,6 +17,12 @@ export async function POST(request: Request) {
   if (!session?.user) {
     return jsonError("unauthorized", "Unauthorized", 401);
   }
+
+  const limited = await enforceUserRateLimit(session.user.id, {
+    limit: agentRateLimitPerMin(),
+    scope: "ai",
+  });
+  if (limited) return limited;
 
   const parsed = bodySchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {

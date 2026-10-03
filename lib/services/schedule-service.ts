@@ -1,6 +1,5 @@
 import "server-only";
 
-import { and, desc, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import {
@@ -9,10 +8,18 @@ import {
   NotFoundError,
   ValidationError,
 } from "@/lib/agent/errors";
-import { db, pool } from "@/lib/db";
-import { pendingActions, scheduledActions } from "@/lib/db/schema";
+import { pool } from "@/lib/db";
 import { JOB_KIND_SCHEDULED_EMAIL } from "@/lib/email-operator/job-kinds";
 import { enqueueJob } from "@/lib/queue/queue";
+import {
+  PendingActionRepository,
+  pendingActionRepository,
+} from "@/lib/repositories/pending-actions";
+import {
+  ScheduledActionRepository,
+  scheduledActionRepository,
+  type ScheduledAction,
+} from "@/lib/repositories/scheduled-actions";
 import { sendService, type SendService } from "@/lib/services/send-service";
 
 /**
@@ -28,13 +35,16 @@ import { sendService, type SendService } from "@/lib/services/send-service";
  * `SendService` and the same server-derived idempotency key as an immediate
  * send. A double-fired job, a retried job and a replayed confirmation therefore
  * collapse to one delivered message via `send_ledger`.
+ *
+ * SQL lives in the scheduled/pending-action repositories; this class holds the
+ * business rules (lead time, horizon, idempotent replay).
  */
 
 export const MIN_SCHEDULE_LEAD_MS = 30 * 1000;
 export const MAX_SCHEDULE_HORIZON_MS = 365 * 24 * 60 * 60 * 1000;
 export const MAX_SCHEDULED_LIST = 50;
 
-export type ScheduledAction = typeof scheduledActions.$inferSelect;
+export type { ScheduledAction };
 
 export interface ScheduleEmailInput {
   userId: string;
@@ -63,7 +73,11 @@ export interface ProcessScheduledResult {
 }
 
 export class ScheduleService {
-  constructor(private readonly sender: SendService = sendService) {}
+  constructor(
+    private readonly sender: SendService = sendService,
+    private readonly scheduled: ScheduledActionRepository = scheduledActionRepository,
+    private readonly actions: PendingActionRepository = pendingActionRepository,
+  ) {}
 
   /**
    * Persist a scheduled send and enqueue its job. Repeating the call for the
@@ -108,18 +122,13 @@ export class ScheduleService {
     }
 
     const id = nanoid();
-    const inserted = await db
-      .insert(scheduledActions)
-      .values({
-        id,
-        userId: input.userId,
-        pendingActionId: input.pendingActionId,
-        runAfter,
-        status: "pending",
-      })
-      .returning();
-
-    const row = inserted[0]!;
+    const row = await this.scheduled.insert({
+      id,
+      userId: input.userId,
+      pendingActionId: input.pendingActionId,
+      runAfter,
+      status: "pending",
+    });
 
     // `sourceEventId` dedupes event→job on the unique `(user_id, source_event_id)`
     // constraint, so an at-least-once enqueue cannot create two jobs.
@@ -144,17 +153,10 @@ export class ScheduleService {
     scheduledActionId: string;
   }): Promise<ScheduledAction> {
     if (!input.userId) throw new AuthenticationError();
-    const rows = await db
-      .select()
-      .from(scheduledActions)
-      .where(
-        and(
-          eq(scheduledActions.id, input.scheduledActionId),
-          eq(scheduledActions.userId, input.userId),
-        ),
-      )
-      .limit(1);
-    const row = rows[0];
+    const row = await this.scheduled.findByIdForUser(
+      input.userId,
+      input.scheduledActionId,
+    );
     if (!row) throw new NotFoundError("That scheduled send was not found.");
     return row;
   }
@@ -165,12 +167,7 @@ export class ScheduleService {
   }): Promise<ScheduledAction[]> {
     if (!input.userId) throw new AuthenticationError();
     const limit = Math.min(Math.max(input.limit ?? 20, 1), MAX_SCHEDULED_LIST);
-    return db
-      .select()
-      .from(scheduledActions)
-      .where(eq(scheduledActions.userId, input.userId))
-      .orderBy(desc(scheduledActions.runAfter))
-      .limit(limit);
+    return this.scheduled.listForUser({ userId: input.userId, limit });
   }
 
   /**
@@ -182,18 +179,7 @@ export class ScheduleService {
     scheduledActionId: string;
     now?: Date;
   }): Promise<ProcessScheduledResult> {
-    const claimed = await db
-      .update(scheduledActions)
-      .set({ status: "processing" })
-      .where(
-        and(
-          eq(scheduledActions.id, input.scheduledActionId),
-          eq(scheduledActions.status, "pending"),
-        ),
-      )
-      .returning();
-
-    const row = claimed[0];
+    const row = await this.scheduled.claimPending(input.scheduledActionId);
     if (!row) return { processed: false, deduped: true };
 
     try {
@@ -222,54 +208,31 @@ export class ScheduleService {
         body: typeof args.body === "string" ? args.body : "",
       });
 
-      await db
-        .update(scheduledActions)
-        .set({ status: "done", lastError: null })
-        .where(eq(scheduledActions.id, row.id));
+      await this.scheduled.markDone(row.id);
 
       return { processed: true, deduped: result.deduped };
     } catch (error) {
       // Return the row to `pending` so the queue's retry can reclaim it; the
       // ledger is the final guard against a duplicate delivery.
       const message = error instanceof Error ? error.message : String(error);
-      await db
-        .update(scheduledActions)
-        .set({
-          status: "pending",
-          attempts: row.attempts + 1,
-          lastError: message.split("\n", 1)[0]!.slice(0, 300),
-        })
-        .where(eq(scheduledActions.id, row.id));
+      await this.scheduled.releaseAfterFailure({
+        scheduledActionId: row.id,
+        attempts: row.attempts + 1,
+        lastError: message.split("\n", 1)[0]!.slice(0, 300),
+      });
       throw error;
     }
   }
 
-  private async findByPendingAction(
+  private findByPendingAction(
     userId: string,
     pendingActionId: string,
   ): Promise<ScheduledAction | undefined> {
-    const rows = await db
-      .select()
-      .from(scheduledActions)
-      .where(
-        and(
-          eq(scheduledActions.userId, userId),
-          eq(scheduledActions.pendingActionId, pendingActionId),
-        ),
-      )
-      .limit(1);
-    return rows[0];
+    return this.scheduled.findByPendingAction(userId, pendingActionId);
   }
 
   private async loadPendingAction(userId: string, actionId: string) {
-    const rows = await db
-      .select()
-      .from(pendingActions)
-      .where(
-        and(eq(pendingActions.id, actionId), eq(pendingActions.userId, userId)),
-      )
-      .limit(1);
-    const action = rows[0];
+    const action = await this.actions.findByIdForUser(userId, actionId);
     if (!action) throw new NotFoundError("The scheduled action was not found.");
     return action;
   }

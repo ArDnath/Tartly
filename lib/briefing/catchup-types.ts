@@ -42,6 +42,22 @@ export type CatchUpPreviewItem = {
   subtitle?: string;
 };
 
+/** One overnight autopilot item, already resolved to a user-facing reason. */
+export type CatchUpOvernightItem = {
+  threadId: string;
+  reasonLabel: string;
+  at?: string;
+};
+
+/** The 24/7 autopilot block: what was sent / held while the user was away. */
+export type CatchUpOvernight = {
+  windowLabel: string;
+  totals: { sent: number; drafted: number; blocked: number };
+  sent: CatchUpOvernightItem[];
+  drafted: CatchUpOvernightItem[];
+  blocked: CatchUpOvernightItem[];
+};
+
 export type CatchUp = {
   daypart: CatchUpDaypart;
   /** The big, time-aware line: "You're late, Ariyaman." */
@@ -54,5 +70,7 @@ export type CatchUp = {
   counts: InboxCounts;
   preview: CatchUpPreviewItem[];
   options: CatchUpOption[];
+  /** Overnight autopilot activity, when the user has a policy enabled. */
+  overnight: CatchUpOvernight | null;
   generatedAt: string;
 };

@@ -2,9 +2,8 @@ import "server-only";
 
 import { z } from "zod";
 
-import { db } from "@/lib/db";
-import { threadStates } from "@/lib/db/schema";
 import { defineStep } from "@/lib/engine/step";
+import { engineThreadStateRepository } from "@/lib/repositories/engine-thread-states";
 import { requireThreadId } from "./helpers";
 
 /**
@@ -17,18 +16,15 @@ export const handoffStep = defineStep({
   async run(ctx) {
     const threadId = requireThreadId(ctx);
 
-    await db
-      .insert(threadStates)
-      .values({
+    await engineThreadStateRepository.upsert({
+      values: {
         threadId,
         category: "needs_reply",
         priority: 90,
         action: "handoff",
-      })
-      .onConflictDoUpdate({
-        target: threadStates.threadId,
-        set: { action: "handoff", priority: 90, updatedAt: new Date() },
-      });
+      },
+      set: { action: "handoff", priority: 90, updatedAt: new Date() },
+    });
 
     ctx.log("handoff", { reason: ctx.input.reason });
     return { notified: true };

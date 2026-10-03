@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { InboxRow } from "@/components/inbox/inbox-row";
+import { AutopilotOptInCard } from "@/components/inbox/autopilot-opt-in-card";
 import { DigestPanel } from "@/components/inbox/digest-panel";
 import { Button } from "@/components/ui/button";
 import type { InboxItem, InboxView as InboxViewName } from "@/lib/inbox/service";
@@ -239,6 +240,7 @@ export function InboxView({
       </nav>
 
       <DigestPanel initial={digest} enabled={digestEnabled} />
+      <AutopilotOptInCard />
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {items.length === 0 ? (

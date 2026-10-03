@@ -1,15 +1,10 @@
-import { z } from "zod";
-
 import { storedMessageToUIMessage } from "@/lib/agent/messages";
 import { loadConversationMessages } from "@/lib/agent/persistence";
 import { findThreadForUser } from "@/lib/ai/chat-service";
+import { conversationParams as paramsSchema } from "@/lib/api/contracts/agent";
 import { apiError, apiErrorFrom, ok, withUser } from "@/lib/api/http";
 
 export const dynamic = "force-dynamic";
-
-const paramsSchema = z.object({
-  conversationId: z.string().min(1).max(64),
-});
 
 /**
  * GET /api/v1/agent/conversations/[conversationId]

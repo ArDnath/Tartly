@@ -1,7 +1,5 @@
 import "server-only";
 
-import { eq } from "drizzle-orm";
-
 import { resolveOutboundAssets } from "@/lib/assets/outbound";
 import { personalizeRecipients } from "@/lib/ai/features/campaign-personalize";
 import { renderTemplate } from "@/lib/campaigns/template";
@@ -17,13 +15,13 @@ import {
   markRecipientSkipped,
   recordCampaignEvent,
 } from "@/lib/campaigns/service";
-import { db, pool } from "@/lib/db";
-import { mailboxes } from "@/lib/db/schema";
+import { pool } from "@/lib/db";
 import { campaignBatchSize, isCampaignsEnabled } from "@/lib/env";
 import { sendEmail } from "@/lib/gmail/send";
 import { JOB_KIND_BULK_SEND } from "@/lib/email-operator/job-kinds";
 import type { JobHandler } from "@/lib/email-operator/jobs";
 import { enqueueJob, type JobRow } from "@/lib/queue/queue";
+import { mailboxRepository } from "@/lib/repositories/mailboxes";
 
 /**
  * `bulk_send` handler (Phase 7).
@@ -68,12 +66,7 @@ async function handleBulkSend(job: JobRow): Promise<void> {
     return;
   }
 
-  const mailboxRows = await db
-    .select({ email: mailboxes.email })
-    .from(mailboxes)
-    .where(eq(mailboxes.userId, job.userId))
-    .limit(1);
-  const fromEmail = mailboxRows[0]?.email;
+  const fromEmail = await mailboxRepository.findFirstEmailForUser(job.userId);
   if (!fromEmail) {
     await finishCampaignIfDone(campaignId);
     return;

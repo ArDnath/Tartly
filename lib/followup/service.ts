@@ -1,23 +1,30 @@
 import "server-only";
 
-import { and, desc, eq, lte } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { DEFAULT_CALENDAR_SETTINGS, getCalendarSettings } from "@/lib/calendar/settings";
 import { addUtcDays } from "@/lib/calendar/tz";
-import { db, pool } from "@/lib/db";
 import {
-  drafts,
-  followupEnrollments,
-  messages,
-  threads,
-} from "@/lib/db/schema";
+  buildPage,
+  decodeCursor,
+  DEFAULT_PAGE_LIMIT,
+  type CursorValues,
+  type PaginationMeta,
+} from "@/lib/api/pagination";
+import { pool } from "@/lib/db";
 import { nextDeliverableTime, isUnreachableAddress } from "@/lib/followup/rules";
 import { generateFollowupDraft } from "@/lib/ai/features/followup-draft";
 import { JOB_KIND_FOLLOWUP } from "@/lib/email-operator/job-kinds";
 import { enqueueJob } from "@/lib/queue/queue";
+import { draftRepository } from "@/lib/repositories/drafts";
+import {
+  followupEnrollmentRepository,
+  type FollowupEnrollment,
+  type FollowupWithSubject,
+} from "@/lib/repositories/followup-enrollments";
+import { messageRepository } from "@/lib/repositories/messages";
 
-export type EnrollmentRow = typeof followupEnrollments.$inferSelect;
+export type EnrollmentRow = FollowupEnrollment;
 
 const DEFAULT_AFTER_DAYS = 3;
 const DEFAULT_MAX_ATTEMPTS = 3;
@@ -33,13 +40,8 @@ async function deliverableWindow(userId: string) {
 }
 
 async function latestInboundSender(threadId: string): Promise<string | null> {
-  const rows = await db
-    .select({ fromAddr: messages.fromAddr })
-    .from(messages)
-    .where(and(eq(messages.threadId, threadId), eq(messages.direction, "inbound")))
-    .orderBy(desc(messages.sentAt))
-    .limit(1);
-  return rows[0]?.fromAddr ?? null;
+  const message = await messageRepository.latestInboundByThreadId(threadId);
+  return message?.fromAddr ?? null;
 }
 
 /**
@@ -60,17 +62,8 @@ export async function enrollThread({
   maxAttempts?: number;
   now?: Date;
 }): Promise<EnrollmentRow | null> {
-  const existing = await db
-    .select()
-    .from(followupEnrollments)
-    .where(
-      and(
-        eq(followupEnrollments.threadId, threadId),
-        eq(followupEnrollments.status, "active"),
-      ),
-    )
-    .limit(1);
-  if (existing[0]) return existing[0];
+  const existing = await followupEnrollmentRepository.findActiveByThread(threadId);
+  if (existing) return existing;
 
   const recipient = await latestInboundSender(threadId);
   if (isUnreachableAddress(recipient)) return null;
@@ -78,36 +71,25 @@ export async function enrollThread({
   const window = await deliverableWindow(userId);
   const nextEvalAt = nextDeliverableTime(addUtcDays(now, afterDays), window);
 
-  const inserted = await db
-    .insert(followupEnrollments)
-    .values({
-      id: nanoid(),
-      userId,
-      threadId,
-      stage: "waiting",
-      attempts: 0,
-      maxAttempts,
-      nextEvalAt,
-      status: "active",
-    })
-    .returning();
-
-  return inserted[0];
+  return followupEnrollmentRepository.insert({
+    id: nanoid(),
+    userId,
+    threadId,
+    stage: "waiting",
+    attempts: 0,
+    maxAttempts,
+    nextEvalAt,
+    status: "active",
+  });
 }
 
 /** Stops every active enrollment for a thread — called when they reply. */
 export async function reactivityOnInbound(threadId: string): Promise<number> {
-  const updated = await db
-    .update(followupEnrollments)
-    .set({ status: "stopped", stopReason: "replied", updatedAt: new Date() })
-    .where(
-      and(
-        eq(followupEnrollments.threadId, threadId),
-        eq(followupEnrollments.status, "active"),
-      ),
-    )
-    .returning({ id: followupEnrollments.id });
-  return updated.length;
+  return followupEnrollmentRepository.stopActiveByThread({
+    threadId,
+    reason: "replied",
+    now: new Date(),
+  });
 }
 
 export async function stopEnrollment({
@@ -119,17 +101,12 @@ export async function stopEnrollment({
   enrollmentId: string;
   reason?: string;
 }): Promise<boolean> {
-  const updated = await db
-    .update(followupEnrollments)
-    .set({ status: "stopped", stopReason: reason, updatedAt: new Date() })
-    .where(
-      and(
-        eq(followupEnrollments.id, enrollmentId),
-        eq(followupEnrollments.userId, userId),
-      ),
-    )
-    .returning({ id: followupEnrollments.id });
-  return updated.length > 0;
+  return followupEnrollmentRepository.stopOwned({
+    userId,
+    enrollmentId,
+    reason,
+    now: new Date(),
+  });
 }
 
 export async function pauseEnrollment({
@@ -141,20 +118,12 @@ export async function pauseEnrollment({
   enrollmentId: string;
   paused: boolean;
 }): Promise<EnrollmentRow | null> {
-  const updated = await db
-    .update(followupEnrollments)
-    .set({
-      status: paused ? "paused" : "active",
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(followupEnrollments.id, enrollmentId),
-        eq(followupEnrollments.userId, userId),
-      ),
-    )
-    .returning();
-  return updated[0] ?? null;
+  return followupEnrollmentRepository.setPaused({
+    userId,
+    enrollmentId,
+    paused,
+    now: new Date(),
+  });
 }
 
 /**
@@ -173,33 +142,21 @@ export async function snoozeEnrollment({
   days?: number;
   now?: Date;
 }): Promise<EnrollmentRow | null> {
-  const enrollmentRows = await db
-    .select()
-    .from(followupEnrollments)
-    .where(
-      and(
-        eq(followupEnrollments.id, enrollmentId),
-        eq(followupEnrollments.userId, userId),
-      ),
-    )
-    .limit(1);
-  const enrollment = enrollmentRows[0];
+  const enrollment = await followupEnrollmentRepository.findByIdForUser(
+    userId,
+    enrollmentId,
+  );
   if (!enrollment) return null;
 
   const boundedDays = Math.min(Math.max(Math.trunc(days), 1), 30);
   const window = await deliverableWindow(userId);
   const next = nextDeliverableTime(addUtcDays(now, boundedDays), window);
 
-  const updated = await db
-    .update(followupEnrollments)
-    .set({
-      status: "active",
-      nextEvalAt: next,
-      updatedAt: now,
-    })
-    .where(eq(followupEnrollments.id, enrollment.id))
-    .returning();
-  return updated[0] ?? null;
+  return followupEnrollmentRepository.updateById(enrollment.id, {
+    status: "active",
+    nextEvalAt: next,
+    updatedAt: now,
+  });
 }
 
 export type FollowupListItem = {
@@ -215,21 +172,68 @@ export type FollowupListItem = {
 };
 
 export async function listFollowups(userId: string): Promise<FollowupListItem[]> {
-  const rows = await db
-    .select({
-      enrollment: followupEnrollments,
-      thread: { id: threads.id, subject: threads.subject },
-    })
-    .from(followupEnrollments)
-    .leftJoin(threads, eq(threads.id, followupEnrollments.threadId))
-    .where(eq(followupEnrollments.userId, userId))
-    .orderBy(desc(followupEnrollments.createdAt))
-    .limit(100);
+  const rows = await followupEnrollmentRepository.listForUserWithSubject({
+    userId,
+    limit: MAX_FOLLOWUP_LIMIT,
+  });
+  return mapFollowupRows(rows);
+}
 
-  return rows.map(({ enrollment, thread }) => ({
+/** Cursor scope tag: keeps a follow-ups cursor from being replayed elsewhere. */
+const FOLLOWUP_CURSOR_SCOPE = "followups";
+const MAX_FOLLOWUP_LIMIT = 100;
+
+function followupCursorOf(row: FollowupWithSubject): CursorValues {
+  return { c: row.enrollment.createdAt.toISOString(), id: row.enrollment.id };
+}
+
+function decodeFollowupCursor(
+  cursor: string | null | undefined,
+): { createdAt: Date; id: string } | undefined {
+  const values = decodeCursor(cursor, FOLLOWUP_CURSOR_SCOPE, ["c", "id"]);
+  if (!values) return undefined;
+  const { c, id } = values;
+  if (typeof id !== "string" || id.length === 0) return undefined;
+  if (typeof c !== "string") return undefined;
+  const createdAt = new Date(c);
+  if (Number.isNaN(createdAt.getTime())) return undefined;
+  return { createdAt, id };
+}
+
+/**
+ * One cursor page of follow-ups, newest first (Phase C5). Over-fetches by one
+ * to compute `has_more`, so a page is always exactly `limit` rows.
+ */
+export async function listFollowupsPage({
+  userId,
+  cursor,
+  limit = DEFAULT_PAGE_LIMIT,
+}: {
+  userId: string;
+  cursor?: string | null;
+  limit?: number;
+}): Promise<{ followups: FollowupListItem[]; pagination: PaginationMeta }> {
+  const bounded = Math.min(Math.max(Math.trunc(limit), 1), MAX_FOLLOWUP_LIMIT);
+  const after = decodeFollowupCursor(cursor);
+  const rows = await followupEnrollmentRepository.listForUserWithSubject({
+    userId,
+    ...(after ? { after } : {}),
+    limit: bounded + 1,
+  });
+  const { page, pagination } = buildPage({
+    rows,
+    limit: bounded,
+    scope: FOLLOWUP_CURSOR_SCOPE,
+    cursorOf: followupCursorOf,
+  });
+  return { followups: mapFollowupRows(page), pagination };
+}
+
+function mapFollowupRows(rows: FollowupWithSubject[]): FollowupListItem[] {
+  return rows.map(({ enrollment, subject }) => ({
     id: enrollment.id,
     threadId: enrollment.threadId,
-    subject: thread?.subject ?? null,
+    subject,
     status: enrollment.status,
     stage: enrollment.stage,
     attempts: enrollment.attempts,
@@ -250,12 +254,7 @@ export async function processFollowupEnrollment(
   enrollmentId: string,
   { now = new Date() }: { now?: Date } = {},
 ): Promise<{ status: string; attempts: number } | null> {
-  const rows = await db
-    .select()
-    .from(followupEnrollments)
-    .where(eq(followupEnrollments.id, enrollmentId))
-    .limit(1);
-  const enrollment = rows[0];
+  const enrollment = await followupEnrollmentRepository.findById(enrollmentId);
   if (!enrollment) return null;
   if (enrollment.status !== "active") {
     return { status: enrollment.status, attempts: enrollment.attempts };
@@ -263,10 +262,10 @@ export async function processFollowupEnrollment(
 
   const recipient = await latestInboundSender(enrollment.threadId);
   if (isUnreachableAddress(recipient)) {
-    await db
-      .update(followupEnrollments)
-      .set({ status: "stopped", stopReason: "unreachable" })
-      .where(eq(followupEnrollments.id, enrollment.id));
+    await followupEnrollmentRepository.updateById(enrollment.id, {
+      status: "stopped",
+      stopReason: "unreachable",
+    });
     return { status: "stopped", attempts: enrollment.attempts };
   }
 
@@ -276,21 +275,16 @@ export async function processFollowupEnrollment(
     threadId: enrollment.threadId,
   });
 
-  const pending = await db
-    .select({ id: drafts.id })
-    .from(drafts)
-    .where(
-      and(eq(drafts.threadId, enrollment.threadId), eq(drafts.status, "pending")),
-    )
-    .limit(1);
+  const pending = await draftRepository.findAnyPendingByThread(enrollment.threadId);
 
-  if (pending[0]) {
-    await db
-      .update(drafts)
-      .set({ body, pipelineVersion: version })
-      .where(eq(drafts.id, pending[0].id));
+  if (pending) {
+    await draftRepository.updateBodyById({
+      draftId: pending.id,
+      body,
+      pipelineVersion: version,
+    });
   } else {
-    await db.insert(drafts).values({
+    await draftRepository.insert({
       id: nanoid(),
       userId: enrollment.userId,
       threadId: enrollment.threadId,
@@ -301,25 +295,23 @@ export async function processFollowupEnrollment(
   }
 
   if (attempts >= enrollment.maxAttempts) {
-    await db
-      .update(followupEnrollments)
-      .set({
-        status: "completed",
-        attempts,
-        nextEvalAt: null,
-        updatedAt: now,
-      })
-      .where(eq(followupEnrollments.id, enrollment.id));
+    await followupEnrollmentRepository.updateById(enrollment.id, {
+      status: "completed",
+      attempts,
+      nextEvalAt: null,
+      updatedAt: now,
+    });
     return { status: "completed", attempts };
   }
 
   const window = await deliverableWindow(enrollment.userId);
   const nextEvalAt = nextDeliverableTime(addUtcDays(now, DEFAULT_AFTER_DAYS), window);
 
-  await db
-    .update(followupEnrollments)
-    .set({ attempts, nextEvalAt, updatedAt: now })
-    .where(eq(followupEnrollments.id, enrollment.id));
+  await followupEnrollmentRepository.updateById(enrollment.id, {
+    attempts,
+    nextEvalAt,
+    updatedAt: now,
+  });
 
   return { status: "active", attempts };
 }
@@ -332,17 +324,7 @@ export async function enqueueDueFollowups({
   now = new Date(),
   limit = 25,
 }: { now?: Date; limit?: number } = {}): Promise<number> {
-  const due = await db
-    .select()
-    .from(followupEnrollments)
-    .where(
-      and(
-        eq(followupEnrollments.status, "active"),
-        lte(followupEnrollments.nextEvalAt, now),
-      ),
-    )
-    .orderBy(followupEnrollments.nextEvalAt)
-    .limit(limit);
+  const due = await followupEnrollmentRepository.listDueActive({ now, limit });
 
   let enqueued = 0;
   for (const enrollment of due) {
@@ -359,7 +341,5 @@ export async function enqueueDueFollowups({
 
 /** Used by tests/cleanup. */
 export async function deleteEnrollmentsForUser(userId: string): Promise<void> {
-  await db
-    .delete(followupEnrollments)
-    .where(eq(followupEnrollments.userId, userId));
+  await followupEnrollmentRepository.deleteForUser(userId);
 }

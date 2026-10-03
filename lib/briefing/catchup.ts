@@ -7,9 +7,11 @@ import { getZonedParts } from "@/lib/calendar/tz";
 import type {
   CatchUp,
   CatchUpDaypart,
+  CatchUpOvernight,
   CatchUpOption,
   CatchUpPreviewItem,
 } from "./catchup-types";
+import { autopilotReasonLabel } from "@/lib/settings/autopilot";
 import { daypartForHour, getBriefing, type Briefing } from "./service";
 
 /**
@@ -209,6 +211,29 @@ export function buildCatchUpOptions(briefing: Briefing): CatchUpOption[] {
   return options;
 }
 
+/** Turn the briefing's overnight summary into client-safe, labelled rows. */
+export function buildCatchUpOvernight(
+  briefing: Briefing,
+): CatchUpOvernight | null {
+  if (!briefing.overnight) return null;
+  const mapItems = (
+    items: Array<{ threadId: string; reason: string; at?: string }>,
+  ) =>
+    items.map((item) => ({
+      threadId: item.threadId,
+      reasonLabel: autopilotReasonLabel(item.reason),
+      ...(item.at ? { at: item.at } : {}),
+    }));
+
+  return {
+    windowLabel: briefing.overnight.windowLabel,
+    totals: briefing.overnight.totals,
+    sent: mapItems(briefing.overnight.sent),
+    drafted: mapItems(briefing.overnight.drafted),
+    blocked: mapItems(briefing.overnight.blocked),
+  };
+}
+
 /** Turn a composed briefing into the popup's presentation. Pure. */
 export function buildCatchUp({
   briefing,
@@ -226,6 +251,7 @@ export function buildCatchUp({
   const hoursBehind = localHour - briefingHour;
   const late = hoursBehind >= LATE_AFTER_HOURS;
   const total = briefing.greeting.total;
+  const overnight = buildCatchUpOvernight(briefing);
 
   const headline = buildCatchUpHeadline({ name, daypart, late });
   const subhead =
@@ -244,6 +270,7 @@ export function buildCatchUp({
     counts: briefing.counts,
     preview: buildPreview(briefing, now),
     options: buildCatchUpOptions(briefing),
+    overnight,
     generatedAt: briefing.generatedAt,
   };
 }

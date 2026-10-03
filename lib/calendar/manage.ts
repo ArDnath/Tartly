@@ -1,6 +1,5 @@
 import "server-only";
 
-import { and, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import {
@@ -13,10 +12,13 @@ import {
   DEFAULT_CALENDAR_SETTINGS,
   getCalendarSettings,
 } from "@/lib/calendar/settings";
-import { db } from "@/lib/db";
-import { meetings } from "@/lib/db/schema";
+import { meetingRepository } from "@/lib/repositories/meetings";
+import {
+  calendarPersistenceRepository,
+  type CalendarMeeting,
+} from "@/lib/repositories/calendar-persistence";
 
-export type MeetingRow = typeof meetings.$inferSelect;
+export type MeetingRow = CalendarMeeting;
 
 /** Serializable meeting shape used by the API and the assistant rail. */
 export type MeetingDto = {
@@ -69,12 +71,8 @@ export async function findMeetingForUser(
   userId: string,
   meetingId: string,
 ): Promise<MeetingRow | null> {
-  const rows = await db
-    .select()
-    .from(meetings)
-    .where(and(eq(meetings.id, meetingId), eq(meetings.userId, userId)))
-    .limit(1);
-  return rows[0] ?? null;
+  const meeting = await meetingRepository.findByIdForUser(userId, meetingId);
+  return meeting ?? null;
 }
 
 /**
@@ -102,13 +100,12 @@ export async function cancelMeeting({
     }
   }
 
-  const updated = await db
-    .update(meetings)
-    .set({ status: "cancelled" })
-    .where(and(eq(meetings.id, meetingId), eq(meetings.userId, userId)))
-    .returning();
+  const updated = await calendarPersistenceRepository.cancelMeetingOwned({
+    userId,
+    meetingId,
+  });
 
-  return updated[0] ?? null;
+  return updated ?? null;
 }
 
 /** Moves a meeting (and its Google event) to a new time. */
@@ -142,13 +139,14 @@ export async function rescheduleMeeting({
     });
   }
 
-  const updated = await db
-    .update(meetings)
-    .set({ startAt: startUtc, endAt: endUtc, status: "confirmed" })
-    .where(and(eq(meetings.id, meetingId), eq(meetings.userId, userId)))
-    .returning();
+  const updated = await calendarPersistenceRepository.rescheduleMeetingOwned({
+    userId,
+    meetingId,
+    startAt: startUtc,
+    endAt: endUtc,
+  });
 
-  return updated[0] ?? null;
+  return updated ?? null;
 }
 
 /**
@@ -184,21 +182,16 @@ export async function createAdHocMeeting({
     requestId: nanoid(),
   });
 
-  const inserted = await db
-    .insert(meetings)
-    .values({
-      id: nanoid(),
-      userId,
-      threadId: null,
-      calendarEventId: event.id || null,
-      proposalId: null,
-      subject,
-      startAt: startUtc,
-      endAt: endUtc,
-      meetLink: event.meetLink,
-      status: "confirmed",
-    })
-    .returning();
-
-  return inserted[0];
+  return calendarPersistenceRepository.insertMeeting({
+    id: nanoid(),
+    userId,
+    threadId: null,
+    calendarEventId: event.id || null,
+    proposalId: null,
+    subject,
+    startAt: startUtc,
+    endAt: endUtc,
+    meetLink: event.meetLink,
+    status: "confirmed",
+  });
 }

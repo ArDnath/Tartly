@@ -330,6 +330,18 @@ export async function msUntilNextJob(pool: Pool): Promise<number | null> {
   return rows[0]?.ms ?? null;
 }
 
+/** Dead-letter jobs for one user (reconcile drift signal / ops read model). */
+export async function countDeadJobs(
+  db: Queryable,
+  userId: string,
+): Promise<number> {
+  const { rows } = await db.query<{ count: string }>(
+    `select count(*)::text as count from job_queue where user_id = $1 and status = 'dead'`,
+    [userId],
+  );
+  return Number(rows[0]?.count ?? 0);
+}
+
 /** Truncated first line only: error rows must never carry message content. */
 function normalizeError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);

@@ -1,16 +1,22 @@
 import "server-only";
 
-import { and, asc, desc, eq, gt, inArray, lte, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { canonicalize, hashArguments } from "@/lib/agent/action-hash";
 import { deriveActionIdempotencyKey } from "@/lib/ai/idempotency";
 import { AppError, ConflictError, NotFoundError, toSafeError, ValidationError } from "@/lib/agent/errors";
-import { db } from "@/lib/db";
 import {
-  pendingActions,
+  buildPage,
+  decodeCursor,
+  type CursorValues,
+  type PaginationMeta,
+} from "@/lib/api/pagination";
+import {
+  PendingActionRepository,
+  pendingActionRepository,
+  type PendingAction,
   type PendingActionStatus,
-} from "@/lib/db/schema";
+} from "@/lib/repositories/pending-actions";
 
 /**
  * ActionService — the confirmation state machine.
@@ -23,12 +29,29 @@ import {
  *
  * The service is storage-owned but integration-agnostic: the caller supplies
  * the executor. That keeps `lib/services` free of any dependency on the agent
- * tool registry while still reusing the tool's real implementation.
+ * tool registry while still reusing the tool's real implementation. SQL lives
+ * in `PendingActionRepository`.
  */
 
 export const PENDING_ACTION_TTL_MS = 30 * 60 * 1000;
 export const MAX_PENDING_ACTIONS = 20;
 export const MAX_ACTION_LIST = 50;
+
+/** Cursor scope tag: keeps an actions cursor from being replayed elsewhere. */
+const ACTION_CURSOR_SCOPE = "agent-actions";
+
+function decodeActionCursor(
+  cursor: string | null | undefined,
+): { createdAt: Date; id: string } | undefined {
+  const values = decodeCursor(cursor, ACTION_CURSOR_SCOPE, ["c", "id"]);
+  if (!values) return undefined;
+  const { c, id } = values;
+  if (typeof id !== "string" || id.length === 0) return undefined;
+  if (typeof c !== "string") return undefined;
+  const createdAt = new Date(c);
+  if (Number.isNaN(createdAt.getTime())) return undefined;
+  return { createdAt, id };
+}
 
 const PENDING_ACTION_STATUSES: readonly PendingActionStatus[] = [
   "PENDING",
@@ -44,7 +67,7 @@ export function isPendingActionStatus(value: string): value is PendingActionStat
   return (PENDING_ACTION_STATUSES as readonly string[]).includes(value);
 }
 
-export type PendingAction = typeof pendingActions.$inferSelect;
+export type { PendingAction };
 
 export type ActionExecutor = (input: {
   action: PendingAction;
@@ -92,6 +115,10 @@ export interface CreatePendingActionInput {
 }
 
 export class ActionService {
+  constructor(
+    private readonly actions: PendingActionRepository = pendingActionRepository,
+  ) {}
+
   async createPendingAction(
     input: CreatePendingActionInput,
   ): Promise<PendingAction> {
@@ -105,17 +132,8 @@ export class ActionService {
     const args = input.args ?? {};
     const argumentsHash = hashArguments(args);
 
-    const outstanding = await db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(pendingActions)
-      .where(
-        and(
-          eq(pendingActions.userId, input.userId),
-          eq(pendingActions.status, "PENDING"),
-          gt(pendingActions.expiresAt, now),
-        ),
-      );
-    if ((outstanding[0]?.count ?? 0) >= MAX_PENDING_ACTIONS) {
+    const outstanding = await this.actions.countOutstanding(input.userId, now);
+    if (outstanding >= MAX_PENDING_ACTIONS) {
       throw new ValidationError(
         "There are too many actions waiting for confirmation. Resolve or cancel some first.",
       );
@@ -132,24 +150,19 @@ export class ActionService {
       argumentsHash,
     });
 
-    const inserted = await db
-      .insert(pendingActions)
-      .values({
-        id,
-        userId: input.userId,
-        conversationId: input.conversationId,
-        messageId: input.messageId ?? null,
-        toolName: input.toolName,
-        arguments: args,
-        argumentsHash,
-        provider,
-        status: "PENDING",
-        idempotencyKey,
-        expiresAt,
-      })
-      .returning();
-
-    return inserted[0]!;
+    return this.actions.insert({
+      id,
+      userId: input.userId,
+      conversationId: input.conversationId,
+      messageId: input.messageId ?? null,
+      toolName: input.toolName,
+      arguments: args,
+      argumentsHash,
+      provider,
+      status: "PENDING",
+      idempotencyKey,
+      expiresAt,
+    });
   }
 
   /** Owner-scoped read. Never returns another user's action. */
@@ -158,17 +171,10 @@ export class ActionService {
     actionId: string;
   }): Promise<PendingAction> {
     if (!input.userId) throw new ValidationError("An action needs a user.");
-    const rows = await db
-      .select()
-      .from(pendingActions)
-      .where(
-        and(
-          eq(pendingActions.id, input.actionId),
-          eq(pendingActions.userId, input.userId),
-        ),
-      )
-      .limit(1);
-    const action = rows[0];
+    const action = await this.actions.findByIdForUser(
+      input.userId,
+      input.actionId,
+    );
     if (!action) throw new NotFoundError("That action could not be found.");
     return action;
   }
@@ -180,14 +186,45 @@ export class ActionService {
   }): Promise<PendingAction[]> {
     if (!input.userId) throw new ValidationError("An action needs a user.");
     const limit = Math.min(Math.max(input.limit ?? 20, 1), MAX_ACTION_LIST);
-    const conditions = [eq(pendingActions.userId, input.userId)];
-    if (input.status) conditions.push(eq(pendingActions.status, input.status));
-    return db
-      .select()
-      .from(pendingActions)
-      .where(and(...conditions))
-      .orderBy(desc(pendingActions.createdAt))
-      .limit(limit);
+    return this.actions.listForUser({
+      userId: input.userId,
+      ...(input.status ? { status: input.status } : {}),
+      limit,
+    });
+  }
+
+  /**
+   * One cursor page of the caller's actions, newest first (Phase C5). Owner
+   * scoping is unchanged: the user id is part of every query.
+   */
+  async listActionsPage(input: {
+    userId: string;
+    status?: PendingActionStatus;
+    cursor?: string | null;
+    limit?: number;
+  }): Promise<{ actions: PendingAction[]; pagination: PaginationMeta }> {
+    if (!input.userId) throw new ValidationError("An action needs a user.");
+    const limit = Math.min(
+      Math.max(Math.trunc(input.limit ?? MAX_ACTION_LIST), 1),
+      MAX_ACTION_LIST,
+    );
+    const after = decodeActionCursor(input.cursor);
+    const rows = await this.actions.listForUser({
+      userId: input.userId,
+      ...(input.status ? { status: input.status } : {}),
+      ...(after ? { after } : {}),
+      limit: limit + 1,
+    });
+    const { page, pagination } = buildPage({
+      rows,
+      limit,
+      scope: ACTION_CURSOR_SCOPE,
+      cursorOf: (action): CursorValues => ({
+        c: action.createdAt.toISOString(),
+        id: action.id,
+      }),
+    });
+    return { actions: page, pagination };
   }
 
   /**
@@ -202,17 +239,11 @@ export class ActionService {
   }): Promise<PendingAction[]> {
     if (!input.userId) throw new ValidationError("An action needs a user.");
     const limit = Math.min(Math.max(input.limit ?? 50, 1), MAX_ACTION_LIST);
-    return db
-      .select()
-      .from(pendingActions)
-      .where(
-        and(
-          eq(pendingActions.userId, input.userId),
-          gt(pendingActions.updatedAt, input.since),
-        ),
-      )
-      .orderBy(asc(pendingActions.updatedAt))
-      .limit(limit);
+    return this.actions.listUpdatedSince({
+      userId: input.userId,
+      since: input.since,
+      limit,
+    });
   }
 
   /**
@@ -230,17 +261,11 @@ export class ActionService {
     if (userIds.length === 0) return [];
     const perUser = Math.min(Math.max(input.limitPerUser ?? 50, 1), MAX_ACTION_LIST);
     const total = Math.min(perUser * userIds.length, 500);
-    return db
-      .select()
-      .from(pendingActions)
-      .where(
-        and(
-          inArray(pendingActions.userId, userIds),
-          gt(pendingActions.updatedAt, input.since),
-        ),
-      )
-      .orderBy(asc(pendingActions.updatedAt))
-      .limit(total);
+    return this.actions.listUpdatedSinceMany({
+      userIds,
+      since: input.since,
+      limit: total,
+    });
   }
 
   /**
@@ -281,20 +306,12 @@ export class ActionService {
     }
 
     // The race is decided here: only one PENDING row can move to EXECUTING.
-    const claimed = await db
-      .update(pendingActions)
-      .set({ status: "EXECUTING", confirmedAt: now, updatedAt: now })
-      .where(
-        and(
-          eq(pendingActions.id, existing.id),
-          eq(pendingActions.userId, input.userId),
-          eq(pendingActions.status, "PENDING"),
-          gt(pendingActions.expiresAt, now),
-        ),
-      )
-      .returning();
+    const executing = await this.actions.claimPending({
+      userId: input.userId,
+      actionId: existing.id,
+      now,
+    });
 
-    const executing = claimed[0];
     if (!executing) {
       const current = await this.getAction(input);
       if (current.status === "SUCCEEDED") {
@@ -308,29 +325,19 @@ export class ActionService {
         action: executing,
         args: executing.arguments,
       });
-      const finished = await db
-        .update(pendingActions)
-        .set({
-          status: "SUCCEEDED",
-          result: toJsonRecord(result),
-          executedAt: new Date(),
-          updatedAt: new Date(),
-          lastError: null,
-        })
-        .where(eq(pendingActions.id, executing.id))
-        .returning();
-      return { action: finished[0] ?? executing, result, executed: true };
+      const finished = await this.actions.markSucceeded({
+        actionId: executing.id,
+        result: toJsonRecord(result),
+        now: new Date(),
+      });
+      return { action: finished ?? executing, result, executed: true };
     } catch (error) {
       const safe = toSafeError(error);
-      await db
-        .update(pendingActions)
-        .set({
-          status: "FAILED",
-          lastError: safe.message.slice(0, 500),
-          executedAt: new Date(),
-          updatedAt: new Date(),
-        })
-        .where(eq(pendingActions.id, executing.id));
+      await this.actions.markFailed({
+        actionId: executing.id,
+        lastError: safe.message.slice(0, 500),
+        now: new Date(),
+      });
       if (error instanceof AppError) throw error;
       throw new AppError("The action failed to complete.", {
         code: "external_service",
@@ -348,20 +355,13 @@ export class ActionService {
     now?: Date;
   }): Promise<PendingAction> {
     const now = input.now ?? new Date();
-    const cancelled = await db
-      .update(pendingActions)
-      .set({ status: "CANCELLED", updatedAt: now })
-      .where(
-        and(
-          eq(pendingActions.id, input.actionId),
-          eq(pendingActions.userId, input.userId),
-          eq(pendingActions.status, "PENDING"),
-          gt(pendingActions.expiresAt, now),
-        ),
-      )
-      .returning();
+    const cancelled = await this.actions.markCancelled({
+      userId: input.userId,
+      actionId: input.actionId,
+      now,
+    });
 
-    if (cancelled[0]) return cancelled[0];
+    if (cancelled) return cancelled;
 
     const current = await this.getAction(input);
     if (current.status === "CANCELLED") return current;
@@ -372,35 +372,18 @@ export class ActionService {
   async expireStale(input: { now?: Date; limit?: number } = {}): Promise<number> {
     const now = input.now ?? new Date();
     const limit = Math.min(Math.max(input.limit ?? 100, 1), 500);
-    const stale = await db
-      .select({ id: pendingActions.id })
-      .from(pendingActions)
-      .where(
-        and(
-          eq(pendingActions.status, "PENDING"),
-          lte(pendingActions.expiresAt, now),
-        ),
-      )
-      .limit(limit);
+    const stale = await this.actions.listExpiredIds({ now, limit });
     if (stale.length === 0) return 0;
-    await db
-      .update(pendingActions)
-      .set({ status: "EXPIRED", updatedAt: now })
-      .where(inArray(pendingActions.id, stale.map((row) => row.id)));
+    await this.actions.markExpiredByIds(stale, now);
     return stale.length;
   }
 
   private async markExpired(userId: string, actionId: string): Promise<void> {
-    await db
-      .update(pendingActions)
-      .set({ status: "EXPIRED", updatedAt: new Date() })
-      .where(
-        and(
-          eq(pendingActions.id, actionId),
-          eq(pendingActions.userId, userId),
-          eq(pendingActions.status, "PENDING"),
-        ),
-      );
+    await this.actions.markExpiredOwned({
+      userId,
+      actionId,
+      now: new Date(),
+    });
   }
 }
 

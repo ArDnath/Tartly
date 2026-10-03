@@ -1,36 +1,38 @@
 import "server-only";
 
-import { and, count, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { after } from "next/server";
 
 import { learnFromDraftEdit } from "@/lib/ai/features/reply-memory";
 import { MIN_MESSAGES_FOR_SUMMARY } from "@/lib/ai/features/summarize-thread";
+import {
+  buildPage,
+  decodeCursor,
+  DEFAULT_PAGE_LIMIT,
+  type CursorValues,
+  type PaginationMeta,
+} from "@/lib/api/pagination";
 import { getCalendarSettings } from "@/lib/calendar/settings";
 import { addUtcDays, getZonedParts, zonedTimeToUtc } from "@/lib/calendar/tz";
-import { db, pool } from "@/lib/db";
-import {
-  contacts,
-  drafts,
-  flowRuns,
-  mailboxes,
-  messages,
-  senderProfiles,
-  threadStates,
-  threads,
-} from "@/lib/db/schema";
-import {
-  getLatestMeetingForThread,
-  getThreadProposal,
-  type MeetingProposal,
-} from "@/lib/calendar/booking";
-import { seedDefaultFlows, type FlowGraph } from "@/lib/engine/flow";
-import { runFlow } from "@/lib/engine/run";
-import { kickDrain } from "@/lib/email-operator/drain";
-import { JOB_KIND_MAILBOX_SYNC } from "@/lib/email-operator/job-kinds";
-import type { GmailTransport } from "@/lib/gmail/client";
-import { sendEmail } from "@/lib/gmail/send";
-import { enqueueJob } from "@/lib/queue/queue";
+import { pool } from "@/lib/db";
+// NOTE: Gmail send, the durable queue/drain and the engine are imported
+// *dynamically* inside the functions that need them. A static import would pull
+// `lib/gmail/**`, `lib/email-operator/**`, `lib/queue/**` and `lib/engine/**`
+// into the module graph of every consumer — including the `/assistant` server
+// render (via `lib/briefing/service.ts`), which the Phase 7 guard forbids.
+import { autopilotRepository } from "@/lib/repositories/autopilot";
+import { contactRepository } from "@/lib/repositories/contacts";
+import { draftRepository } from "@/lib/repositories/drafts";
+import { flowRunRepository } from "@/lib/repositories/flow-runs";
+import { mailboxRepository } from "@/lib/repositories/mailboxes";
+import { messageRepository } from "@/lib/repositories/messages";
+import { senderProfileRepository } from "@/lib/repositories/sender-profiles";
+import { threadRepository } from "@/lib/repositories/threads";
+import type {
+  InboxCursor,
+  InboxThreadRow,
+} from "@/lib/repositories/threads";
+import { threadStateRepository } from "@/lib/repositories/thread-states";
 import {
   INBOX_VIEWS,
   type InboxCounts,
@@ -54,6 +56,10 @@ export {
 /**
  * Inbox read/write service. The inbox renders from Postgres — triage already
  * wrote `thread_states`, so opening a view costs no model call.
+ *
+ * All persistence goes through `lib/repositories/*`; this module owns the
+ * inbox's business rules (bucketing inputs, DTO shaping, send/discard
+ * orchestration).
  */
 
 export type ThreadDetail = {
@@ -90,7 +96,7 @@ export type ThreadDetail = {
     sentAt: string | null;
   }>;
   draft: { id: string; body: string; editedBody: string | null; status: string } | null;
-  proposal: MeetingProposal | null;
+  proposal: import("@/lib/calendar/booking").MeetingProposal | null;
   meeting: {
     id: string;
     startAt: string | null;
@@ -114,61 +120,6 @@ export function endOfLocalDay(now: Date, timeZone: string): Date {
 }
 
 /**
- * The one source of truth for bucketing, as a SQL `CASE` expression. Order is
- * the precedence ladder, so counts (grouped on this expression) and lists
- * (filtered on it) can never disagree.
- */
-function bucketExpression({
-  now,
-  endOfDay,
-}: {
-  now: Date;
-  endOfDay: Date;
-}) {
-  return sql<string>`case
-    when ${threadStates.category} in ('needs_reply','meeting_request')
-      or ${threadStates.action} = 'handoff'
-      or ${threadStates.category} is null
-      then 'needs_reply'
-    when exists (
-      select 1 from followup_enrollments fe
-      where fe.thread_id = ${threads.id}
-        and fe.status = 'active'
-        and fe.next_eval_at <= ${endOfDay}
-    ) then 'follow_up_today'
-    when exists (
-      select 1 from meetings mt
-      where mt.thread_id = ${threads.id}
-        and mt.start_at >= ${now}
-    ) or (
-      ${threadStates.category} = 'meeting_request'
-      and exists (
-        select 1 from meetings mt2
-        where mt2.thread_id = ${threads.id} and mt2.status = 'proposed'
-      )
-    ) then 'meetings'
-    when ${threadStates.category} = 'awaiting_reply'
-      or ${threadStates.replyStatus} = 'awaiting_them'
-      then 'waiting'
-    when exists (
-      select 1 from drafts d_ai
-      where d_ai.thread_id = ${threads.id}
-        and d_ai.sent_by = 'ai'
-        and d_ai.status = 'sent'
-        and d_ai.decided_at >= (${now}::timestamptz - interval '7 days')
-        and d_ai.decided_at >= coalesce(
-          (
-            select max(mi.sent_at) from messages mi
-            where mi.thread_id = ${threads.id} and mi.direction = 'inbound'
-          ),
-          '-infinity'::timestamptz
-        )
-    ) then 'ai_handled'
-    else 'fyi'
-  end`;
-}
-
-/**
  * Sidebar badge counts. Every bucket is counted with the same CASE expression
  * `listInbox` filters on, so a badge always equals the rows it links to.
  */
@@ -176,23 +127,20 @@ export async function getInboxCounts(userId: string): Promise<InboxCounts> {
   const now = new Date();
   const settings = await getCalendarSettings(userId);
   const endOfDay = endOfLocalDay(now, settings?.timezone ?? "UTC");
-  const bucket = bucketExpression({ now, endOfDay });
 
-  const [perBucket, unreadRows] = await Promise.all([
+  const [perBucket, unread] = await Promise.all([
     Promise.all(
       INBOX_VIEWS.map(async (view) => {
-        const rows = await db
-          .select({ total: count() })
-          .from(threads)
-          .leftJoin(threadStates, eq(threadStates.threadId, threads.id))
-          .where(and(eq(threads.userId, userId), sql`${bucket} = ${view}`));
-        return [view, Number(rows[0]?.total ?? 0)] as const;
+        const total = await threadRepository.countByBucket({
+          userId,
+          view,
+          now,
+          endOfDay,
+        });
+        return [view, total] as const;
       }),
     ),
-    db
-      .select({ total: count() })
-      .from(threads)
-      .where(and(eq(threads.userId, userId), eq(threads.isUnread, true))),
+    threadRepository.countUnread(userId),
   ]);
 
   const counts: InboxCounts = {
@@ -202,7 +150,7 @@ export async function getInboxCounts(userId: string): Promise<InboxCounts> {
     waiting: 0,
     ai_handled: 0,
     fyi: 0,
-    unread: Number(unreadRows[0]?.total ?? 0),
+    unread,
   };
   for (const [view, total] of perBucket) {
     counts[view] = total;
@@ -222,60 +170,146 @@ export async function listInbox({
   since?: string | null;
   limit?: number;
 }): Promise<InboxItem[]> {
+  const rows = await fetchInboxRows({
+    userId,
+    view,
+    since,
+    limit: Math.min(limit, MAX_INBOX_LIMIT),
+  });
+  return hydrateInbox(userId, view, rows);
+}
+
+/** Cursor scope tag: keeps an inbox cursor from being replayed elsewhere. */
+const INBOX_CURSOR_SCOPE = "inbox";
+const MAX_INBOX_LIMIT = 100;
+
+function inboxCursorOf(row: InboxThreadRow): CursorValues {
+  return {
+    p: row.state?.priority ?? null,
+    m: row.thread.lastMessageAt
+      ? row.thread.lastMessageAt.toISOString()
+      : null,
+    id: row.thread.id,
+  };
+}
+
+/** Decode the opaque inbox cursor; a bad/foreign cursor restarts the list. */
+function decodeInboxCursor(
+  cursor: string | null | undefined,
+): InboxCursor | undefined {
+  const values = decodeCursor(cursor, INBOX_CURSOR_SCOPE, ["p", "m", "id"]);
+  if (!values) return undefined;
+  const { p, m, id } = values;
+  if (typeof id !== "string" || id.length === 0) return undefined;
+  if (p !== null && typeof p !== "number") return undefined;
+  if (m !== null && typeof m !== "string") return undefined;
+  let lastMessageAt: Date | null = null;
+  if (m !== null) {
+    const parsed = new Date(m);
+    if (Number.isNaN(parsed.getTime())) return undefined;
+    lastMessageAt = parsed;
+  }
+  return { priority: p, lastMessageAt, id };
+}
+
+/**
+ * One cursor page of the inbox (Phase C5). Fetches `limit + 1` rows to learn
+ * whether a next page exists, trims to `limit`, and returns the opaque cursor
+ * for the last row. `since` remains accepted for backwards compatibility.
+ */
+export async function listInboxPage({
+  userId,
+  view = "needs_reply",
+  since,
+  cursor,
+  limit = DEFAULT_PAGE_LIMIT,
+}: {
+  userId: string;
+  view?: InboxView;
+  since?: string | null;
+  cursor?: string | null;
+  limit?: number;
+}): Promise<{ items: InboxItem[]; pagination: PaginationMeta }> {
+  const bounded = Math.min(Math.max(Math.trunc(limit), 1), MAX_INBOX_LIMIT);
+  const after = decodeInboxCursor(cursor);
+  const rows = await fetchInboxRows({
+    userId,
+    view,
+    since,
+    ...(after ? { after } : {}),
+    limit: bounded + 1,
+  });
+  const { page, pagination } = buildPage({
+    rows,
+    limit: bounded,
+    scope: INBOX_CURSOR_SCOPE,
+    cursorOf: inboxCursorOf,
+  });
+  const items = await hydrateInbox(userId, view, page);
+  return { items, pagination };
+}
+
+async function fetchInboxRows({
+  userId,
+  view,
+  since,
+  after,
+  limit,
+}: {
+  userId: string;
+  view: InboxView;
+  since?: string | null;
+  after?: InboxCursor;
+  limit: number;
+}): Promise<InboxThreadRow[]> {
   const now = new Date();
   const settings = await getCalendarSettings(userId);
   const endOfDay = endOfLocalDay(now, settings?.timezone ?? "UTC");
-  const conditions = [
-    eq(threads.userId, userId),
-    sql`${bucketExpression({ now, endOfDay })} = ${view}`,
-  ];
+
+  let sinceDate: Date | undefined;
   if (since) {
-    const sinceDate = new Date(since);
-    if (!Number.isNaN(sinceDate.getTime())) {
-      conditions.push(gt(threads.lastMessageAt, sinceDate));
-    }
+    const parsed = new Date(since);
+    if (!Number.isNaN(parsed.getTime())) sinceDate = parsed;
   }
 
-  const rows = await db
-    .select({
-      thread: threads,
-      state: threadStates,
-    })
-    .from(threads)
-    .leftJoin(threadStates, eq(threadStates.threadId, threads.id))
-    .where(and(...conditions))
-    .orderBy(desc(threadStates.priority), desc(threads.lastMessageAt))
-    .limit(Math.min(limit, 100));
+  return threadRepository.listInbox({
+    userId,
+    view,
+    now,
+    endOfDay,
+    ...(sinceDate ? { since: sinceDate } : {}),
+    ...(after ? { after } : {}),
+    limit,
+  });
+}
 
+async function hydrateInbox(
+  userId: string,
+  view: InboxView,
+  rows: InboxThreadRow[],
+): Promise<InboxItem[]> {
   const threadIds = rows.map((row) => row.thread.id);
   if (threadIds.length === 0) return [];
 
-  // Only the newest message per thread feeds the row. `DISTINCT ON` lets
-  // Postgres return one row per thread instead of streaming the whole history
-  // so JS can throw all but the last away.
-  const latestMessages = await db
-    .selectDistinctOn([messages.threadId])
-    .from(messages)
-    .where(inArray(messages.threadId, threadIds))
-    .orderBy(messages.threadId, desc(messages.sentAt));
+  const [latestMessages, draftThreadIds, overnightThreadIds] = await Promise.all([
+    messageRepository.latestByThreadIds(threadIds),
+    draftRepository.listPendingThreadIds(threadIds),
+    // 24/7 autopilot: which of these threads were auto-sent in the last day.
+    autopilotRepository
+      .listSentDecisionThreadIds(
+        userId,
+        threadIds,
+        new Date(Date.now() - 24 * 60 * 60 * 1000),
+      )
+      .catch(() => []),
+  ]);
 
   const latestByThread = new Map<string, (typeof latestMessages)[number]>();
   for (const message of latestMessages) {
     latestByThread.set(message.threadId, message);
   }
-
-  const pendingDrafts = await db
-    .select({ threadId: drafts.threadId })
-    .from(drafts)
-    .where(
-      and(
-        inArray(drafts.threadId, threadIds),
-        eq(drafts.status, "pending"),
-        // A draft below the user's confidence threshold is stored but hidden.
-        eq(drafts.suppressed, false),
-      ),
-    );
-  const draftThreads = new Set(pendingDrafts.map((row) => row.threadId));
+  const draftThreads = new Set(draftThreadIds);
+  const overnightThreads = new Set(overnightThreadIds);
 
   // Resolve friendly names for known senders (the mirror only stores addresses).
   const fromAddrs = Array.from(
@@ -292,20 +326,8 @@ export async function listInbox({
   >();
   if (fromAddrs.length > 0) {
     const [known, profiles] = await Promise.all([
-      db
-        .select({ email: contacts.email, name: contacts.name })
-        .from(contacts)
-        .where(and(eq(contacts.userId, userId), inArray(contacts.email, fromAddrs))),
-      db
-        .select({
-          email: senderProfiles.email,
-          category: senderProfiles.category,
-          coldEmailScore: senderProfiles.coldEmailScore,
-        })
-        .from(senderProfiles)
-        .where(
-          and(eq(senderProfiles.userId, userId), inArray(senderProfiles.email, fromAddrs)),
-        ),
+      contactRepository.listNamesByEmails(userId, fromAddrs),
+      senderProfileRepository.listByEmails(userId, fromAddrs),
     ]);
     for (const contact of known) {
       if (contact.name) nameByEmail.set(contact.email.toLowerCase(), contact.name);
@@ -342,6 +364,7 @@ export async function listInbox({
       senderCategory: profile?.category ?? null,
       isColdEmail: (profile?.coldEmailScore ?? 0) >= 70,
       replyStatus: state?.replyStatus ?? null,
+      handledOvernight: overnightThreads.has(thread.id),
       bucket: view,
     };
   });
@@ -354,37 +377,17 @@ export async function getThreadDetail({
   userId: string;
   threadId: string;
 }): Promise<ThreadDetail | null> {
-  const threadRows = await db
-    .select()
-    .from(threads)
-    .where(and(eq(threads.id, threadId), eq(threads.userId, userId)))
-    .limit(1);
-  const thread = threadRows[0];
+  const thread = await threadRepository.findByIdForUser(userId, threadId);
   if (!thread) return null;
 
-  const [history, stateRows, draftRows, proposal, meeting] = await Promise.all([
-    db
-      .select()
-      .from(messages)
-      .where(eq(messages.threadId, threadId))
-      .orderBy(messages.sentAt),
-    db
-      .select()
-      .from(threadStates)
-      .where(eq(threadStates.threadId, threadId))
-      .limit(1),
-    db
-      .select()
-      .from(drafts)
-      .where(
-        and(
-          eq(drafts.threadId, threadId),
-          eq(drafts.status, "pending"),
-          // Below-threshold drafts are stored but not surfaced as actionable.
-          eq(drafts.suppressed, false),
-        ),
-      )
-      .limit(1),
+  const { getLatestMeetingForThread, getThreadProposal } = await import(
+    "@/lib/calendar/booking"
+  );
+
+  const [history, state, draft, proposal, meeting] = await Promise.all([
+    messageRepository.listByThread(threadId),
+    threadStateRepository.findByThreadId(threadId),
+    draftRepository.findPendingByThread(threadId),
     getThreadProposal(threadId),
     getLatestMeetingForThread(threadId),
   ]);
@@ -393,24 +396,9 @@ export async function getThreadDetail({
   const senderEmail = [...history]
     .reverse()
     .find((message) => message.direction === "inbound")?.fromAddr;
-  const senderProfileRows = senderEmail
-    ? await db
-        .select({
-          email: senderProfiles.email,
-          category: senderProfiles.category,
-          coldEmailScore: senderProfiles.coldEmailScore,
-          status: senderProfiles.status,
-          unsubscribeMethod: senderProfiles.unsubscribeMethod,
-        })
-        .from(senderProfiles)
-        .where(
-          and(
-            eq(senderProfiles.userId, userId),
-            eq(senderProfiles.email, senderEmail.toLowerCase()),
-          ),
-        )
-        .limit(1)
-    : [];
+  const senderProfile = senderEmail
+    ? await senderProfileRepository.findByEmail(userId, senderEmail)
+    : undefined;
 
   return {
     thread: {
@@ -422,16 +410,24 @@ export async function getThreadDetail({
         ? thread.lastMessageAt.toISOString()
         : null,
     },
-    state: stateRows[0]
+    state: state
       ? {
-          category: stateRows[0].category,
-          priority: stateRows[0].priority,
-          action: stateRows[0].action,
-          reason: stateRows[0].reason ?? null,
-          replyStatus: stateRows[0].replyStatus ?? null,
+          category: state.category,
+          priority: state.priority,
+          action: state.action,
+          reason: state.reason ?? null,
+          replyStatus: state.replyStatus ?? null,
         }
       : null,
-    senderProfile: senderProfileRows[0] ?? null,
+    senderProfile: senderProfile
+      ? {
+          email: senderProfile.email,
+          category: senderProfile.category,
+          coldEmailScore: senderProfile.coldEmailScore,
+          status: senderProfile.status,
+          unsubscribeMethod: senderProfile.unsubscribeMethod,
+        }
+      : null,
     canSummarize: history.length >= MIN_MESSAGES_FOR_SUMMARY,
     messages: history.map((message) => ({
       id: message.id,
@@ -442,12 +438,12 @@ export async function getThreadDetail({
       bodyText: message.bodyText,
       sentAt: message.sentAt ? message.sentAt.toISOString() : null,
     })),
-    draft: draftRows[0]
+    draft: draft
       ? {
-          id: draftRows[0].id,
-          body: draftRows[0].body,
-          editedBody: draftRows[0].editedBody,
-          status: draftRows[0].status,
+          id: draft.id,
+          body: draft.body,
+          editedBody: draft.editedBody,
+          status: draft.status,
         }
       : null,
     proposal,
@@ -477,46 +473,26 @@ export async function approveDraft({
   draftId: string;
   editedBody?: string | null;
   /** Test seam; defaults to the real Gmail transport. */
-  transport?: GmailTransport;
+  transport?: import("@/lib/gmail/client").GmailTransport;
 }): Promise<{ sent: boolean; deduped: boolean } | null> {
-  const rows = await db
-    .select()
-    .from(drafts)
-    .where(and(eq(drafts.id, draftId), eq(drafts.userId, userId)))
-    .limit(1);
-  const draft = rows[0];
+  const draft = await draftRepository.findByIdForUser(userId, draftId);
   if (!draft) return null;
   if (draft.status === "sent") return { sent: true, deduped: true };
   if (draft.status === "discarded") return null;
 
-  const threadRows = await db
-    .select()
-    .from(threads)
-    .where(eq(threads.id, draft.threadId))
-    .limit(1);
-  const thread = threadRows[0];
+  const thread = await threadRepository.findByIdForUser(userId, draft.threadId);
   if (!thread) return null;
 
-  const mailboxRows = await db
-    .select()
-    .from(mailboxes)
-    .where(eq(mailboxes.id, thread.mailboxId))
-    .limit(1);
-  const mailbox = mailboxRows[0];
+  const mailbox = await mailboxRepository.findById(thread.mailboxId);
   if (!mailbox) return null;
 
-  const inbound = (
-    await db
-      .select()
-      .from(messages)
-      .where(and(eq(messages.threadId, thread.id), eq(messages.direction, "inbound")))
-      .orderBy(desc(messages.sentAt))
-      .limit(1)
-  )[0];
+  const inbound = await messageRepository.latestInboundByThreadId(thread.id);
 
   const body = (editedBody ?? draft.body).trim();
   const recipient = inbound?.fromAddr;
   if (!recipient) throw new Error("Thread has no inbound sender to reply to.");
+
+  const { sendEmail } = await import("@/lib/gmail/send");
 
   const result = await sendEmail({
     userId,
@@ -532,31 +508,25 @@ export async function approveDraft({
   });
 
   if (result.gmailMessageId) {
-    await db
-      .insert(messages)
-      .values({
-        id: nanoid(),
-        threadId: thread.id,
-        gmailMessageId: result.gmailMessageId,
-        direction: "outbound",
-        fromAddr: mailbox.email,
-        toAddr: [recipient],
-        subject: thread.subject ? `Re: ${thread.subject}` : "Re:",
-        bodyText: body,
-        sentAt: new Date(),
-      })
-      .onConflictDoNothing({ target: messages.gmailMessageId });
+    await messageRepository.insert({
+      id: nanoid(),
+      threadId: thread.id,
+      gmailMessageId: result.gmailMessageId,
+      direction: "outbound",
+      fromAddr: mailbox.email,
+      toAddr: [recipient],
+      subject: thread.subject ? `Re: ${thread.subject}` : "Re:",
+      bodyText: body,
+      sentAt: new Date(),
+    });
   }
 
-  await db
-    .update(drafts)
-    .set({
-      status: "sent",
-      sentBy: "user",
-      editedBody: editedBody ?? draft.editedBody,
-      decidedAt: new Date(),
-    })
-    .where(eq(drafts.id, draft.id));
+  await draftRepository.markSent({
+    draftId: draft.id,
+    sentBy: "user",
+    editedBody: editedBody ?? draft.editedBody,
+    decidedAt: new Date(),
+  });
 
   // Learn the durable preference from the edit, after the response. Best-effort:
   // a memory failure must never affect a send that already succeeded.
@@ -600,15 +570,10 @@ export async function discardDraft({
   userId: string;
   draftId: string;
 }): Promise<boolean> {
-  const updated = await db
-    .update(drafts)
-    .set({ status: "discarded", decidedAt: new Date() })
-    .where(and(eq(drafts.id, draftId), eq(drafts.userId, userId)))
-    .returning({ id: drafts.id });
-  return updated.length > 0;
+  return draftRepository.discardForUser({ userId, draftId, now: new Date() });
 }
 
-const DRAFT_REGEN_GRAPH: FlowGraph = {
+const DRAFT_REGEN_GRAPH: import("@/lib/engine/flow").FlowGraph = {
   nodes: [
     { id: "l", type: "load-context" },
     { id: "d", type: "draft-reply" },
@@ -624,16 +589,16 @@ export async function regenerateDraft({
   userId: string;
   threadId: string;
 }): Promise<{ draftId: string; body: string } | null> {
-  const threadRows = await db
-    .select({ id: threads.id })
-    .from(threads)
-    .where(and(eq(threads.id, threadId), eq(threads.userId, userId)))
-    .limit(1);
-  if (!threadRows[0]) return null;
+  const thread = await threadRepository.findIdForUser(userId, threadId);
+  if (!thread) return null;
 
+  const [{ seedDefaultFlows }, { runFlow }] = await Promise.all([
+    import("@/lib/engine/flow"),
+    import("@/lib/engine/run"),
+  ]);
   const flow = await seedDefaultFlows(userId);
   const runId = nanoid();
-  await db.insert(flowRuns).values({
+  await flowRunRepository.insert({
     id: runId,
     userId,
     flowId: flow.id,
@@ -666,13 +631,15 @@ export async function syncInbox(userId: string): Promise<{
   accepted: boolean;
   mailboxId: string | null;
 }> {
-  const mailboxRows = await db
-    .select({ id: mailboxes.id })
-    .from(mailboxes)
-    .where(eq(mailboxes.userId, userId))
-    .limit(1);
-  const mailbox = mailboxRows[0];
+  const mailbox = await mailboxRepository.findFirstIdForUser(userId);
   if (!mailbox) return { accepted: false, mailboxId: null };
+
+  const [{ enqueueJob }, { JOB_KIND_MAILBOX_SYNC }, { kickDrain }] =
+    await Promise.all([
+      import("@/lib/queue/queue"),
+      import("@/lib/email-operator/job-kinds"),
+      import("@/lib/email-operator/drain"),
+    ]);
 
   // `mailbox_sync` first pulls new mail into the mirror, then enqueues the
   // triage pass. Enqueuing `inbound_email` directly (as this used to) only

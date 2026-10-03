@@ -145,6 +145,43 @@ export function CatchUpOverlay({
             </ul>
           ) : null}
 
+          {catchUp.overnight ? (
+            <div className="flex flex-col gap-2 rounded-lg border border-white/10 bg-white/[0.03] p-3.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
+                  <MoonIcon className="size-4 text-muted-foreground" aria-hidden />
+                  Overnight
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {catchUp.overnight.windowLabel}
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-2 text-xs">
+                <span className="rounded-full border border-white/10 px-2.5 py-0.5 text-foreground">
+                  {catchUp.overnight.totals.sent} sent
+                </span>
+                <span className="rounded-full border border-white/10 px-2.5 py-0.5 text-muted-foreground">
+                  {catchUp.overnight.totals.drafted} drafted
+                </span>
+                <span className="rounded-full border border-white/10 px-2.5 py-0.5 text-muted-foreground">
+                  {catchUp.overnight.totals.blocked} held
+                </span>
+              </div>
+              {catchUp.overnight.sent.length > 0 ? (
+                <ul className="flex flex-col gap-1">
+                  {catchUp.overnight.sent.slice(0, 3).map((item) => (
+                    <li
+                      key={`sent:${item.threadId}`}
+                      className="truncate text-xs text-muted-foreground"
+                    >
+                      Sent automatically · {item.reasonLabel}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          ) : null}
+
           <div className="flex items-center gap-3">
             <Button
               size="lg"

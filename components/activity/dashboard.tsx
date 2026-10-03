@@ -4,6 +4,7 @@ import {
   CalendarCheck,
   FileText,
   Info,
+  Moon,
   ShieldCheck,
 } from "@phosphor-icons/react/ssr";
 import Link from "next/link";
@@ -13,6 +14,7 @@ import { BudgetPanel, HighlightsPanel, OverviewPanel } from "@/components/activi
 import { Cell, EmptyPanel } from "@/components/activity/charts";
 import { formatRelativeTime } from "@/lib/activity/format";
 import type {
+  ActivityAutopilot,
   ActivityDashboard,
   ActivityFeedItem,
 } from "@/lib/activity/types";
@@ -139,6 +141,7 @@ export function ActivityDashboardView({
     peak,
     busiestDay,
     streak,
+    autopilot,
   } = data;
 
   if (!data.hasData) {
@@ -182,6 +185,8 @@ export function ActivityDashboardView({
           updated {formatRelativeTime(data.generatedAt)}
         </span>
       </header>
+
+      <AutopilotStrip autopilot={autopilot} />
 
       {/* Bento: two chart-led tiles span 8 of 12 columns; Signals and the log
           take the remaining 4. On xl the two rows split the viewport evenly so
@@ -243,6 +248,76 @@ export function ActivityDashboardView({
           />
         </Cell>
       </div>
+    </div>
+  );
+}
+
+function AutopilotStrip({ autopilot }: { autopilot: ActivityAutopilot }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border border-border/70 bg-card/40 px-4 py-2.5 text-[12px] backdrop-blur-sm">
+      <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
+        <Moon className="size-3.5 text-muted-foreground" aria-hidden />
+        24/7 Autopilot
+        <span
+          className={cn(
+            "rounded-full border px-1.5 py-px text-[10px] font-medium uppercase tracking-wide",
+            autopilot.enabled
+              ? "border-transparent bg-foreground text-background"
+              : "border-border text-muted-foreground",
+          )}
+        >
+          {autopilot.enabled ? autopilot.windowLabel : "Off"}
+        </span>
+      </span>
+
+      <span className="text-muted-foreground">
+        <strong className="font-medium text-foreground">{autopilot.sendsToday}</strong>{" "}
+        sent today
+      </span>
+      <span className="text-muted-foreground">
+        <strong className="font-medium text-foreground">{autopilot.sendsWindow}</strong>{" "}
+        in 7 days
+      </span>
+      <span className="text-muted-foreground">
+        <strong className="font-medium text-foreground">{autopilot.held}</strong> held
+      </span>
+      {autopilot.capHits > 0 ? (
+        <span className="text-amber-600 dark:text-amber-400">
+          {autopilot.capHits} cap {autopilot.capHits === 1 ? "hit" : "hits"}
+        </span>
+      ) : null}
+      {autopilot.watchUnhealthy > 0 ? (
+        <span className="text-amber-600 dark:text-amber-400">
+          {autopilot.watchUnhealthy} push{" "}
+          {autopilot.watchUnhealthy === 1 ? "watch" : "watches"} need attention
+        </span>
+      ) : null}
+      {autopilot.deadJobs > 0 ? (
+        <span className="text-destructive">
+          {autopilot.deadJobs} dead {autopilot.deadJobs === 1 ? "job" : "jobs"}
+        </span>
+      ) : null}
+
+      {autopilot.decisions.length > 0 ? (
+        <span className="ml-auto flex flex-wrap items-center gap-1.5">
+          {autopilot.decisions.map((reason) => (
+            <span
+              key={reason.reason}
+              title={reason.reason}
+              className="rounded-full border border-border px-2 py-0.5 text-[10px] text-muted-foreground"
+            >
+              {reason.label} · {reason.count}
+            </span>
+          ))}
+        </span>
+      ) : (
+        <Link
+          href="/settings/autopilot"
+          className="ml-auto text-[11px] font-medium text-foreground underline-offset-4 hover:underline"
+        >
+          Set up Autopilot
+        </Link>
+      )}
     </div>
   );
 }

@@ -1,10 +1,7 @@
 import "server-only";
 
-import { and, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
-import { db } from "@/lib/db";
-import { mailboxes, messages, threads } from "@/lib/db/schema";
 import {
   defaultGmailTransport,
   gmailJson,
@@ -16,6 +13,9 @@ import {
   type GmailMessageResource,
   type ParsedMessage,
 } from "@/lib/gmail/parse";
+import { mailboxRepository } from "@/lib/repositories/mailboxes";
+import { messageRepository } from "@/lib/repositories/messages";
+import { threadRepository } from "@/lib/repositories/threads";
 
 type GmailListResponse = {
   messages?: Array<{ id?: string | null; threadId?: string | null }>;
@@ -67,26 +67,43 @@ export async function listHistoryMessageIds(
   userId: string,
   startHistoryId: string,
   transport: GmailTransport = defaultGmailTransport,
-): Promise<{ messageIds: string[]; historyId: string | null }> {
-  const params = new URLSearchParams({ startHistoryId, maxResults: "100" });
-  const response = await gmailJson<GmailHistoryResponse>(
-    userId,
-    `/history?${params.toString()}`,
-    undefined,
-    transport,
-  );
-
+  options: { maxPages?: number } = {},
+): Promise<{ messageIds: string[]; historyId: string | null; pageCount: number }> {
+  // Bound the walk: a single drain must not page for minutes. Five pages of
+  // 100 is 500 messages, far more than one overnight window produces.
+  const maxPages = Math.max(1, Math.min(options.maxPages ?? 5, 20));
   const ids = new Set<string>();
-  for (const entry of response.history ?? []) {
-    for (const message of entry.messages ?? []) {
-      if (message.id) ids.add(message.id);
+  let pageToken: string | undefined;
+  let historyId: string | null = null;
+  let pageCount = 0;
+
+  for (let page = 0; page < maxPages; page += 1) {
+    const params = new URLSearchParams({ startHistoryId, maxResults: "100" });
+    if (pageToken) params.set("pageToken", pageToken);
+
+    const response = await gmailJson<GmailHistoryResponse>(
+      userId,
+      `/history?${params.toString()}`,
+      undefined,
+      transport,
+    );
+    pageCount += 1;
+
+    for (const entry of response.history ?? []) {
+      for (const message of entry.messages ?? []) {
+        if (message.id) ids.add(message.id);
+      }
+      for (const added of entry.messagesAdded ?? []) {
+        if (added.message?.id) ids.add(added.message.id);
+      }
     }
-    for (const added of entry.messagesAdded ?? []) {
-      if (added.message?.id) ids.add(added.message.id);
-    }
+
+    if (response.historyId) historyId = response.historyId;
+    if (!response.nextPageToken) break;
+    pageToken = response.nextPageToken;
   }
 
-  return { messageIds: [...ids], historyId: response.historyId ?? null };
+  return { messageIds: [...ids], historyId, pageCount };
 }
 
 export async function fetchMessageResource(
@@ -130,30 +147,16 @@ export async function upsertParsedMessage({
     parsed.snippet ||
     "";
 
-  const insertedThread = await db
-    .insert(threads)
-    .values({
-      id: nanoid(),
-      mailboxId,
-      userId,
-      gmailThreadId: parsed.gmailThreadId,
-      subject: parsed.subject,
-      lastMessageAt: parsed.sentAt,
-      labels: parsed.labels,
-      isUnread: parsed.labels.includes("UNREAD"),
-    })
-    .onConflictDoUpdate({
-      target: threads.gmailThreadId,
-      set: {
-        subject: parsed.subject,
-        labels: parsed.labels,
-        isUnread: parsed.labels.includes("UNREAD"),
-        updatedAt: new Date(),
-      },
-    })
-    .returning({ id: threads.id, lastMessageAt: threads.lastMessageAt });
-
-  const thread = insertedThread[0];
+  const thread = await threadRepository.upsertMirrored({
+    id: nanoid(),
+    mailboxId,
+    userId,
+    gmailThreadId: parsed.gmailThreadId,
+    subject: parsed.subject,
+    lastMessageAt: parsed.sentAt,
+    labels: parsed.labels,
+    isUnread: parsed.labels.includes("UNREAD"),
+  });
 
   // Keep lastMessageAt monotonic: an older message fetched later must not
   // move the thread backwards.
@@ -161,15 +164,14 @@ export async function upsertParsedMessage({
     parsed.sentAt &&
     (!thread.lastMessageAt || parsed.sentAt > thread.lastMessageAt)
   ) {
-    await db
-      .update(threads)
-      .set({ lastMessageAt: parsed.sentAt })
-      .where(eq(threads.id, thread.id));
+    await threadRepository.updateLastMessageAt(
+      thread.id,
+      parsed.sentAt,
+    );
   }
 
-  const insertedMessage = await db
-    .insert(messages)
-    .values({
+  const insertedMessage = await messageRepository.upsertMirrored(
+    {
       id: nanoid(),
       threadId: thread.id,
       gmailMessageId: parsed.gmailMessageId,
@@ -181,20 +183,12 @@ export async function upsertParsedMessage({
       bodyHtml: parsed.bodyHtml,
       snippet: parsed.snippet,
       unsubscribe: parsed.unsubscribe,
+      autoSubmitted: parsed.autoSubmitted,
       sentAt: parsed.sentAt,
-    })
-    .onConflictDoUpdate({
-      target: messages.gmailMessageId,
-      set: {
-        bodyText,
-        bodyHtml: parsed.bodyHtml,
-        snippet: parsed.snippet,
-        unsubscribe: parsed.unsubscribe,
-      },
-    })
-    .returning({ id: messages.id });
+    },
+  );
 
-  return { threadId: thread.id, messageId: insertedMessage[0].id };
+  return { threadId: thread.id, messageId: insertedMessage.id };
 }
 
 /**
@@ -207,59 +201,68 @@ export async function syncMailbox(
   mailboxId: string,
   transport: GmailTransport = defaultGmailTransport,
 ): Promise<{ synced: number; historyId: string | null }> {
-  const rows = await db
-    .select()
-    .from(mailboxes)
-    .where(and(eq(mailboxes.id, mailboxId), eq(mailboxes.userId, userId)))
-    .limit(1);
-
-  const mailbox = rows[0];
+  const mailbox = await mailboxRepository.findByIdForUser(
+    userId,
+    mailboxId,
+  );
   if (!mailbox) throw new Error(`Mailbox ${mailboxId} not found for user.`);
 
-  let messageIds: string[] = [];
-  let historyId: string | null = null;
+  try {
+    let messageIds: string[] = [];
+    let historyId: string | null = null;
 
-  if (mailbox.historyId) {
-    try {
-      const result = await listHistoryMessageIds(
+    if (mailbox.historyId) {
+      try {
+        const result = await listHistoryMessageIds(
+          userId,
+          mailbox.historyId,
+          transport,
+        );
+        messageIds = result.messageIds;
+        historyId = result.historyId;
+      } catch (error) {
+        // Expired/invalid cursor: fall back to a recent listing.
+        console.warn("[gmail/sync] history.list failed, falling back", error);
+      }
+    }
+
+    if (!mailbox.historyId || messageIds.length === 0) {
+      messageIds = await listRecentMessageIds(userId, { transport });
+      if (!historyId) {
+        const profile = await getGmailProfile(userId, transport);
+        historyId = profile.historyId ?? null;
+      }
+    }
+
+    let synced = 0;
+    for (const messageId of messageIds) {
+      const resource = await fetchMessageResource(userId, messageId, transport);
+      await upsertParsedMessage({
         userId,
-        mailbox.historyId,
-        transport,
-      );
-      messageIds = result.messageIds;
-      historyId = result.historyId;
-    } catch (error) {
-      // Expired/invalid cursor: fall back to a recent listing.
-      console.warn("[gmail/sync] history.list failed, falling back", error);
+        mailboxId,
+        parsed: parseGmailMessage(resource),
+      });
+      synced += 1;
     }
-  }
 
-  if (!mailbox.historyId || messageIds.length === 0) {
-    messageIds = await listRecentMessageIds(userId, { transport });
-    if (!historyId) {
-      const profile = await getGmailProfile(userId, transport);
-      historyId = profile.historyId ?? null;
-    }
-  }
-
-  let synced = 0;
-  for (const messageId of messageIds) {
-    const resource = await fetchMessageResource(userId, messageId, transport);
-    await upsertParsedMessage({
-      userId,
+    await mailboxRepository.updateSyncCursor({
       mailboxId,
-      parsed: parseGmailMessage(resource),
-    });
-    synced += 1;
-  }
-
-  await db
-    .update(mailboxes)
-    .set({
       historyId: historyId ?? mailbox.historyId,
       lastSyncedAt: new Date(),
-    })
-    .where(eq(mailboxes.id, mailboxId));
+    });
 
-  return { synced, historyId: historyId ?? mailbox.historyId };
+    // A successful pass clears any prior failure marker.
+    if (mailbox.syncError) {
+      await mailboxRepository.updateSyncError(mailboxId, null);
+    }
+
+    return { synced, historyId: historyId ?? mailbox.historyId };
+  } catch (error) {
+    // Record a short, content-free marker, then rethrow so the caller's
+    // retry/backoff still applies. Never store the raw error (may leak).
+    await mailboxRepository
+      .updateSyncError(mailboxId, "sync_failed")
+      .catch(() => {});
+    throw error;
+  }
 }

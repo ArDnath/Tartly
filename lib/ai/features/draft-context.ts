@@ -1,18 +1,15 @@
 import "server-only";
 
-import { and, count, eq, isNull } from "drizzle-orm";
-
 import { searchKnowledge } from "@/lib/ai/features/knowledge";
 import { selectReplyMemories } from "@/lib/ai/features/reply-memory";
-import { db } from "@/lib/db";
 import {
-  assistantSettings,
-  commitments,
-  knowledgeEntries,
-  replyMemories,
-  snippets,
-  type WritingStyleProfile,
-} from "@/lib/db/schema";
+  assistantSettingsRepository,
+  type NewAssistantSettings,
+} from "@/lib/repositories/assistant-settings";
+import { commitmentRepository } from "@/lib/repositories/commitments";
+import { knowledgeRepository } from "@/lib/repositories/knowledge";
+import { replyMemoryRepository } from "@/lib/repositories/reply-memory";
+import type { WritingStyleProfile } from "@/lib/db/schema";
 import { isAssistantKnowledgeEnabled, isAssistantMemoryEnabled, isAssistantVoiceEnabled } from "@/lib/env";
 
 /**
@@ -52,6 +49,8 @@ export type AssistantConfig = {
   briefingHour: number;
   commitmentsEnabled: boolean;
   memoryAutoExtract: boolean;
+  /** 24/7 autopilot: show the overnight review block in the morning catch-up. */
+  overnightReviewEnabled: boolean;
 };
 
 export type DigestFrequency = "off" | "daily" | "weekly";
@@ -78,6 +77,7 @@ export const DEFAULT_ASSISTANT_CONFIG: AssistantConfig = {
   briefingHour: 8,
   commitmentsEnabled: true,
   memoryAutoExtract: false,
+  overnightReviewEnabled: true,
 };
 
 export function normalizeColdEmailAction(value: unknown): ColdEmailAction {
@@ -118,13 +118,8 @@ export function normalizeDraftConfidenceSetting(
 export async function getAssistantSettings(
   userId: string,
 ): Promise<AssistantConfig> {
-  const rows = await db
-    .select()
-    .from(assistantSettings)
-    .where(eq(assistantSettings.userId, userId))
-    .limit(1);
+  const row = await assistantSettingsRepository.findByUser(userId);
 
-  const row = rows[0];
   if (!row) return DEFAULT_ASSISTANT_CONFIG;
 
   return {
@@ -145,6 +140,7 @@ export async function getAssistantSettings(
     briefingHour: normalizeBriefingHour(row.briefingHour),
     commitmentsEnabled: row.commitmentsEnabled,
     memoryAutoExtract: row.memoryAutoExtract,
+    overnightReviewEnabled: row.overnightReviewEnabled,
   };
 }
 
@@ -175,90 +171,93 @@ export async function updateAssistantSettings(
     briefingHour: number;
     commitmentsEnabled: boolean;
     memoryAutoExtract: boolean;
+    overnightReviewEnabled: boolean;
   }>,
 ): Promise<void> {
   const now = new Date();
-  await db
-    .insert(assistantSettings)
-    .values({
-      userId,
-      voiceEnabled: patch.voiceEnabled ?? true,
-      memoryEnabled: patch.memoryEnabled ?? true,
-      knowledgeEnabled: patch.knowledgeEnabled ?? true,
-      draftConfidence: patch.draftConfidence ?? "all",
-      explicitWritingStyle: patch.explicitWritingStyle ?? null,
-      learnedWritingStyle: patch.learnedWritingStyle ?? null,
-      senderIntelEnabled: patch.senderIntelEnabled ?? true,
-      coldEmailAction: patch.coldEmailAction ?? "label",
-      autoArchiveNoise: patch.autoArchiveNoise ?? false,
-      meetingBriefsEnabled: patch.meetingBriefsEnabled ?? true,
-      digestFrequency: patch.digestFrequency ?? "off",
-      briefingEnabled: patch.briefingEnabled ?? true,
-      briefingHour: patch.briefingHour ?? 8,
-      commitmentsEnabled: patch.commitmentsEnabled ?? true,
-      memoryAutoExtract: patch.memoryAutoExtract ?? false,
+  const values: NewAssistantSettings = {
+    userId,
+    voiceEnabled: patch.voiceEnabled ?? true,
+    memoryEnabled: patch.memoryEnabled ?? true,
+    knowledgeEnabled: patch.knowledgeEnabled ?? true,
+    draftConfidence: patch.draftConfidence ?? "all",
+    explicitWritingStyle: patch.explicitWritingStyle ?? null,
+    learnedWritingStyle: patch.learnedWritingStyle ?? null,
+    senderIntelEnabled: patch.senderIntelEnabled ?? true,
+    coldEmailAction: patch.coldEmailAction ?? "label",
+    autoArchiveNoise: patch.autoArchiveNoise ?? false,
+    meetingBriefsEnabled: patch.meetingBriefsEnabled ?? true,
+    digestFrequency: patch.digestFrequency ?? "off",
+    briefingEnabled: patch.briefingEnabled ?? true,
+    briefingHour: patch.briefingHour ?? 8,
+    commitmentsEnabled: patch.commitmentsEnabled ?? true,
+    memoryAutoExtract: patch.memoryAutoExtract ?? false,
+    overnightReviewEnabled: patch.overnightReviewEnabled ?? true,
+    ...(patch.writingStyle !== undefined ? { writingStyle: patch.writingStyle } : {}),
+    ...(patch.styleAnalyzedAt !== undefined
+      ? { styleAnalyzedAt: patch.styleAnalyzedAt }
+      : {}),
+    ...(patch.digestLastGeneratedAt !== undefined
+      ? { digestLastGeneratedAt: patch.digestLastGeneratedAt }
+      : {}),
+  };
+  await assistantSettingsRepository.upsert({
+    values,
+    set: {
+      ...(patch.voiceEnabled !== undefined ? { voiceEnabled: patch.voiceEnabled } : {}),
+      ...(patch.memoryEnabled !== undefined ? { memoryEnabled: patch.memoryEnabled } : {}),
+      ...(patch.knowledgeEnabled !== undefined
+        ? { knowledgeEnabled: patch.knowledgeEnabled }
+        : {}),
+      ...(patch.draftConfidence !== undefined
+        ? { draftConfidence: patch.draftConfidence }
+        : {}),
+      ...(patch.explicitWritingStyle !== undefined
+        ? { explicitWritingStyle: patch.explicitWritingStyle }
+        : {}),
+      ...(patch.learnedWritingStyle !== undefined
+        ? { learnedWritingStyle: patch.learnedWritingStyle }
+        : {}),
       ...(patch.writingStyle !== undefined ? { writingStyle: patch.writingStyle } : {}),
       ...(patch.styleAnalyzedAt !== undefined
         ? { styleAnalyzedAt: patch.styleAnalyzedAt }
         : {}),
+      ...(patch.senderIntelEnabled !== undefined
+        ? { senderIntelEnabled: patch.senderIntelEnabled }
+        : {}),
+      ...(patch.coldEmailAction !== undefined
+        ? { coldEmailAction: patch.coldEmailAction }
+        : {}),
+      ...(patch.autoArchiveNoise !== undefined
+        ? { autoArchiveNoise: patch.autoArchiveNoise }
+        : {}),
+      ...(patch.meetingBriefsEnabled !== undefined
+        ? { meetingBriefsEnabled: patch.meetingBriefsEnabled }
+        : {}),
+      ...(patch.digestFrequency !== undefined
+        ? { digestFrequency: patch.digestFrequency }
+        : {}),
+      ...(patch.briefingEnabled !== undefined
+        ? { briefingEnabled: patch.briefingEnabled }
+        : {}),
+      ...(patch.briefingHour !== undefined
+        ? { briefingHour: patch.briefingHour }
+        : {}),
+      ...(patch.commitmentsEnabled !== undefined
+        ? { commitmentsEnabled: patch.commitmentsEnabled }
+        : {}),
+      ...(patch.memoryAutoExtract !== undefined
+        ? { memoryAutoExtract: patch.memoryAutoExtract }
+        : {}),
+      ...(patch.overnightReviewEnabled !== undefined
+        ? { overnightReviewEnabled: patch.overnightReviewEnabled }
+        : {}),
       ...(patch.digestLastGeneratedAt !== undefined
         ? { digestLastGeneratedAt: patch.digestLastGeneratedAt }
         : {}),
-    })
-    .onConflictDoUpdate({
-      target: assistantSettings.userId,
-      set: {
-        ...(patch.voiceEnabled !== undefined ? { voiceEnabled: patch.voiceEnabled } : {}),
-        ...(patch.memoryEnabled !== undefined ? { memoryEnabled: patch.memoryEnabled } : {}),
-        ...(patch.knowledgeEnabled !== undefined
-          ? { knowledgeEnabled: patch.knowledgeEnabled }
-          : {}),
-        ...(patch.draftConfidence !== undefined
-          ? { draftConfidence: patch.draftConfidence }
-          : {}),
-        ...(patch.explicitWritingStyle !== undefined
-          ? { explicitWritingStyle: patch.explicitWritingStyle }
-          : {}),
-        ...(patch.learnedWritingStyle !== undefined
-          ? { learnedWritingStyle: patch.learnedWritingStyle }
-          : {}),
-        ...(patch.writingStyle !== undefined ? { writingStyle: patch.writingStyle } : {}),
-        ...(patch.styleAnalyzedAt !== undefined
-          ? { styleAnalyzedAt: patch.styleAnalyzedAt }
-          : {}),
-        ...(patch.senderIntelEnabled !== undefined
-          ? { senderIntelEnabled: patch.senderIntelEnabled }
-          : {}),
-        ...(patch.coldEmailAction !== undefined
-          ? { coldEmailAction: patch.coldEmailAction }
-          : {}),
-        ...(patch.autoArchiveNoise !== undefined
-          ? { autoArchiveNoise: patch.autoArchiveNoise }
-          : {}),
-        ...(patch.meetingBriefsEnabled !== undefined
-          ? { meetingBriefsEnabled: patch.meetingBriefsEnabled }
-          : {}),
-        ...(patch.digestFrequency !== undefined
-          ? { digestFrequency: patch.digestFrequency }
-          : {}),
-        ...(patch.briefingEnabled !== undefined
-          ? { briefingEnabled: patch.briefingEnabled }
-          : {}),
-        ...(patch.briefingHour !== undefined
-          ? { briefingHour: patch.briefingHour }
-          : {}),
-        ...(patch.commitmentsEnabled !== undefined
-          ? { commitmentsEnabled: patch.commitmentsEnabled }
-          : {}),
-        ...(patch.memoryAutoExtract !== undefined
-          ? { memoryAutoExtract: patch.memoryAutoExtract }
-          : {}),
-        ...(patch.digestLastGeneratedAt !== undefined
-          ? { digestLastGeneratedAt: patch.digestLastGeneratedAt }
-          : {}),
-        updatedAt: now,
-      },
-    });
+      updatedAt: now,
+    },
+  });
 }
 
 export type DraftContext = {
@@ -304,20 +303,11 @@ export async function buildDraftContext({
       ? searchKnowledge({ userId, query: `${subject ?? ""} ${text}`, limit: 5 })
       : Promise.resolve([]),
     threadId && config.commitmentsEnabled
-      ? db
-          .select({
-            direction: commitments.direction,
-            description: commitments.description,
-            dueAt: commitments.dueAt,
-          })
-          .from(commitments)
-          .where(
-            and(
-              eq(commitments.threadId, threadId),
-              eq(commitments.status, "open"),
-            ),
-          )
-          .limit(8)
+      ? commitmentRepository.listOpenByThread({
+          userId,
+          threadId,
+          limit: 8,
+        })
       : Promise.resolve([]),
   ]);
 
@@ -417,22 +407,11 @@ export type AssistantOverview = {
 export async function getAssistantOverview(
   userId: string,
 ): Promise<AssistantOverview> {
-  const [config, memoryRows, knowledgeRows, snippetRows] = await Promise.all([
+  const [config, memories, knowledge, snippets] = await Promise.all([
     getAssistantSettings(userId),
-    db
-      .select({ value: count() })
-      .from(replyMemories)
-      .where(
-        and(eq(replyMemories.userId, userId), isNull(replyMemories.archivedAt)),
-      ),
-    db
-      .select({ value: count() })
-      .from(knowledgeEntries)
-      .where(eq(knowledgeEntries.userId, userId)),
-    db
-      .select({ value: count() })
-      .from(snippets)
-      .where(eq(snippets.userId, userId)),
+    replyMemoryRepository.countActive(userId),
+    knowledgeRepository.countEntries(userId),
+    knowledgeRepository.countSnippets(userId),
   ]);
 
   const { isAiProviderConfigured } = await import("@/lib/ai/provider");
@@ -440,9 +419,9 @@ export async function getAssistantOverview(
   return {
     config,
     counts: {
-      memories: Number(memoryRows[0]?.value ?? 0),
-      knowledge: Number(knowledgeRows[0]?.value ?? 0),
-      snippets: Number(snippetRows[0]?.value ?? 0),
+      memories,
+      knowledge,
+      snippets,
     },
     aiConfigured: isAiProviderConfigured(),
   };

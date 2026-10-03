@@ -1,19 +1,8 @@
-import { z } from "zod";
-
-import { apiError, ok } from "@/lib/api/http";
+import { apiError, created } from "@/lib/api/http";
+import { mailCreateDraftBody as schema } from "@/lib/api/contracts/mail";
 import { expandSnippets } from "@/lib/ai/features/knowledge";
 import { withMailUser } from "@/lib/mail/route";
 import { saveDraft } from "@/lib/mail/service";
-
-const schema = z.object({
-  to: z.array(z.string().min(1)).default([]),
-  cc: z.array(z.string().min(1)).optional(),
-  bcc: z.array(z.string().min(1)).optional(),
-  subject: z.string().default(""),
-  body: z.string().default(""),
-  threadId: z.string().optional(),
-  inReplyTo: z.string().optional(),
-});
 
 export const POST = withMailUser(async (userId, request) => {
   const parsed = schema.safeParse(await request.json().catch(() => ({})));
@@ -32,5 +21,5 @@ export const POST = withMailUser(async (userId, request) => {
     ...(inReplyTo ? { inReplyTo } : {}),
   });
 
-  return ok({ id: draft.id });
+  return created({ id: draft.id });
 });

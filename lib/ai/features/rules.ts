@@ -1,6 +1,5 @@
 import "server-only";
 
-import { and, asc, desc, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
@@ -10,11 +9,13 @@ import {
   RULE_COMPILER_VERSION,
   type CompiledRule,
 } from "@/lib/ai/features/compile-rule";
-import { db } from "@/lib/db";
 import {
-  automationRules,
-  messages,
-  ruleExecutions,
+  automationRuleRepository,
+  type AutomationRule,
+  type RuleExecution,
+} from "@/lib/repositories/automation-rules";
+import { messageRepository } from "@/lib/repositories/messages";
+import {
   SAFE_RULE_ACTIONS,
   type RuleAction,
   type RuleCondition,
@@ -38,8 +39,7 @@ import {
  * `rule_executions` with a human-readable reason for the "why" UI.
  */
 
-export type AutomationRule = typeof automationRules.$inferSelect;
-export type RuleExecution = typeof ruleExecutions.$inferSelect;
+export type { AutomationRule, RuleExecution };
 
 export type RuleEvalContext = {
   from: string | null;
@@ -205,12 +205,10 @@ export async function listRules({
   userId: string;
   limit?: number;
 }): Promise<AutomationRule[]> {
-  return db
-    .select()
-    .from(automationRules)
-    .where(eq(automationRules.userId, userId))
-    .orderBy(asc(automationRules.priority), desc(automationRules.createdAt))
-    .limit(Math.min(Math.max(limit, 1), 500));
+  return automationRuleRepository.listRules(
+    userId,
+    Math.min(Math.max(limit, 1), 500),
+  );
 }
 
 export async function getRule({
@@ -220,12 +218,8 @@ export async function getRule({
   userId: string;
   id: string;
 }): Promise<AutomationRule | null> {
-  const rows = await db
-    .select()
-    .from(automationRules)
-    .where(and(eq(automationRules.id, id), eq(automationRules.userId, userId)))
-    .limit(1);
-  return rows[0] ?? null;
+  const rule = await automationRuleRepository.findRule(userId, id);
+  return rule ?? null;
 }
 
 export async function createRule({
@@ -253,23 +247,19 @@ export async function createRule({
     priority,
     source,
   });
-  const inserted = await db
-    .insert(automationRules)
-    .values({
-      id: nanoid(),
-      userId,
-      name: parsed.name,
-      instruction: instruction?.slice(0, 2_000) ?? null,
-      enabled: parsed.enabled ?? true,
-      priority: parsed.priority ?? 100,
-      condition: parsed.condition,
-      actions: parsed.actions,
-      source: parsed.source ?? source,
-      version: source === "ai" ? RULE_COMPILER_VERSION : null,
-      createdBy,
-    })
-    .returning();
-  return inserted[0]!;
+  return automationRuleRepository.insertRule({
+    id: nanoid(),
+    userId,
+    name: parsed.name,
+    instruction: instruction?.slice(0, 2_000) ?? null,
+    enabled: parsed.enabled ?? true,
+    priority: parsed.priority ?? 100,
+    condition: parsed.condition,
+    actions: parsed.actions,
+    source: parsed.source ?? source,
+    version: source === "ai" ? RULE_COMPILER_VERSION : null,
+    createdBy,
+  });
 }
 
 /** Compile + persist in one step; returns null when the compiler could not. */
@@ -306,19 +296,18 @@ export async function updateRule({
     actions: RuleAction[];
   }>;
 }): Promise<boolean> {
-  const updated = await db
-    .update(automationRules)
-    .set({
+  return automationRuleRepository.updateRule({
+    userId,
+    id,
+    patch: {
       ...(patch.name !== undefined ? { name: patch.name.slice(0, 120) } : {}),
       ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
       ...(patch.priority !== undefined ? { priority: patch.priority } : {}),
       ...(patch.condition !== undefined ? { condition: patch.condition } : {}),
       ...(patch.actions !== undefined ? { actions: patch.actions } : {}),
-      updatedAt: new Date(),
-    })
-    .where(and(eq(automationRules.id, id), eq(automationRules.userId, userId)))
-    .returning({ id: automationRules.id });
-  return updated.length > 0;
+    },
+    now: new Date(),
+  });
 }
 
 export async function deleteRule({
@@ -328,11 +317,7 @@ export async function deleteRule({
   userId: string;
   id: string;
 }): Promise<boolean> {
-  const deleted = await db
-    .delete(automationRules)
-    .where(and(eq(automationRules.id, id), eq(automationRules.userId, userId)))
-    .returning({ id: automationRules.id });
-  return deleted.length > 0;
+  return automationRuleRepository.deleteRule({ userId, id });
 }
 
 /** Persist a learned pattern: "always do this for this sender". */
@@ -384,7 +369,7 @@ export async function recordRuleExecution({
   reason: string;
   matchMetadata?: Record<string, unknown>;
 }): Promise<void> {
-  await db.insert(ruleExecutions).values({
+  await automationRuleRepository.insertExecution({
     id: nanoid(),
     userId,
     ruleId,
@@ -403,14 +388,10 @@ export async function listRuleExecutions({
   userId: string;
   limit?: number;
 }): Promise<Array<RuleExecution & { ruleName: string | null }>> {
-  const rows = await db
-    .select({ execution: ruleExecutions, ruleName: automationRules.name })
-    .from(ruleExecutions)
-    .leftJoin(automationRules, eq(ruleExecutions.ruleId, automationRules.id))
-    .where(eq(ruleExecutions.userId, userId))
-    .orderBy(desc(ruleExecutions.createdAt))
-    .limit(Math.min(Math.max(limit, 1), 300));
-  return rows.map((row) => ({ ...row.execution, ruleName: row.ruleName }));
+  return automationRuleRepository.listExecutionsWithRuleName(
+    userId,
+    Math.min(Math.max(limit, 1), 300),
+  );
 }
 
 /* -------------------------------------------------------------------------- */
@@ -418,11 +399,7 @@ export async function listRuleExecutions({
 /* -------------------------------------------------------------------------- */
 
 async function threadGmailMessageIds(threadId: string): Promise<string[]> {
-  const rows = await db
-    .select({ gmailMessageId: messages.gmailMessageId })
-    .from(messages)
-    .where(eq(messages.threadId, threadId));
-  return rows.map((row) => row.gmailMessageId).filter(Boolean);
+  return messageRepository.listGmailIdsByThread(threadId);
 }
 
 export type ApplyRuleResult = {

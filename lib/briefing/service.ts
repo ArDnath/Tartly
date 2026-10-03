@@ -1,26 +1,26 @@
 import "server-only";
 
-import { and, asc, desc, eq, gte, inArray, isNotNull, lte } from "drizzle-orm";
-
 import {
   generateMeetingBrief,
   type MeetingBrief,
 } from "@/lib/ai/features/meeting-brief";
-import { db } from "@/lib/db";
-import {
-  commitments,
-  drafts,
-  followupEnrollments,
-  meetings,
-  messages,
-  threads,
-  user,
-} from "@/lib/db/schema";
 import { getCalendarSettings } from "@/lib/calendar/settings";
 import { getZonedParts } from "@/lib/calendar/tz";
 import { endOfLocalDay, getInboxCounts, listInbox } from "@/lib/inbox/service";
 import type { InboxCounts } from "@/lib/inbox/service";
 import { redis } from "@/lib/redis";
+import { commitmentRepository } from "@/lib/repositories/commitments";
+import { assistantSettingsRepository } from "@/lib/repositories/assistant-settings";
+import { draftRepository } from "@/lib/repositories/drafts";
+import { followupEnrollmentRepository } from "@/lib/repositories/followup-enrollments";
+import { meetingRepository } from "@/lib/repositories/meetings";
+import { messageRepository } from "@/lib/repositories/messages";
+import { userRepository } from "@/lib/repositories/users";
+import { getAutopilotPolicy } from "@/lib/settings/autopilot";
+import {
+  getOvernightSummary,
+  type OvernightSummary,
+} from "@/lib/settings/autopilot-usage";
 
 /**
  * Morning briefing composition.
@@ -101,11 +101,13 @@ export type Briefing = {
   followups: BriefingFollowup[];
   promises: BriefingPromise[];
   meetings: BriefingMeeting[];
+  /** 24/7 autopilot activity since the send window opened; null when off. */
+  overnight: OvernightSummary | null;
 };
 
 export function briefingCacheKey(userId: string): string {
-  // v2: the greeting carries a daypart, so older cached payloads are invalid.
-  return `briefing:v2:${userId}`;
+  // v3: the payload gained `overnight`, so older cached payloads are invalid.
+  return `briefing:v3:${userId}`;
 }
 
 /** Drop the cached briefing so the next read recomputes (after an action). */
@@ -120,19 +122,8 @@ export async function invalidateBriefing(userId: string): Promise<void> {
 async function latestPendingDraft(
   threadId: string,
 ): Promise<BriefingDraft> {
-  const rows = await db
-    .select({ id: drafts.id, body: drafts.body })
-    .from(drafts)
-    .where(
-      and(
-        eq(drafts.threadId, threadId),
-        eq(drafts.status, "pending"),
-        eq(drafts.suppressed, false),
-      ),
-    )
-    .orderBy(desc(drafts.createdAt))
-    .limit(1);
-  return rows[0] ? { id: rows[0].id, body: rows[0].body } : null;
+  const draft = await draftRepository.findPendingByThread(threadId);
+  return draft ? { id: draft.id, body: draft.body } : null;
 }
 
 /**
@@ -151,58 +142,27 @@ export async function buildBriefing(
     now.getTime() + BRIEFING_WINDOW_HOURS * 60 * 60 * 1000,
   );
 
-  const [userRows, counts, replyItems, followupRows, promiseRows, meetingRows] =
+  const [userName, counts, replyItems, followupRows, promiseRows, meetingRows] =
     await Promise.all([
-      db
-        .select({ name: user.name })
-        .from(user)
-        .where(eq(user.id, userId))
-        .limit(1),
+      userRepository.findNameById(userId),
       getInboxCounts(userId),
       listInbox({ userId, view: "needs_reply", limit: MAX_REPLIES }),
-      db
-        .select({
-          enrollmentId: followupEnrollments.id,
-          threadId: followupEnrollments.threadId,
-          nextEvalAt: followupEnrollments.nextEvalAt,
-          subject: threads.subject,
-        })
-        .from(followupEnrollments)
-        .leftJoin(threads, eq(threads.id, followupEnrollments.threadId))
-        .where(
-          and(
-            eq(followupEnrollments.userId, userId),
-            eq(followupEnrollments.status, "active"),
-            lte(followupEnrollments.nextEvalAt, endOfDay),
-          ),
-        )
-        .orderBy(asc(followupEnrollments.nextEvalAt))
-        .limit(MAX_FOLLOWUPS),
-      db
-        .select()
-        .from(commitments)
-        .where(
-          and(
-            eq(commitments.userId, userId),
-            eq(commitments.status, "open"),
-            isNotNull(commitments.dueAt),
-            lte(commitments.dueAt, windowEnd),
-          ),
-        )
-        .orderBy(asc(commitments.dueAt))
-        .limit(MAX_PROMISES),
-      db
-        .select()
-        .from(meetings)
-        .where(
-          and(
-            eq(meetings.userId, userId),
-            gte(meetings.startAt, now),
-            lte(meetings.startAt, windowEnd),
-          ),
-        )
-        .orderBy(asc(meetings.startAt))
-        .limit(MAX_MEETINGS),
+      followupEnrollmentRepository.listActiveDueForUser({
+        userId,
+        before: endOfDay,
+        limit: MAX_FOLLOWUPS,
+      }),
+      commitmentRepository.listOpenDueBefore({
+        userId,
+        before: windowEnd,
+        limit: MAX_PROMISES,
+      }),
+      meetingRepository.listStartingBetween({
+        userId,
+        from: now,
+        to: windowEnd,
+        limit: MAX_MEETINGS,
+      }),
     ]);
 
   // Replies: attach the prepared draft plus any open promise on the thread.
@@ -212,21 +172,10 @@ export async function buildBriefing(
     Array<{ id: string; direction: string; description: string }>
   >();
   if (replyThreadIds.length > 0) {
-    const rows = await db
-      .select({
-        id: commitments.id,
-        threadId: commitments.threadId,
-        direction: commitments.direction,
-        description: commitments.description,
-      })
-      .from(commitments)
-      .where(
-        and(
-          eq(commitments.userId, userId),
-          eq(commitments.status, "open"),
-          inArray(commitments.threadId, replyThreadIds),
-        ),
-      );
+    const rows = await commitmentRepository.listOpenForThreads({
+      userId,
+      threadIds: replyThreadIds,
+    });
     for (const row of rows) {
       if (!row.threadId) continue;
       const list = replyCommitments.get(row.threadId) ?? [];
@@ -256,37 +205,17 @@ export async function buildBriefing(
     followupRows.map(async (row) => {
       const [draft, latestInbound, latestOutbound] = await Promise.all([
         latestPendingDraft(row.threadId),
-        db
-          .select({ fromAddr: messages.fromAddr })
-          .from(messages)
-          .where(
-            and(
-              eq(messages.threadId, row.threadId),
-              eq(messages.direction, "inbound"),
-            ),
-          )
-          .orderBy(desc(messages.sentAt))
-          .limit(1),
-        db
-          .select({ sentAt: messages.sentAt })
-          .from(messages)
-          .where(
-            and(
-              eq(messages.threadId, row.threadId),
-              eq(messages.direction, "outbound"),
-            ),
-          )
-          .orderBy(desc(messages.sentAt))
-          .limit(1),
+        messageRepository.latestByThreadAndDirection(row.threadId, "inbound"),
+        messageRepository.latestByThreadAndDirection(row.threadId, "outbound"),
       ]);
       return {
         enrollmentId: row.enrollmentId,
         threadId: row.threadId,
-        from: latestInbound[0]?.fromAddr ?? null,
+        from: latestInbound?.fromAddr ?? null,
         subject: row.subject,
         dueAt: row.nextEvalAt ? row.nextEvalAt.toISOString() : null,
-        lastSentAt: latestOutbound[0]?.sentAt
-          ? latestOutbound[0].sentAt.toISOString()
+        lastSentAt: latestOutbound?.sentAt
+          ? latestOutbound.sentAt.toISOString()
           : null,
         draft,
       };
@@ -321,10 +250,29 @@ export async function buildBriefing(
     })),
   );
 
-  const name = userRows[0]?.name?.trim().split(/\s+/)[0] ?? "there";
+  const name = userName?.trim().split(/\s+/)[0] ?? "there";
   const total =
     replies.length + followups.length + promises.length + meetingCards.length;
   const daypart = daypartForHour(getZonedParts(now, timeZone).hour);
+
+  // 24/7 autopilot: what happened overnight. Best-effort and only when the
+  // user has a policy enabled and the overnight review is not opted out.
+  let overnight: OvernightSummary | null = null;
+  try {
+    const settingsRow = await assistantSettingsRepository.findByUser(userId);
+    const reviewEnabled = settingsRow?.overnightReviewEnabled ?? true;
+    if (reviewEnabled) {
+      const policy = await getAutopilotPolicy(userId);
+      if (policy.enabled) {
+        const summary = await getOvernightSummary(userId, now, policy);
+        const activity =
+          summary.totals.sent + summary.totals.drafted + summary.totals.blocked;
+        if (activity > 0) overnight = summary;
+      }
+    }
+  } catch (error) {
+    console.warn("[briefing] overnight summary failed", error);
+  }
 
   return {
     generatedAt: now.toISOString(),
@@ -334,6 +282,7 @@ export async function buildBriefing(
     followups,
     promises,
     meetings: meetingCards,
+    overnight,
   };
 }
 

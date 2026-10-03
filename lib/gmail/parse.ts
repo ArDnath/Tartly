@@ -59,6 +59,8 @@ export type ParsedMessage = {
   snippet: string | null;
   labels: string[];
   unsubscribe: ParsedUnsubscribeInfo | null;
+  /** `Auto-Submitted` / `X-Autoreply` marker: this is a robot, not a person. */
+  autoSubmitted: boolean;
   sentAt: Date | null;
 };
 
@@ -201,6 +203,7 @@ export function parseGmailMessage(message: GmailMessageResource): ParsedMessage 
     snippet: message.snippet ?? null,
     labels: message.labelIds ?? [],
     unsubscribe: parseUnsubscribeHeaders(headers),
+    autoSubmitted: parseAutoSubmitted(headers),
     sentAt: Number.isFinite(internalDate) ? new Date(internalDate) : null,
   };
 }
@@ -236,6 +239,26 @@ export function parseUnsubscribeHeaders(
     ...(listId ? { listId: listId.trim().slice(0, 200) } : {}),
     ...(precedence ? { precedence: precedence.trim().toLowerCase().slice(0, 40) } : {}),
   };
+}
+
+/**
+ * Detects auto-reply/bounce markers that mean the sender is a machine
+ * (`Auto-Submitted: auto-replied|auto-generated`, `X-Autoreply: yes`,
+ * `Precedence: bulk|junk|list`). Pure header check — no content.
+ */
+export function parseAutoSubmitted(
+  headers: GmailHeader[] | null | undefined,
+): boolean {
+  const autoSubmitted = getHeader(headers, "auto-submitted");
+  if (autoSubmitted && !/^no\b/i.test(autoSubmitted.trim())) return true;
+
+  const autoReply = getHeader(headers, "x-autoreply") ?? getHeader(headers, "x-autorespond");
+  if (autoReply && /^(yes|true|auto)/i.test(autoReply.trim())) return true;
+
+  const precedence = getHeader(headers, "precedence");
+  if (precedence && /^(bulk|junk|list)\b/i.test(precedence.trim())) return true;
+
+  return false;
 }
 
 /**

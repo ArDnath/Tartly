@@ -1,13 +1,12 @@
 import "server-only";
 
-import { and, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
-import { db, pool } from "@/lib/db";
-import { eventLog } from "@/lib/db/schema";
+import { pool } from "@/lib/db";
 import { JOB_KIND_INBOUND_EMAIL } from "@/lib/email-operator/job-kinds";
 import { findMailboxByEmail } from "@/lib/email-operator/mailbox";
 import { enqueueJob } from "@/lib/queue/queue";
+import { eventLogRepository } from "@/lib/repositories/event-log";
 import { syncMailbox } from "@/lib/gmail/sync";
 
 /**
@@ -26,33 +25,22 @@ export async function recordEvent({
   externalId: string;
   payload: Record<string, unknown>;
 }): Promise<{ id: string; isNew: boolean }> {
-  const inserted = await db
-    .insert(eventLog)
-    .values({
-      id: nanoid(),
-      userId,
-      kind,
-      externalId,
-      payload,
-    })
-    .onConflictDoNothing({
-      target: [eventLog.userId, eventLog.externalId],
-    })
-    .returning({ id: eventLog.id });
+  const inserted = await eventLogRepository.insertIfAbsent({
+    id: nanoid(),
+    userId,
+    kind,
+    externalId,
+    payload,
+  });
 
-  if (inserted[0]) {
-    return { id: inserted[0].id, isNew: true };
+  if (inserted) {
+    return { id: inserted.id, isNew: true };
   }
 
-  const existing = (
-    await db
-      .select({ id: eventLog.id })
-      .from(eventLog)
-      .where(
-        and(eq(eventLog.userId, userId), eq(eventLog.externalId, externalId)),
-      )
-      .limit(1)
-  )[0];
+  const existing = await eventLogRepository.findIdByExternalId({
+    userId,
+    externalId,
+  });
 
   return { id: existing?.id ?? "", isNew: false };
 }
@@ -68,13 +56,7 @@ export async function processGmailEvent(eventId: string): Promise<{
   synced: number;
   enqueued: boolean;
 }> {
-  const rows = await db
-    .select()
-    .from(eventLog)
-    .where(eq(eventLog.id, eventId))
-    .limit(1);
-
-  const event = rows[0];
+  const event = await eventLogRepository.findById(eventId);
   if (!event) return { processed: false, synced: 0, enqueued: false };
   if (event.processedAt) return { processed: false, synced: 0, enqueued: false };
 
@@ -104,10 +86,7 @@ export async function processGmailEvent(eventId: string): Promise<{
     }
   }
 
-  await db
-    .update(eventLog)
-    .set({ processedAt: new Date() })
-    .where(eq(eventLog.id, eventId));
+  await eventLogRepository.markProcessed(eventId, new Date());
 
   return { processed: true, synced, enqueued };
 }

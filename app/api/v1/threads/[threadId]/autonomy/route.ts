@@ -1,9 +1,6 @@
-import { and, eq } from "drizzle-orm";
-import { z } from "zod";
-
-import { db } from "@/lib/db";
-import { threads } from "@/lib/db/schema";
 import { apiError, ok, withUser } from "@/lib/api/http";
+import { threadAutonomyBody as bodySchema } from "@/lib/api/contracts/inbox";
+import { threadRepository } from "@/lib/repositories/threads";
 import {
   getThreadAutonomy,
   resolveAutonomy,
@@ -12,19 +9,11 @@ import {
 
 export const dynamic = "force-dynamic";
 
-const bodySchema = z.object({
-  autonomy: z.enum(["copilot", "autopilot"]).nullable(),
-});
-
 type Ctx = { params: Promise<{ threadId: string }> };
 
 async function ownedThread(userId: string, threadId: string) {
-  const rows = await db
-    .select({ id: threads.id, mailboxId: threads.mailboxId })
-    .from(threads)
-    .where(and(eq(threads.id, threadId), eq(threads.userId, userId)))
-    .limit(1);
-  return rows[0] ?? null;
+  const thread = await threadRepository.findByIdForUser(userId, threadId);
+  return thread ?? null;
 }
 
 /** GET the raw override plus the effective mode and where it comes from. */

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { pool } from "@/lib/db";
+import { pingDatabase } from "@/lib/db";
+import { isShuttingDown } from "@/lib/lifecycle";
 import { redis } from "@/lib/redis";
 
 export const runtime = "nodejs";
@@ -27,7 +28,7 @@ function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
 async function pingPostgres(): Promise<CheckResult> {
   const startedAt = Date.now();
   try {
-    await withTimeout(pool.query("select 1"), "postgres");
+    await withTimeout(pingDatabase(), "postgres");
     return { status: "up", latencyMs: Date.now() - startedAt };
   } catch (error) {
     return {
@@ -58,6 +59,19 @@ async function pingRedis(): Promise<CheckResult> {
  * check returns 530 so a load balancer stops routing new traffic here.
  */
 export async function GET() {
+  // During graceful shutdown (Phase D2) the instance still has in-flight work,
+  // but it must stop receiving new traffic immediately: report not-ready so the
+  // load balancer drains it before the listener closes.
+  if (isShuttingDown()) {
+    return NextResponse.json(
+      { status: "not_ready", checks: {}, reason: "shutting_down" },
+      {
+        status: NOT_READY_STATUS,
+        headers: { "Cache-Control": "no-store" },
+      },
+    );
+  }
+
   const [postgres, redisCheck] = await Promise.all([
     pingPostgres(),
     pingRedis(),
