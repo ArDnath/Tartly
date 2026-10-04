@@ -77,7 +77,7 @@ const NAV_ITEMS: Array<{
   { href: "/campaigns", label: "Campaigns", icon: Megaphone, match: "/campaigns" },
   { href: "/activity", label: "Activity", icon: ChartBar, match: "/activity" },
   {
-    href: "/settings",
+    href: "/settings/calendar",
     label: "Settings",
     icon: GearSix,
     match: "/settings",
