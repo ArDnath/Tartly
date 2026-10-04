@@ -72,7 +72,7 @@ function CellAction({ href, children }: { href: string; children: ReactNode }) {
   return (
     <Link
       href={href}
-      className="inline-flex shrink-0 items-center gap-1 rounded-full px-1 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground underline-offset-4 transition-colors hover:text-foreground"
+      className="inline-flex shrink-0 items-center gap-1 px-1 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground underline-offset-4 transition-colors hover:text-foreground"
     >
       {children}
       <ArrowUpRight className="size-3" aria-hidden />
@@ -84,7 +84,7 @@ function FeedRow({ item }: { item: ActivityFeedItem }) {
   const Icon = FEED_ICONS[item.kind];
   const body = (
     <>
-      <span className="relative grid size-7 shrink-0 place-items-center rounded-md bg-foreground/[0.06] text-foreground">
+      <span className="relative grid size-7 shrink-0 place-items-center bg-foreground/[0.06] text-foreground">
         <Icon className="size-3.5" aria-hidden />
         <span
           className={cn(
@@ -113,7 +113,7 @@ function FeedRow({ item }: { item: ActivityFeedItem }) {
       {item.href ? (
         <Link
           href={item.href}
-          className="flex items-center gap-3 rounded-lg px-1.5 py-2 transition-colors hover:bg-foreground/[0.03] hover:text-foreground"
+          className="flex items-center gap-3 px-1.5 py-2 transition-colors hover:bg-foreground/[0.03] hover:text-foreground"
         >
           {body}
         </Link>
@@ -147,8 +147,8 @@ export function ActivityDashboardView({
   if (!data.hasData) {
     return (
       <div className="flex h-full items-start justify-center p-4">
-        <div className="flex max-w-[62ch] items-start gap-3 rounded-2xl border border-border/70 bg-card/40 p-5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04),0_18px_40px_-24px_rgba(0,0,0,0.8)] backdrop-blur-sm">
-          <span className="grid size-8 shrink-0 place-items-center rounded-md bg-foreground/[0.06] text-foreground">
+        <div className="flex max-w-[62ch] items-start gap-3 border border-border/70 bg-card/60 p-5">
+          <span className="grid size-8 shrink-0 place-items-center bg-foreground/[0.06] text-foreground">
             <Info className="size-4" aria-hidden />
           </span>
           <div className="min-w-0">
@@ -254,13 +254,13 @@ export function ActivityDashboardView({
 
 function AutopilotStrip({ autopilot }: { autopilot: ActivityAutopilot }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border border-border/70 bg-card/40 px-4 py-2.5 text-[12px] backdrop-blur-sm">
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border border-border/70 bg-card/60 px-4 py-2.5 text-[12px]">
       <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
         <Moon className="size-3.5 text-muted-foreground" aria-hidden />
         24/7 Autopilot
         <span
           className={cn(
-            "rounded-full border px-1.5 py-px text-[10px] font-medium uppercase tracking-wide",
+            "border px-1.5 py-px text-[10px] font-medium uppercase tracking-wide",
             autopilot.enabled
               ? "border-transparent bg-foreground text-background"
               : "border-border text-muted-foreground",
@@ -304,7 +304,7 @@ function AutopilotStrip({ autopilot }: { autopilot: ActivityAutopilot }) {
             <span
               key={reason.reason}
               title={reason.reason}
-              className="rounded-full border border-border px-2 py-0.5 text-[10px] text-muted-foreground"
+              className="border border-border px-2 py-0.5 text-[10px] text-muted-foreground"
             >
               {reason.label} · {reason.count}
             </span>

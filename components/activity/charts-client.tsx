@@ -239,7 +239,7 @@ export function OverviewPanel({
     <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3.5">
       {/* Metric tabs — pick the series the trend chart plots. Soft segmented
           tiles that share one recessed track. */}
-      <div className="grid shrink-0 grid-cols-2 gap-1 rounded-xl bg-foreground/[0.03] p-1 ring-1 ring-border/70 sm:grid-cols-4">
+      <div className="grid shrink-0 grid-cols-2 gap-1 bg-foreground/[0.03] p-1 ring-1 ring-border/70 sm:grid-cols-4">
         {tabs.map((tab) => {
           const isActive = tab.key === metric;
           return (
@@ -249,7 +249,7 @@ export function OverviewPanel({
               onClick={() => setMetric(tab.key)}
               aria-pressed={isActive}
               className={cn(
-                "flex min-w-0 cursor-pointer flex-col gap-1.5 rounded-lg px-2.5 py-2 text-left transition-colors",
+                "flex min-w-0 cursor-pointer flex-col gap-1.5 px-2.5 py-2 text-left transition-colors",
                 isActive
                   ? "bg-foreground/[0.07] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)]"
                   : "hover:bg-foreground/[0.03]",
@@ -309,7 +309,7 @@ function RangeControl({
     <div
       role="group"
       aria-label="Time range"
-      className="inline-flex rounded-lg bg-foreground/[0.04] p-0.5 ring-1 ring-border"
+      className="inline-flex bg-foreground/[0.04] p-0.5 ring-1 ring-border"
     >
       {options.map((option) => {
         const isActive = option.days === value;
@@ -320,7 +320,7 @@ function RangeControl({
             aria-pressed={isActive}
             onClick={() => onChange(option.days)}
             className={cn(
-              "cursor-pointer rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors",
+              "cursor-pointer px-2.5 py-1 text-[11px] font-medium transition-colors",
               isActive
                 ? "bg-foreground/[0.08] text-foreground"
                 : "text-muted-foreground hover:text-foreground",
@@ -405,7 +405,7 @@ export function BudgetPanel({ budget }: { budget: ActivityBudget }) {
       <div
         role="img"
         aria-label="Today's call allocation"
-        className="flex h-1.5 w-full shrink-0 gap-px overflow-hidden rounded-full bg-foreground/[0.07]"
+        className="flex h-1.5 w-full shrink-0 gap-px overflow-hidden bg-foreground/[0.07]"
       >
         {spent.map((slice) => (
           <span
@@ -644,7 +644,7 @@ export function HighlightsPanel({
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
-        <div className="scrollbar-none flex max-w-full items-center gap-0.5 overflow-x-auto rounded-lg bg-foreground/[0.03] p-0.5 ring-1 ring-border/70">
+        <div className="scrollbar-none flex max-w-full items-center gap-0.5 overflow-x-auto bg-foreground/[0.03] p-0.5 ring-1 ring-border/70">
           {HIGHLIGHT_TABS.map((tab) => {
             const isActive = tab.key === view;
             return (
@@ -654,7 +654,7 @@ export function HighlightsPanel({
                 aria-pressed={isActive}
                 onClick={() => setView(tab.key)}
                 className={cn(
-                  "inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-2.5 py-1 text-[12px] font-medium transition-colors",
+                  "inline-flex shrink-0 cursor-pointer items-center gap-1.5 px-2.5 py-1 text-[12px] font-medium transition-colors",
                   isActive
                     ? "bg-foreground/[0.08] text-foreground"
                     : "text-muted-foreground hover:text-foreground",
@@ -677,7 +677,7 @@ export function HighlightsPanel({
           <div
             role="group"
             aria-label="Sender period"
-            className="inline-flex rounded-lg bg-foreground/[0.04] p-0.5 ring-1 ring-border"
+            className="inline-flex bg-foreground/[0.04] p-0.5 ring-1 ring-border"
           >
             {(["week", "month"] as const).map((range) => {
               const isActive = range === senderRange;
@@ -688,7 +688,7 @@ export function HighlightsPanel({
                   aria-pressed={isActive}
                   onClick={() => setSenderRange(range)}
                   className={cn(
-                    "cursor-pointer rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors",
+                    "cursor-pointer px-2.5 py-1 text-[11px] font-medium transition-colors",
                     isActive
                       ? "bg-foreground/[0.08] text-foreground"
                       : "text-muted-foreground hover:text-foreground",

@@ -6,9 +6,10 @@ import { cn } from "@/lib/utils";
 /**
  * Presentational primitives for the Activity board.
  *
- * The board is a single grid of flush boxes: every `Cell` owns its own bottom
- * and right hairline, so the layout reads as line-delimited blocks rather than
- * a masonry of floating cards. Charts are painted by dither-kit (see
+ * The board is a grid of hard-edged tiles. Every `Cell` is a squared, crisp
+ * panel — no rounding, no glass — with a hairline header rule and four corner
+ * registration marks, so the layout reads as a set of instrument panels rather
+ * than a masonry of floating cards. Charts are painted by dither-kit (see
  * `charts-client.tsx`); this file only holds the static shells and meters.
  */
 
@@ -17,11 +18,27 @@ function clamp01(value: number): number {
 }
 
 /**
- * One bento tile. Glass surface on the canvas: a soft card fill, a hairline
- * border, a gentle lift shadow and a top highlight, so the four tiles read as
- * floating boxes with breathing room rather than line-delimited blocks. The tile
- * is a flex column so its chart body can claim the leftover height (`flex-1`)
- * and the whole board fits one viewport without scrolling.
+ * Four L-shaped registration marks pinned to the tile's corners — the board's
+ * geometric tell. They sit on the border itself, so each tile reads as a
+ * measured panel rather than a soft card. Purely decorative.
+ */
+function CornerMarks() {
+  return (
+    <div aria-hidden className="pointer-events-none absolute inset-0 z-10">
+      <span className="absolute -left-px -top-px size-2.5 border-l-2 border-t-2 border-foreground/25" />
+      <span className="absolute -right-px -top-px size-2.5 border-r-2 border-t-2 border-foreground/25" />
+      <span className="absolute -bottom-px -left-px size-2.5 border-b-2 border-l-2 border-foreground/25" />
+      <span className="absolute -bottom-px -right-px size-2.5 border-b-2 border-r-2 border-foreground/25" />
+    </div>
+  );
+}
+
+/**
+ * One panel of the board: a squared, solid surface with a crisp hairline
+ * border and a header rule under its label. No rounding, no blur, no soft lift
+ * — the geometry carries the hierarchy. The tile is a flex column so its chart
+ * body can claim the leftover height (`flex-1`) and the whole board fits one
+ * viewport without scrolling.
  */
 export function Cell({
   label,
@@ -34,22 +51,24 @@ export function Cell({
   children: ReactNode;
   className?: string;
 }) {
+  const hasHeader = Boolean(label || action);
   return (
     <section
       className={cn(
-        "group relative flex min-h-0 min-w-0 flex-col gap-3 overflow-hidden rounded-2xl border border-border/70 bg-card/40 p-3.5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04),0_18px_40px_-24px_rgba(0,0,0,0.8)] backdrop-blur-sm transition-colors duration-200 hover:border-border sm:p-4",
+        "group relative flex min-h-0 min-w-0 flex-col overflow-hidden border border-border/70 bg-card/60 transition-colors duration-200 hover:border-foreground/20",
         className,
       )}
     >
-      {label || action ? (
-        <header className="flex min-h-4 items-center justify-between gap-3">
+      <CornerMarks />
+      {hasHeader ? (
+        <header className="relative flex min-h-4 shrink-0 items-center justify-between gap-3 border-b border-border/60 px-3.5 py-2.5">
           {label ? (
-            <h2 className="flex items-center gap-2 truncate text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+            <h2 className="flex min-w-0 items-center gap-2 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
               <span
-                className="size-1.5 shrink-0 rounded-full bg-muted-foreground/40"
+                className="size-1.5 shrink-0 bg-muted-foreground/50"
                 aria-hidden
               />
-              {label}
+              <span className="truncate">{label}</span>
             </h2>
           ) : (
             <span />
@@ -57,7 +76,9 @@ export function Cell({
           {action}
         </header>
       ) : null}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col p-3.5 sm:p-4">
+        {children}
+      </div>
     </section>
   );
 }
@@ -70,7 +91,7 @@ export function DeltaPill({ value }: { value: number }) {
     <span
       title="Compared with the previous window"
       className={cn(
-        "inline-flex shrink-0 items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[11px] font-medium tabular-nums ring-1",
+        "inline-flex shrink-0 items-center gap-0.5 px-1.5 py-0.5 text-[11px] font-medium tabular-nums ring-1",
         up
           ? "text-emerald-400 ring-emerald-400/20"
           : down
@@ -94,7 +115,7 @@ export function InfoPill({
   return (
     <span
       className={cn(
-        "inline-flex shrink-0 items-center rounded-md px-1.5 py-0.5 text-[11px] font-medium tabular-nums ring-1",
+        "inline-flex shrink-0 items-center px-1.5 py-0.5 text-[11px] font-medium tabular-nums ring-1",
         tone === "warn"
           ? "text-warning ring-warning/25"
           : "text-muted-foreground ring-border",
@@ -116,10 +137,10 @@ export function Meter({
 }) {
   const clamped = clamp01(value);
   return (
-    <div className="h-1.5 w-full overflow-hidden rounded-full bg-foreground/[0.07]">
+    <div className="h-1.5 w-full overflow-hidden bg-foreground/[0.07]">
       <div
         className={cn(
-          "h-full rounded-full transition-[width] duration-500",
+          "h-full transition-[width] duration-500",
           tone === "danger"
             ? "bg-destructive"
             : tone === "warn"
@@ -166,7 +187,7 @@ export function EmptyPanel({
   children: ReactNode;
 }) {
   return (
-    <div className="flex min-h-[160px] flex-col items-start justify-center gap-1 rounded-lg border border-dashed border-border px-4 py-6">
+    <div className="flex min-h-[160px] flex-col items-start justify-center gap-1 border border-dashed border-border px-4 py-6">
       <p className="text-[12.5px] font-medium text-foreground">{title}</p>
       <p className="max-w-[52ch] text-[12px] leading-relaxed text-muted-foreground">
         {children}
