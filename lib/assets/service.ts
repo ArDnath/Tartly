@@ -7,9 +7,17 @@ import { assetRepository } from "@/lib/repositories/assets";
 import {
   assetAllowedMime,
   assetMaxBytes,
+  assetScanMode,
+  isAssetExtractionEnabled,
   isAssetsEnabled,
 } from "@/lib/env";
 
+import { extractAndStoreAsset } from "./pipeline";
+import {
+  scanAsset,
+  scanBlocked,
+  type ScanResult,
+} from "./scan";
 import {
   assetStorageKey,
   assetStorageKeyForSha,
@@ -38,7 +46,9 @@ export type AssetError =
   | "too_large"
   | "unsupported_type"
   | "empty"
-  | "invalid";
+  | "invalid"
+  /** A malware scan failed or found a threat under `enforce` mode. */
+  | "infected";
 
 export function mimeAllowed(mimeType: string): boolean {
   const mime = mimeType.toLowerCase();
@@ -49,6 +59,17 @@ export function mimeAllowed(mimeType: string): boolean {
 
 export function isImageMime(mimeType: string): boolean {
   return mimeType.toLowerCase().startsWith("image/");
+}
+
+/**
+ * Whether an asset may be attached to an outgoing message. Under `enforce` scan
+ * mode only a `clean` verdict is sendable; `off`/`warn` never block sending.
+ * This is the second half of the scan gate: uploads that slipped through before
+ * enforcement (or `warn` mode) cannot be mailed out while enforcement is on.
+ */
+export function assetSendable(asset: Pick<AssetRecord, "scanStatus">): boolean {
+  if (assetScanMode() !== "enforce") return true;
+  return asset.scanStatus === "clean";
 }
 
 /**
@@ -93,8 +114,21 @@ export function imageDimensions(
 }
 
 export type CreateAssetResult =
-  | { ok: true; asset: AssetRecord; deduped: boolean }
-  | { ok: false; error: AssetError };
+  | { ok: true; asset: AssetRecord; deduped: boolean; scan: ScanResult }
+  | { ok: false; error: AssetError; scan?: ScanResult };
+
+/** Terminal scan columns for an asset row, derived from a {@link ScanResult}. */
+function scanColumns(scan: ScanResult): {
+  scanStatus: AssetRecord["scanStatus"];
+  scanSignature: string | null;
+  scannedAt: Date;
+} {
+  return {
+    scanStatus: scan.verdict === "skipped" ? "skipped" : scan.verdict,
+    scanSignature: scan.signature,
+    scannedAt: new Date(),
+  };
+}
 
 /** Validate, dedupe and store a new asset. */
 export async function createAsset({
@@ -117,13 +151,26 @@ export async function createAsset({
   if (!mimeAllowed(mimeType)) return { ok: false, error: "unsupported_type" };
   if (!isAssetStorageConfigured()) return { ok: false, error: "storage_unconfigured" };
 
+  // Malware scan runs before anything is written. In `enforce` mode a threat
+  // (or an unscannable file) is rejected outright, so infected bytes never land
+  // in the bucket.
+  const scan = await scanAsset({ bytes, filename, mimeType });
+  if (scanBlocked(scan)) return { ok: false, error: "infected", scan };
+  const scanFields = scanColumns(scan);
+
   const sha = sha256Hex(bytes);
   const kind: AssetKind = isImageMime(mimeType) ? "image" : "file";
   const dimensions = kind === "image" ? imageDimensions(bytes, mimeType) : { width: null, height: null };
 
   const existing = await assetRepository.findByUserAndSha(userId, sha);
   if (existing && !existing.deletedAt) {
-    return { ok: true, asset: existing, deduped: true };
+    // Dedupe to the existing row, but refresh its scan verdict (a file uploaded
+    // while scanning was off should not stay "skipped" forever).
+    const refreshed = await assetRepository.upsert({
+      row: { ...existing, ...scanFields },
+      altTextProvided: false,
+    });
+    return { ok: true, asset: refreshed, deduped: true, scan };
   }
 
   const storageKey = assetStorageKey(userId, bytes);
@@ -142,6 +189,7 @@ export async function createAsset({
     sha256: sha,
     altText: altText?.slice(0, 500) ?? null,
     deletedAt: null,
+    ...scanFields,
   };
 
   const asset = await assetRepository.upsert({
@@ -149,7 +197,15 @@ export async function createAsset({
     altTextProvided: altText !== undefined,
   });
 
-  return { ok: true, asset, deduped: false };
+  // Best-effort encrypted text extraction; never fails the upload.
+  await extractAndStoreAsset({
+    userId,
+    assetId: asset.id,
+    bytes,
+    mimeType,
+  }).catch(() => undefined);
+
+  return { ok: true, asset, deduped: false, scan };
 }
 
 /** Clamp a client-reported image dimension; `null` when implausible. */
@@ -213,9 +269,44 @@ export async function registerUploadedAsset({
       ? { width: clampDimension(width), height: clampDimension(height) }
       : { width: null, height: null };
 
+  // Scanning (and extraction) require the bytes, which a direct upload otherwise
+  // never pulls through the function. Only pay that cost when it is needed.
+  const mode = assetScanMode();
+  const needsBytes = mode !== "off" || isAssetExtractionEnabled();
+  let scannedBytes: Buffer | null = null;
+  let scan: ScanResult = {
+    verdict: "skipped",
+    signature: null,
+    scanner: "none",
+    detail: null,
+  };
+
+  if (needsBytes) {
+    const object = await getAssetObject(storageKey);
+    if (!object) return { ok: false, error: "invalid" };
+    if (object.body.length !== head.size) return { ok: false, error: "invalid" };
+    scannedBytes = object.body;
+    scan = await scanAsset({
+      bytes: scannedBytes,
+      filename,
+      mimeType: effectiveMime,
+      mode,
+    });
+    if (scanBlocked(scan, mode)) {
+      // Never leave an infected object in the bucket.
+      await deleteAssetObject(storageKey).catch(() => undefined);
+      return { ok: false, error: "infected", scan };
+    }
+  }
+  const scanFields = scanColumns(scan);
+
   const existing = await assetRepository.findByUserAndSha(userId, digest);
   if (existing && !existing.deletedAt) {
-    return { ok: true, asset: existing, deduped: true };
+    const refreshed = await assetRepository.upsert({
+      row: { ...existing, ...scanFields },
+      altTextProvided: false,
+    });
+    return { ok: true, asset: refreshed, deduped: true, scan };
   }
 
   const row = {
@@ -231,6 +322,7 @@ export async function registerUploadedAsset({
     sha256: digest,
     altText: altText?.slice(0, 500) ?? null,
     deletedAt: null,
+    ...scanFields,
   };
 
   const asset = await assetRepository.upsert({
@@ -238,7 +330,16 @@ export async function registerUploadedAsset({
     altTextProvided: altText !== undefined,
   });
 
-  return { ok: true, asset, deduped: false };
+  if (scannedBytes) {
+    await extractAndStoreAsset({
+      userId,
+      assetId: asset.id,
+      bytes: scannedBytes,
+      mimeType: effectiveMime,
+    }).catch(() => undefined);
+  }
+
+  return { ok: true, asset, deduped: false, scan };
 }
 
 export async function listAssets({

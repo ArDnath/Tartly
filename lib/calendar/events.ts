@@ -115,6 +115,77 @@ export async function updateCalendarEvent({
   );
 }
 
+export type CalendarResponseStatus =
+  | "accepted"
+  | "declined"
+  | "tentative"
+  | "needsAction";
+
+type EventAttendeesResponse = {
+  attendees?: Array<{
+    email?: string;
+    responseStatus?: string;
+    self?: boolean;
+  }>;
+};
+
+/**
+ * Sets the authenticated user's RSVP on an event.
+ *
+ * Google has no "respond" endpoint: the response lives on the attendee entry.
+ * A PATCH sends only the fields present, but a partial `attendees` array can
+ * drop the other guests, so we read the current attendees first and PATCH the
+ * full list with only the self entry's status changed. `sendUpdates=none`
+ * keeps an RSVP from emailing the whole invite list.
+ */
+export async function respondToCalendarEvent({
+  userId,
+  eventId,
+  responseStatus,
+  transport = defaultCalendarTransport,
+}: {
+  userId: string;
+  eventId: string;
+  responseStatus: CalendarResponseStatus;
+  transport?: CalendarTransport;
+}): Promise<{ responseStatus: CalendarResponseStatus }> {
+  const event = await calendarJson<EventAttendeesResponse>(
+    userId,
+    `/calendars/primary/events/${encodeURIComponent(eventId)}`,
+    undefined,
+    transport,
+  );
+
+  const attendees = event.attendees ?? [];
+  const self = attendees.find((attendee) => attendee.self);
+  if (!self) {
+    throw new GmailApiError(
+      400,
+      "Calendar event has no self attendee entry to respond to.",
+    );
+  }
+
+  await calendarJson<CalendarEventResponse>(
+    userId,
+    `/calendars/primary/events/${encodeURIComponent(
+      eventId,
+    )}?sendUpdates=none`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        attendees: attendees.map((attendee) =>
+          attendee.self
+            ? { email: attendee.email, responseStatus }
+            : { email: attendee.email },
+        ),
+      }),
+    },
+    transport,
+  );
+
+  return { responseStatus };
+}
+
 /**
  * Deletes an event. A 404/410 is treated as already gone — the caller is
  * cancelling a meeting, and an event that no longer exists is cancelled.

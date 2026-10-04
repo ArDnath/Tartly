@@ -25,6 +25,7 @@ export const TOOL_GROUPS = [
   "assets",
   "campaigns",
   "autopilot",
+  "calendar",
 ] as const;
 
 export type ToolGroup = (typeof TOOL_GROUPS)[number];
@@ -45,6 +46,7 @@ export const TOOL_GROUP_DESCRIPTIONS: Readonly<Record<ToolGroup, string>> = {
   assets: "List and add reusable images and files.",
   campaigns: "Start and inspect bulk campaigns and manage the suppression list.",
   autopilot: "Review overnight decisions, explain a send, and adjust autopilot policy.",
+  calendar: "View the calendar, find open slots, and create/reschedule/cancel events.",
 };
 
 /**
@@ -108,6 +110,11 @@ export const TOOL_GROUP_BY_NAME: Readonly<Record<string, ToolGroup>> = {
   explain_autopilot_decision: "autopilot",
   set_autopilot_policy: "autopilot",
   pause_autopilot: "autopilot",
+
+  // calendar — Google Calendar reads, availability, and event side effects
+  search_calendar: "calendar",
+  check_google_calendar_availability: "calendar",
+  update_calendar: "calendar",
 };
 
 /** The group a tool belongs to. Unknown tools stay visible as `core`. */

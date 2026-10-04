@@ -1,10 +1,10 @@
 import "server-only";
 
+import { ValidationError } from "@/lib/agent/errors";
 import type { Attachment, InlineImage } from "@/lib/gmail/mime";
 import { textToHtml } from "@/lib/gmail/mime";
 
-import { readAssetBytes } from "./service";
-import { isImageMime } from "./service";
+import { assetSendable, isImageMime, readAssetBytes } from "./service";
 
 /**
  * Resolve stored assets into the MIME structures `sendEmail` expects.
@@ -42,6 +42,11 @@ export async function resolveOutboundAssets({
     const resolved = await readAssetBytes({ userId, id });
     if (!resolved) continue;
     const { asset, body } = resolved;
+    if (!assetSendable(asset)) {
+      throw new ValidationError(
+        `"${asset.filename}" was blocked by the security scan and cannot be sent.`,
+      );
+    }
     if (!isImageMime(asset.mimeType)) {
       attachments.push({ filename: asset.filename, mimeType: asset.mimeType, content: body });
       continue;
@@ -60,6 +65,11 @@ export async function resolveOutboundAssets({
   for (const id of attachmentIds.slice(0, 20)) {
     const resolved = await readAssetBytes({ userId, id });
     if (!resolved) continue;
+    if (!assetSendable(resolved.asset)) {
+      throw new ValidationError(
+        `"${resolved.asset.filename}" was blocked by the security scan and cannot be sent.`,
+      );
+    }
     attachments.push({
       filename: resolved.asset.filename,
       mimeType: resolved.asset.mimeType,

@@ -24,6 +24,7 @@ const ERROR_MESSAGES: Record<AssetError, string> = {
   unsupported_type: "That file type isn't allowed.",
   empty: "The file is empty.",
   invalid: "That upload could not be verified.",
+  infected: "That file failed a security scan and was rejected.",
 };
 
 const ERROR_STATUS: Record<AssetError, number> = {
@@ -33,6 +34,7 @@ const ERROR_STATUS: Record<AssetError, number> = {
   unsupported_type: 400,
   empty: 400,
   invalid: 400,
+  infected: 422,
 };
 
 export const runtime = "nodejs";

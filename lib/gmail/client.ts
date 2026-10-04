@@ -3,6 +3,7 @@ import "server-only";
 import { cache } from "react";
 
 import { auth } from "@/lib/auth";
+import { gmailQuotaUnits, runWithGoogleGuard } from "@/lib/google/quota";
 import { googleAccountRepository } from "@/lib/repositories/google-account";
 
 /**
@@ -206,20 +207,43 @@ export async function googleAuthFailure(
   );
 }
 
+/**
+ * The stable identity of a user's Google connection, used to key the shared
+ * quota/semaphore/circuit state. Falls back to the user id when no Better Auth
+ * account row exists (the token call above would already have failed).
+ */
+export async function getGoogleConnectionId(userId: string): Promise<string> {
+  return (await getGoogleAuthAccountId(userId)) ?? `user:${userId}`;
+}
+
 export const defaultGmailTransport: GmailTransport = async (
   userId,
   path,
   init,
 ) => {
   const token = await getGoogleAccessToken(userId);
-  const response = await fetch(`${GMAIL_API_BASE}${path}`, {
-    ...init,
-    signal: init?.signal ?? AbortSignal.timeout(GMAIL_REQUEST_TIMEOUT_MS),
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(init?.body ? { "Content-Type": "application/json" } : {}),
-      ...init?.headers,
-    },
+  const method = init?.method ?? "GET";
+  const connectionId = await getGoogleConnectionId(userId);
+  const route = path.split("?")[0] ?? path;
+
+  // Every call is rate-limited per connection + project, bounded by a
+  // concurrency semaphore, retried with jitter on 429/5xx, and short-circuited
+  // when a connection is repeatedly failing.
+  const response = await runWithGoogleGuard({
+    api: "gmail",
+    connectionId,
+    units: gmailQuotaUnits(path, method),
+    label: `Gmail ${method} ${route}`,
+    run: () =>
+      fetch(`${GMAIL_API_BASE}${path}`, {
+        ...init,
+        signal: init?.signal ?? AbortSignal.timeout(GMAIL_REQUEST_TIMEOUT_MS),
+        headers: {
+          Authorization: `Bearer ${token}`,
+          ...(init?.body ? { "Content-Type": "application/json" } : {}),
+          ...init?.headers,
+        },
+      }),
   });
 
   if (response.status === 401 || response.status === 403) {

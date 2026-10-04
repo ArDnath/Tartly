@@ -232,6 +232,55 @@ const envSchema = z.object({
   // for a Blob store provisioned as public-access.
   ASSET_BLOB_ACCESS: z.enum(["public", "private"]).optional(),
 
+  /* --- Attachment malware scanning + encrypted extraction --- */
+
+  // "off" (default) skips scanning, "warn" scans and records the verdict but
+  // still accepts, "enforce" rejects infected uploads and blocks sending them.
+  ASSET_SCAN_MODE: z.enum(["off", "warn", "enforce"]).optional(),
+  // clamd (`ClamAV`) TCP endpoint. Required when ASSET_SCAN_MODE != "off".
+  CLAMAV_HOST: z.string().min(1).optional(),
+  CLAMAV_PORT: z.coerce.number().int().positive().optional(),
+  CLAMAV_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
+  // Extract text from a clean attachment and store it encrypted at rest.
+  ASSET_EXTRACT_ENABLED: z.enum(["true", "false"]).optional(),
+  // base64-encoded 32-byte key for AES-256-GCM. Required when extraction is on.
+  ASSET_EXTRACT_KEY: z.string().min(1).optional(),
+  ASSET_EXTRACT_MAX_CHARS: z.coerce.number().int().positive().optional(),
+
+  /* --- Google API quota governance (Gmail + Calendar) --- */
+
+  // Bucket key for the shared Google Cloud project quota. All connections in a
+  // deployment share one project unless this is overridden.
+  GOOGLE_QUOTA_PROJECT_KEY: z.string().min(1).optional(),
+  // Per-minute unit ceilings. Defaults mirror Google's documented limits.
+  GOOGLE_PROJECT_UNITS_PER_MIN: z.coerce.number().int().positive().optional(),
+  GOOGLE_CONNECTION_UNITS_PER_MIN: z
+    .coerce
+    .number()
+    .int()
+    .positive()
+    .optional(),
+  // In-flight request ceiling per connected Google account.
+  GOOGLE_MAX_CONCURRENT_PER_CONNECTION: z
+    .coerce
+    .number()
+    .int()
+    .positive()
+    .optional(),
+  // Circuit breaker: consecutive transient failures before a connection is
+  // short-circuited, and how long it stays open.
+  GOOGLE_CIRCUIT_FAILURE_THRESHOLD: z
+    .coerce
+    .number()
+    .int()
+    .positive()
+    .optional(),
+  GOOGLE_CIRCUIT_OPEN_MS: z.coerce.number().int().positive().optional(),
+  // Retry policy for retryable Google responses (429/5xx/quota).
+  GOOGLE_MAX_RETRIES: z.coerce.number().int().min(0).optional(),
+  GOOGLE_RETRY_BASE_MS: z.coerce.number().int().positive().optional(),
+  GOOGLE_RETRY_MAX_MS: z.coerce.number().int().positive().optional(),
+
   /* --- Phase 7 bulk campaigns --- */
 
   CAMPAIGNS_ENABLED: z.enum(["true", "false"]).optional(),
@@ -488,6 +537,110 @@ export function assetStorageDriver(): "vercel-blob" | "s3" {
  */
 export function assetBlobAccess(): "public" | "private" {
   return env.ASSET_BLOB_ACCESS === "public" ? "public" : "private";
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Attachment malware scanning + encrypted extraction                        */
+/* -------------------------------------------------------------------------- */
+
+export type AssetScanMode = "off" | "warn" | "enforce";
+
+export const DEFAULT_CLAMAV_PORT = 3310;
+export const DEFAULT_CLAMAV_TIMEOUT_MS = 15_000;
+export const DEFAULT_ASSET_EXTRACT_MAX_CHARS = 100_000;
+
+/** Scanning is opt-in: `off` unless explicitly configured. */
+export function assetScanMode(): AssetScanMode {
+  const mode = env.ASSET_SCAN_MODE;
+  return mode === "warn" || mode === "enforce" ? mode : "off";
+}
+
+/** Whether clamd is configured well enough to scan. */
+export function isClamavConfigured(): boolean {
+  return Boolean(env.CLAMAV_HOST);
+}
+
+export function clamavHost(): string {
+  return env.CLAMAV_HOST ?? "";
+}
+
+export function clamavPort(): number {
+  return env.CLAMAV_PORT ?? DEFAULT_CLAMAV_PORT;
+}
+
+export function clamavTimeoutMs(): number {
+  return env.CLAMAV_TIMEOUT_MS ?? DEFAULT_CLAMAV_TIMEOUT_MS;
+}
+
+/** Extraction requires both the flag and a key; otherwise it is off. */
+export function isAssetExtractionEnabled(): boolean {
+  return env.ASSET_EXTRACT_ENABLED === "true" && Boolean(env.ASSET_EXTRACT_KEY);
+}
+
+export function assetExtractKey(): string | null {
+  return env.ASSET_EXTRACT_KEY ?? null;
+}
+
+export function assetExtractMaxChars(): number {
+  return env.ASSET_EXTRACT_MAX_CHARS ?? DEFAULT_ASSET_EXTRACT_MAX_CHARS;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Google API quota governance                                               */
+/* -------------------------------------------------------------------------- */
+
+export const DEFAULT_GOOGLE_PROJECT_UNITS_PER_MIN = 1_200_000;
+export const DEFAULT_GOOGLE_CONNECTION_UNITS_PER_MIN = 6_000;
+export const DEFAULT_GOOGLE_MAX_CONCURRENT_PER_CONNECTION = 5;
+export const DEFAULT_GOOGLE_CIRCUIT_FAILURE_THRESHOLD = 8;
+export const DEFAULT_GOOGLE_CIRCUIT_OPEN_MS = 30_000;
+export const DEFAULT_GOOGLE_MAX_RETRIES = 3;
+export const DEFAULT_GOOGLE_RETRY_BASE_MS = 250;
+export const DEFAULT_GOOGLE_RETRY_MAX_MS = 4_000;
+
+export function googleQuotaProjectKey(): string {
+  return env.GOOGLE_QUOTA_PROJECT_KEY ?? "default";
+}
+
+export function googleProjectUnitsPerMin(): number {
+  return env.GOOGLE_PROJECT_UNITS_PER_MIN ?? DEFAULT_GOOGLE_PROJECT_UNITS_PER_MIN;
+}
+
+export function googleConnectionUnitsPerMin(): number {
+  return (
+    env.GOOGLE_CONNECTION_UNITS_PER_MIN ??
+    DEFAULT_GOOGLE_CONNECTION_UNITS_PER_MIN
+  );
+}
+
+export function googleMaxConcurrentPerConnection(): number {
+  return (
+    env.GOOGLE_MAX_CONCURRENT_PER_CONNECTION ??
+    DEFAULT_GOOGLE_MAX_CONCURRENT_PER_CONNECTION
+  );
+}
+
+export function googleCircuitFailureThreshold(): number {
+  return (
+    env.GOOGLE_CIRCUIT_FAILURE_THRESHOLD ??
+    DEFAULT_GOOGLE_CIRCUIT_FAILURE_THRESHOLD
+  );
+}
+
+export function googleCircuitOpenMs(): number {
+  return env.GOOGLE_CIRCUIT_OPEN_MS ?? DEFAULT_GOOGLE_CIRCUIT_OPEN_MS;
+}
+
+export function googleMaxRetries(): number {
+  return env.GOOGLE_MAX_RETRIES ?? DEFAULT_GOOGLE_MAX_RETRIES;
+}
+
+export function googleRetryBaseMs(): number {
+  return env.GOOGLE_RETRY_BASE_MS ?? DEFAULT_GOOGLE_RETRY_BASE_MS;
+}
+
+export function googleRetryMaxMs(): number {
+  return env.GOOGLE_RETRY_MAX_MS ?? DEFAULT_GOOGLE_RETRY_MAX_MS;
 }
 
 /* -------------------------------------------------------------------------- */
