@@ -1,20 +1,16 @@
 "use client";
 
-import {
-  ChevronRightIcon,
-  MailIcon,
-  MailOpenIcon,
-  PaperclipIcon,
-} from "lucide-react";
+import { PaperclipIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, type ReactNode } from "react";
+import { useCallback } from "react";
 
 import { ASSISTANT_CLOSE_EVENT } from "@/components/assistant/assistant-events";
 import { useMailStore } from "@/components/mail/mail-store";
+import { MailTagBadge } from "@/components/mail/mail-tag-badge";
 import { formatMailTime } from "@/lib/mail/format";
 import { cn } from "@/lib/utils";
 
-import { asString } from "./shared";
+import { parseMailAddress } from "./shared";
 
 /**
  * The shape any tool result can supply for the mail it touched. Every field is
@@ -36,11 +32,8 @@ export interface EmailReference {
 
 /** Strip a `Name <email>` down to a display name, keeping a bare address. */
 function senderName(from: string | undefined): string | undefined {
-  const value = asString(from);
-  if (!value) return undefined;
-  const angle = /^(.*?)\s*<[^>]+>\s*$/.exec(value);
-  const name = (angle?.[1] ?? value).trim().replace(/^"(.*)"$/, "$1");
-  return name || value;
+  const { name, email } = parseMailAddress(from);
+  return name ?? email;
 }
 
 /**
@@ -74,13 +67,9 @@ export function useOpenMailMessage(): (id: string) => void {
 }
 
 /**
- * A compact, clickable email preview for the agent transcript.
- *
- * It replaces the raw message id a tool result used to print: a mail-client row
- * showing sender (or recipients), subject, snippet and time. Clicking it opens
- * the message in the main mail UI. When a tool gives us only an id that is not
- * in the store yet the row still renders and opens on click, because the store
- * fetches the body by id.
+ * A compact, single-line mail row for tool results that reference one message
+ * (action receipts, confirmations, mailbox changes). It shows sender, subject,
+ * type and date on one line and opens the message in the mail client.
  */
 export function AgentEmailRef({
   email,
@@ -97,66 +86,54 @@ export function AgentEmailRef({
   const id = email.id ?? stored?.id;
   const to = email.to?.length
     ? email.to
-    : stored?.to.map((address) => address.name || address.email);
+    : stored?.to?.map((address) => address.name || address.email);
   const sender =
     senderName(email.from) ??
-    (stored ? stored.from.name || stored.from.email : undefined) ??
+    (stored?.from ? stored.from.name || stored.from.email : undefined) ??
     (to?.length ? `To: ${to.join(", ")}` : undefined) ??
     "Email";
   const subject = email.subject ?? stored?.subject ?? "(no subject)";
-  const snippet = email.snippet ?? stored?.preview;
   const date = email.date ?? stored?.receivedAt;
   const unread = email.unread ?? stored?.unread ?? false;
   const hasAttachments =
     email.hasAttachments ?? Boolean(stored?.attachments?.length);
 
-  const content: ReactNode = (
+  const content = (
     <>
-      <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-        {unread ? (
-          <MailIcon className="size-3.5" aria-hidden />
-        ) : (
-          <MailOpenIcon className="size-3.5" aria-hidden />
+      <span
+        aria-hidden
+        className={cn(
+          "size-1.5 shrink-0 rounded-full bg-mail-unread",
+          unread ? "opacity-100" : "opacity-0",
         )}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="flex items-baseline justify-between gap-2">
-          <span
-            className={cn(
-              "truncate text-xs",
-              unread
-                ? "font-semibold text-foreground"
-                : "text-muted-foreground",
-            )}
-          >
-            {sender}
-          </span>
-          {date ? (
-            <span className="shrink-0 text-[11px] text-muted-foreground">
-              {formatMailTime(date)}
-            </span>
-          ) : null}
+      />
+      <span className="flex min-w-0 flex-1 items-center gap-2">
+        <span
+          className={cn(
+            "min-w-0 shrink-0 max-w-[45%] truncate text-[12px]",
+            unread ? "font-semibold text-mail-strong" : "text-mail-strong/80",
+          )}
+        >
+          {sender}
         </span>
-        <span className="mt-0.5 block truncate text-sm text-foreground">
+        <span className="min-w-0 flex-1 truncate text-[12px] text-mail-strong/70">
           {subject}
         </span>
-        {snippet ? (
-          <span className="mt-0.5 line-clamp-2 block text-xs text-muted-foreground">
-            {snippet}
-          </span>
-        ) : null}
-        {hasAttachments ? (
-          <span className="mt-1 inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-            <PaperclipIcon className="size-3" aria-hidden />
-            Attachment
-          </span>
-        ) : null}
       </span>
+      {stored?.tag ? <MailTagBadge tag={stored.tag} className="shrink-0" /> : null}
+      {hasAttachments ? (
+        <PaperclipIcon className="size-3 shrink-0 text-mail-muted" aria-hidden />
+      ) : null}
+      {date ? (
+        <span className="shrink-0 text-[11px] tabular-nums text-mail-muted">
+          {formatMailTime(date)}
+        </span>
+      ) : null}
     </>
   );
 
   const base = cn(
-    "group/email flex w-full items-start gap-2.5 rounded-lg border border-border/60 bg-muted/20 px-2.5 py-2 text-left transition-colors",
+    "group/email flex w-full items-center gap-2 rounded-md border border-border/60 bg-muted/20 px-2.5 py-1.5 text-left transition-colors",
     className,
   );
 
@@ -168,18 +145,13 @@ export function AgentEmailRef({
     <button
       type="button"
       onClick={() => openMessage(id)}
-      title="Open in mail"
-      aria-label={`Open email: ${subject}`}
+      title="Open in Mail"
       className={cn(
         base,
         "hover:border-border hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
       )}
     >
       {content}
-      <ChevronRightIcon
-        className="mt-0.5 size-4 shrink-0 text-muted-foreground/40 transition-transform group-hover/email:translate-x-0.5 group-hover/email:text-muted-foreground"
-        aria-hidden
-      />
     </button>
   );
 }

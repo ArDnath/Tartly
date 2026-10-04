@@ -1657,6 +1657,29 @@ export const ASSET_KINDS = ["image", "file"] as const;
 export type AssetKind = (typeof ASSET_KINDS)[number];
 
 /**
+ * Malware-scan verdict for an asset. `pending` exists for an async scanner;
+ * the inline pipeline resolves to one of the terminal states before the row is
+ * visible. `skipped` means scanning was disabled by configuration.
+ */
+export const ASSET_SCAN_STATUSES = [
+  "pending",
+  "clean",
+  "infected",
+  "error",
+  "skipped",
+] as const;
+export type AssetScanStatus = (typeof ASSET_SCAN_STATUSES)[number];
+
+/** Status of the optional encrypted text-extraction pass for an asset. */
+export const ASSET_EXTRACTION_STATUSES = [
+  "ok",
+  "unsupported",
+  "failed",
+  "skipped",
+] as const;
+export type AssetExtractionStatus = (typeof ASSET_EXTRACTION_STATUSES)[number];
+
+/**
  * A user-owned image or file, content-addressed under a per-user prefix so
  * identical uploads dedupe. Bytes live in object storage (`lib/assets/storage`);
  * this row is the metadata + ownership record. Soft-delete only: already-sent
@@ -1681,6 +1704,14 @@ export const assets = pgTable(
     /** Content hash; identical bytes never store twice for a user. */
     sha256: text("sha256").notNull(),
     altText: text("alt_text"),
+    /** Malware-scan verdict. `enforce` mode refuses to attach a non-clean asset. */
+    scanStatus: text("scan_status")
+      .$type<AssetScanStatus>()
+      .notNull()
+      .default("skipped"),
+    /** Scanner signature name when the verdict is `infected`. */
+    scanSignature: text("scan_signature"),
+    scannedAt: timestamp("scanned_at", { withTimezone: true }),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
@@ -1720,6 +1751,48 @@ export const assetUsages = pgTable(
   (t) => [
     index("asset_usages_asset_idx").on(t.assetId),
     index("asset_usages_user_created_idx").on(t.userId, t.createdAt),
+  ],
+);
+
+/**
+ * Encrypted extracted text for an asset (Phase 6 hardening). The plaintext is
+ * never stored: `ciphertext`/`iv`/`tag` are AES-256-GCM outputs sealed with a
+ * key held only in the server environment. One row per asset (unique), so a
+ * re-run replaces rather than duplicates. Owned by the user and cascade-deleted
+ * with the asset.
+ */
+export const assetExtractions = pgTable(
+  "asset_extractions",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    assetId: text("asset_id")
+      .notNull()
+      .references(() => assets.id, { onDelete: "cascade" }),
+    status: text("status").$type<AssetExtractionStatus>().notNull(),
+    /** Extractor that produced the text, e.g. "text/plain" | "text/html". */
+    parser: text("parser"),
+    /** Base64 AES-256-GCM ciphertext of the extracted text. */
+    ciphertext: text("ciphertext"),
+    iv: text("iv"),
+    tag: text("tag"),
+    charCount: integer("char_count").notNull().default(0),
+    truncated: boolean("truncated").notNull().default(false),
+    /** Content-free failure marker; never the raw error or any file bytes. */
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("asset_extractions_asset_unique").on(t.assetId),
+    index("asset_extractions_user_idx").on(t.userId),
   ],
 );
 

@@ -2,9 +2,11 @@ import "server-only";
 
 import {
   getGoogleAccessToken,
+  getGoogleConnectionId,
   googleAuthFailure,
   GmailApiError,
 } from "@/lib/gmail/client";
+import { calendarQuotaUnits, runWithGoogleGuard } from "@/lib/google/quota";
 
 /**
  * Thin Google Calendar REST client. Shares the Google access token with the
@@ -28,14 +30,27 @@ export const defaultCalendarTransport: CalendarTransport = async (
   init,
 ) => {
   const token = await getGoogleAccessToken(userId);
-  const response = await fetch(`${CALENDAR_API_BASE}${path}`, {
-    ...init,
-    signal: init?.signal ?? AbortSignal.timeout(CALENDAR_REQUEST_TIMEOUT_MS),
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(init?.body ? { "Content-Type": "application/json" } : {}),
-      ...init?.headers,
-    },
+  const method = init?.method ?? "GET";
+  const connectionId = await getGoogleConnectionId(userId);
+  const route = path.split("?")[0] ?? path;
+
+  // Calendar shares the one Google grant, so it shares the same per-connection
+  // and per-project guards as Gmail.
+  const response = await runWithGoogleGuard({
+    api: "calendar",
+    connectionId,
+    units: calendarQuotaUnits(path, method),
+    label: `Calendar ${method} ${route}`,
+    run: () =>
+      fetch(`${CALENDAR_API_BASE}${path}`, {
+        ...init,
+        signal: init?.signal ?? AbortSignal.timeout(CALENDAR_REQUEST_TIMEOUT_MS),
+        headers: {
+          Authorization: `Bearer ${token}`,
+          ...(init?.body ? { "Content-Type": "application/json" } : {}),
+          ...init?.headers,
+        },
+      }),
   });
 
   if (response.status === 401 || response.status === 403) {

@@ -342,6 +342,26 @@ body {
 }
 
 /*
+ * Glassmorphic settings panel. A faint top-left sheen sits over the dialog's
+ * translucent `bg-popover` colour so the blurred surface catches light at the
+ * edge; only `background-image` is set, so the base colour and opacity still
+ * apply and the `backdrop-blur` behind it reads through.
+ */
+@utility glass-panel {
+  background-image:
+    radial-gradient(
+      120% 90% at 0% 0%,
+      rgba(255, 255, 255, 0.07),
+      transparent 55%
+    ),
+    radial-gradient(
+      130% 100% at 100% 100%,
+      rgba(138, 180, 248, 0.06),
+      transparent 60%
+    );
+}
+
+/*
  * Assistant modal expand. The dialog is centered with Tailwind's `translate`
  * property, so these keyframes animate `transform` only — they compose on top
  * of the centering instead of fighting it. The panel grows out of the right

@@ -14,6 +14,8 @@ const placeholders: Record<string, string> = {
   GOOGLE_CLIENT_SECRET: "vitest-google-client-secret",
   UPSTASH_REDIS_REST_URL: "https://upstash.invalid",
   UPSTASH_REDIS_REST_TOKEN: "vitest-upstash-token",
+  // A throwaway 32-byte AES-256-GCM key so extraction crypto is testable.
+  ASSET_EXTRACT_KEY: "09ilu9oqhYDabo/FyuyvS4YTe6sW/xSNp2HAXosh/0M=",
 };
 
 for (const [key, value] of Object.entries(placeholders)) {

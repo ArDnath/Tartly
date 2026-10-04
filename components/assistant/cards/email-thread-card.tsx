@@ -2,69 +2,47 @@
 
 import { MessagesSquareIcon } from "lucide-react";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 
-import { AgentEmailRef } from "./email-ref";
+import { MailTable, mailRowFromRecord } from "./mail-table";
 import { asNumber, asRecord, asString } from "./shared";
 
-/** Collapse a message body into a one-paragraph snippet for the preview row. */
-function bodySnippet(body: string | undefined): string | undefined {
-  if (!body) return undefined;
-  const collapsed = body
-    .split("\n")
-    .map((line) => line.trim())
-    // Drop the quoted-reply markers a thread's later messages carry.
-    .filter((line) => line.length > 0 && !line.startsWith(">"))
-    .join(" ")
-    .trim();
-  if (!collapsed) return undefined;
-  return collapsed.length > 240 ? `${collapsed.slice(0, 240)}…` : collapsed;
-}
-
 /**
- * A typed rendering of a `get_thread` result: the conversation's subject, then
- * each message as a clickable preview that opens the mail in the main UI.
+ * A `get_thread` conversation as a compact table: the subject once at the top,
+ * then one short row per message (from, date) that opens it in the mail client.
  */
 export function EmailThreadCard({ output }: { output: unknown }) {
   const data = asRecord(output);
   if (!data) return null;
 
-  const rows = Array.isArray(data.messages) ? data.messages : [];
+  const rawRows = Array.isArray(data.messages) ? data.messages : [];
+  const rows = rawRows.map((raw) => mailRowFromRecord(asRecord(raw) ?? {}));
   const subject = asString(data.subject) ?? "(no subject)";
   const total = asNumber(data.totalMessages) ?? rows.length;
+  const omitted = asNumber(data.olderMessagesOmitted) ?? 0;
 
   return (
-    <Card size="sm">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-sm">
-          <MessagesSquareIcon
-            className="size-4 shrink-0 text-muted-foreground"
-            aria-hidden
-          />
-          <span className="min-w-0 truncate">{subject}</span>
-        </CardTitle>
-        <p className="text-xs text-muted-foreground">
-          {total} {total === 1 ? "message" : "messages"} in this conversation
+    <Card size="sm" className="w-full gap-0 py-0">
+      <div className="flex items-center gap-2 border-b border-mail-line px-3 py-2">
+        <MessagesSquareIcon
+          className="size-3.5 shrink-0 text-mail-muted"
+          aria-hidden
+        />
+        <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-card-foreground">
+          {subject}
+        </span>
+        <span className="shrink-0 text-[11px] text-mail-muted">
+          {total} {total === 1 ? "message" : "messages"}
+        </span>
+      </div>
+
+      <MailTable rows={rows} showSubject={false} showHeader={false} />
+
+      {omitted > 0 ? (
+        <p className="border-t border-mail-line px-3 py-1.5 text-[11px] text-mail-muted">
+          {omitted} earlier {omitted === 1 ? "message" : "messages"} not shown
         </p>
-      </CardHeader>
-      <CardContent className="gap-2">
-        {rows.map((raw, index) => {
-          const row = asRecord(raw) ?? {};
-          const id = asString(row.id);
-          return (
-            <AgentEmailRef
-              key={id ?? index}
-              email={{
-                ...(id ? { id } : {}),
-                from: asString(row.from),
-                date: asString(row.date),
-                subject,
-                snippet: bodySnippet(asString(row.body)),
-              }}
-            />
-          );
-        })}
-      </CardContent>
+      ) : null}
     </Card>
   );
 }

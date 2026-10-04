@@ -16,18 +16,23 @@ import { usePathname } from "next/navigation";
 
 import { cn } from "@/lib/utils";
 
-type SettingsLink = {
+export type SettingsLink = {
   href: string;
   label: string;
   icon: LucideIcon;
 };
 
+export type SettingsGroup = { label: string; links: SettingsLink[] };
+
 /**
  * Settings destinations, grouped so the rail reads as two short menus rather
  * than one long list. The order defines both the desktop rail and the mobile
  * tab strip.
+ *
+ * Exported so the intercepted settings modal can render the same rail without
+ * duplicating the list.
  */
-const GROUPS: Array<{ label: string; links: SettingsLink[] }> = [
+export const SETTINGS_GROUPS: SettingsGroup[] = [
   {
     label: "Workspace",
     links: [
@@ -51,7 +56,7 @@ const GROUPS: Array<{ label: string; links: SettingsLink[] }> = [
   },
 ];
 
-const LINKS = GROUPS.flatMap((group) => group.links);
+const LINKS = SETTINGS_GROUPS.flatMap((group) => group.links);
 
 /**
  * Settings navigation. Lives in the main column (not the app sidebar) so the
@@ -78,7 +83,7 @@ export function SettingsNav() {
         </div>
 
         <div className="scrollbar-none flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-2.5 py-4">
-          {GROUPS.map((group) => (
+          {SETTINGS_GROUPS.map((group) => (
             <div key={group.label} className="flex flex-col gap-1">
               <p className="px-2.5 pb-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                 {group.label}

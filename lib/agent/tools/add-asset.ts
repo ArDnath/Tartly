@@ -67,7 +67,11 @@ export const addAssetTool: AnyToolDefinition = defineTool({
     });
 
     if (!result.ok) {
-      return { saved: false, notice: `Could not save the asset (${result.error}).` };
+      const notice =
+        result.error === "infected"
+          ? "That file was rejected by the malware scan and was not saved."
+          : `Could not save the asset (${result.error}).`;
+      return { saved: false, notice };
     }
 
     return {

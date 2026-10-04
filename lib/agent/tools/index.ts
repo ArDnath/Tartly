@@ -4,6 +4,7 @@ import { addLabelTool } from "./add-label";
 import { addAssetTool } from "./add-asset";
 import { addSuppressionTool } from "./add-suppression";
 import { archiveEmailTool } from "./archive-email";
+import { checkCalendarAvailabilityTool } from "./check-calendar-availability";
 import { createDraftTool } from "./create-draft";
 import { createFollowupTool } from "./create-followup";
 import { createRuleTool } from "./create-rule";
@@ -29,6 +30,7 @@ import { replyToEmailTool } from "./reply-to-email";
 import { researchCompanyTool } from "./research-company";
 import { researchPersonTool } from "./research-person";
 import { scheduleEmailTool } from "./schedule-email";
+import { searchCalendarTool } from "./search-calendar";
 import { searchContactsTool } from "./search-contacts";
 import { searchEmailsTool } from "./search-emails";
 import { searchKnowledgeTool } from "./search-knowledge";
@@ -39,6 +41,7 @@ import { setThreadAutonomyTool } from "./set-thread-autonomy";
 import { startCampaignTool } from "./start-campaign";
 import { summarizeThreadTool } from "./summarize-thread";
 import { unsubscribeSenderTool } from "./unsubscribe-sender";
+import { updateCalendarTool } from "./update-calendar";
 import { updateDraftTool } from "./update-draft";
 
 /**
@@ -72,6 +75,8 @@ export const READ_TOOLS = [
   getCommitmentsTool,
   getOvernightSummaryTool,
   explainAutopilotDecisionTool,
+  searchCalendarTool,
+  checkCalendarAvailabilityTool,
 ];
 
 export const WRITE_TOOLS = [
@@ -99,6 +104,7 @@ export const SIDE_EFFECT_TOOLS = [
   deleteEmailTool,
   scheduleEmailTool,
   unsubscribeSenderTool,
+  updateCalendarTool,
 ];
 
 export function createDefaultToolRegistry(): ToolRegistry {
@@ -114,6 +120,7 @@ export {
   addAssetTool,
   addSuppressionTool,
   archiveEmailTool,
+  checkCalendarAvailabilityTool,
   createDraftTool,
   createFollowupTool,
   createRuleTool,
@@ -139,6 +146,7 @@ export {
   researchCompanyTool,
   researchPersonTool,
   scheduleEmailTool,
+  searchCalendarTool,
   searchContactsTool,
   searchEmailsTool,
   searchKnowledgeTool,
@@ -149,5 +157,6 @@ export {
   startCampaignTool,
   summarizeThreadTool,
   unsubscribeSenderTool,
+  updateCalendarTool,
   updateDraftTool,
 };
