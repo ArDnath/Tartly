@@ -105,7 +105,7 @@ export function CommandPaletteDialog({
               <ClockCounterClockwise />
               Runs
             </CommandItem>
-            <CommandItem onSelect={() => go("/settings")}>
+            <CommandItem onSelect={() => go("/settings/calendar")}>
               <GearSix />
               Settings
             </CommandItem>

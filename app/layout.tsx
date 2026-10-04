@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import type { ReactNode } from "react";
 import { SafePointerCapture } from "@/components/safe-pointer-capture";
 import "./globals.css";
 
@@ -107,7 +108,10 @@ const structuredData = {
   ],
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({
+  children,
+  modal,
+}: LayoutProps<"/"> & { modal?: ReactNode }) {
   return (
     <html lang="en" className={`dark h-full ${inter.className}`}>
       <body className="min-h-full" suppressHydrationWarning>
@@ -117,6 +121,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
         />
         {children}
+        {/* Intercepted routes (@modal). Renders null unless a soft navigation
+            matches a settings route, in which case the section opens as a
+            glass popup over the current screen. */}
+        {modal}
       </body>
     </html>
   );
