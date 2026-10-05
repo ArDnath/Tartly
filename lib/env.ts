@@ -98,6 +98,11 @@ const envSchema = z.object({
   // Google Search Console verification token surfaced in `app/layout.tsx`.
   NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION: z.string().min(1).optional(),
 
+  // ImageKit URL endpoint for media delivery (images + video). Optional: while
+  // blank the media components fall back instead of requesting an invalid URL.
+  // `NEXT_PUBLIC_*` is inlined at build time, so it must be set before a build.
+  NEXT_PUBLIC_IMAGEKIT_URL_ENDPOINT: z.string().url().optional(),
+
   // Cheap model for triage/classification; drafting model. Fall back to
   // AI_MODEL_ID when unset.
   AI_MODEL_CLASSIFIER_ID: z.string().min(1).optional(),
@@ -499,6 +504,21 @@ export function isTranslateEnabled(): boolean {
  */
 export function isSemanticSearchEnabled(): boolean {
   return env.SEMANTIC_SEARCH_ENABLED === "true";
+}
+
+/* -------------------------------------------------------------------------- */
+/*  ImageKit media delivery                                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Normalized ImageKit URL endpoint (no trailing slash), or `null` when media
+ * delivery is not configured. Server-side callers use this for signed URLs,
+ * OG images and metadata; client components read the `NEXT_PUBLIC_*` value
+ * directly via `lib/imagekit/config`.
+ */
+export function imagekitUrlEndpoint(): string | null {
+  const endpoint = env.NEXT_PUBLIC_IMAGEKIT_URL_ENDPOINT?.replace(/\/+$/, "");
+  return endpoint || null;
 }
 
 /* -------------------------------------------------------------------------- */

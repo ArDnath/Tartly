@@ -65,6 +65,24 @@ describe("buildCsp", () => {
     expect(csp["font-src"]).toBe("'self' data:");
   });
 
+  it("allows ImageKit media by default and a custom endpoint origin", () => {
+    const fallback = directives(buildCsp({ nonce: NONCE, isDev: false }));
+    expect(fallback["img-src"]).toContain("https://ik.imagekit.io");
+    expect(fallback["media-src"]).toContain("https://*.imagekit.io");
+    expect(fallback["connect-src"]).toContain("https://ik.imagekit.io");
+
+    const custom = directives(
+      buildCsp({
+        nonce: NONCE,
+        isDev: false,
+        imagekitOrigin: "https://media.tartly.app",
+      }),
+    );
+    expect(custom["img-src"]).toContain("https://media.tartly.app");
+    expect(custom["media-src"]).toContain("https://media.tartly.app");
+    expect(custom["connect-src"]).toContain("https://media.tartly.app");
+  });
+
   it("relaxes eval and the HMR socket only in development", () => {
     const prod = directives(buildCsp({ nonce: NONCE, isDev: false }));
     const dev = directives(buildCsp({ nonce: NONCE, isDev: true }));
