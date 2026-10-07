@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 
-import { GoogleSignInButton } from "@/components/auth-buttons";
-import { MatrixBrandMark } from "@/components/matrix-loader";
+import { GoogleSignInButton } from "@/components/app/auth-buttons";
+import { MatrixBrandMark } from "@/components/shared/brand/matrix-loader";
 import { getSession } from "@/lib/session";
 
 /**
@@ -20,14 +20,14 @@ export default async function AuthPage() {
       />
       <main className="relative w-full max-w-md p-6 sm:p-9">
         <div className="flex flex-col items-center text-center">
-          <MatrixBrandMark size={44} />
+          <MatrixBrandMark size={40} />
         </div>
 
         <div className="mt-6 flex flex-col gap-3">
           <GoogleSignInButton />
         </div>
         <p className="mt-16 text-center text-xs leading-relaxed text-muted-foreground">
-          By using Lunabox,
+          By using Tartly,
           you agree to the Terms of Service and Data
           Processing Agreement.
         </p>

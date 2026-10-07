@@ -124,7 +124,7 @@ async function main() {
       userId: TEST_USER_ID,
       userName: "Smoke Test",
       userEmail: `${TEST_USER_ID}@example.com`,
-      workspaceName: "Lunabox",
+      workspaceName: "Tartly",
     });
     assert(started.outcome === "STARTED", "first start returns STARTED");
     assert(started.thread?.id === threadId, "thread uses deterministic id");
@@ -135,7 +135,7 @@ async function main() {
       userId: TEST_USER_ID,
       userName: "Smoke Test",
       userEmail: `${TEST_USER_ID}@example.com`,
-      workspaceName: "Lunabox",
+      workspaceName: "Tartly",
     });
     assert(
       resumedBeforeReply.outcome === "STARTED",
@@ -150,7 +150,7 @@ async function main() {
       buildFallbackText: () =>
         buildFallbackSetupResponse({
           userName: "Smoke Test",
-          workspaceName: "Lunabox",
+          workspaceName: "Tartly",
         }),
     });
     const reader = stream.getReader();
@@ -211,7 +211,7 @@ async function main() {
       userId: TEST_USER_ID,
       userName: "Smoke Test",
       userEmail: `${TEST_USER_ID}@example.com`,
-      workspaceName: "Lunabox",
+      workspaceName: "Tartly",
     });
     assert(
       resumedAfterReply.outcome === "ALREADY_STARTED",
@@ -224,7 +224,7 @@ async function main() {
     console.log("fallback response:");
     const fallback = buildFallbackSetupResponse({
       userName: "Ada Lovelace",
-      workspaceName: "Lunabox",
+      workspaceName: "Tartly",
     });
     assert(fallback.includes("Ada"), "fallback greets by first name");
     assert(fallback.length > 200, "fallback has real content");

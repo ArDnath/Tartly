@@ -1,5 +1,5 @@
-import { PageHeader } from "@/components/app-shell/page-header";
-import { MeetingAgenda } from "@/components/calendar/meeting-agenda";
+import { PageHeader } from "@/components/app/shell/page-header";
+import { MeetingAgenda } from "@/components/app/calendar/meeting-agenda";
 import { splitAgenda, type AgendaMeeting } from "@/lib/calendar/agenda";
 import { listMeetings } from "@/lib/calendar/booking";
 import { DEFAULT_CALENDAR_SETTINGS } from "@/lib/calendar/defaults";

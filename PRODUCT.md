@@ -15,7 +15,7 @@ are unwilling to give up the final say over what leaves their mailbox.
 
 ## Product Purpose
 
-Lunabox exists to get a person's inbox handled while keeping them in control. It
+Tartly exists to get a person's inbox handled while keeping them in control. It
 triages incoming mail, drafts replies in the user's voice, finds and books meeting
 times, and chases threads that have gone quiet. Success is "inbox handled, control
 kept": the routine work is done for the user, and no outgoing message surprises
@@ -56,7 +56,7 @@ gated so it is safe to retry (idempotency via `send_ledger` / `event_log`). All
 Google access is scope-limited and approved separately from sign-in.
 
 **24/7 Autopilot** extends the send gate with an opt-in mailbox policy. When it
-is enabled, Lunabox may send safe replies on its own inside a window the user
+is enabled, Tartly may send safe replies on its own inside a window the user
 chooses (mode, timezone, days, hours), subject to a minimum confidence, a
 known-sender requirement, a category allowlist, per-hour/day/thread caps and loop
 protection. Any guardrail violation, unknown category/confidence, or error
@@ -67,7 +67,7 @@ only, never message content.
 
 ## Brand Commitments
 
-- Name: **Lunabox**. Support contact: support@lunabox.app.
+- Name: **Tartly**. Support contact: support@tartly.app.
 - Voice: calm, plain-spoken, control-oriented. It explains permissions and
   consequences honestly and never implies more autonomy than the user granted.
 - Approval is framed as a promise, not a limitation: "nothing leaves your inbox

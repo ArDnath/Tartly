@@ -1,8 +1,8 @@
-import { PageHeader } from "@/components/app-shell/page-header";
+import { PageHeader } from "@/components/app/shell/page-header";
 import {
   CampaignList,
   type CampaignListItem,
-} from "@/components/campaigns/campaign-list";
+} from "@/components/app/campaigns/campaign-list";
 import { listCampaignsWithStats } from "@/lib/campaigns/service";
 import { isCampaignsEnabled } from "@/lib/env";
 import { requireSession } from "@/lib/session";

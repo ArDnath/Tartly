@@ -2,11 +2,11 @@ import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { Suspense, type ReactNode } from "react";
 
-import { AiChatProvider } from "@/components/ai-chat/ai-chat-provider";
-import { AppShell } from "@/components/app-shell/app-shell";
-import { AppSidebar } from "@/components/app-shell/app-sidebar";
-import { MailPrefetch } from "@/components/mail/mail-prefetch";
-import { MailWelcomeOverlayGate } from "@/components/mail/mail-welcome-overlay-gate";
+import { AiChatProvider } from "@/components/app/ai-chat/ai-chat-provider";
+import { AppShell } from "@/components/app/shell/app-shell";
+import { AppSidebar } from "@/components/app/shell/app-sidebar";
+import { MailPrefetch } from "@/components/app/mail/mail-prefetch";
+import { MailWelcomeOverlayGate } from "@/components/app/mail/mail-welcome-overlay-gate";
 import { kickDrain } from "@/lib/email-operator/drain";
 import { ensureMailboxForUser } from "@/lib/email-operator/mailbox";
 import { getOrCreateOnboardingState } from "@/lib/onboarding/server";

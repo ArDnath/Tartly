@@ -15,7 +15,7 @@ them in the same change.
 
 > **Read this with the rest of the repo in mind.**
 > `PLAN-email-operator.md`, `docs/plans/mail-client-and-gmail-sync.md` and
-> `docs/plans/lunabox-whatsapp-email-infra.md` describe the **background automation
+> `docs/plans/tartly-whatsapp-email-infra.md` describe the **background automation
 > engine** (webhook → durable queue → flow engine) and the mail client. This document
 > describes the **interactive agent runtime** — the chat-driven, bounded, cancellable
 > agent that operates the mailbox through typed tools. They are different subsystems

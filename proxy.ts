@@ -36,7 +36,7 @@ import {
  */
 
 /** Pages anyone can view without a session. Their static render cannot carry a nonce. */
-const PUBLIC_PATHS = new Set(["/", "/terms", "/privacy"]);
+const PUBLIC_PATHS = new Set(["/", "/pricing", "/terms", "/privacy"]);
 
 /**
  * Origin of the configured ImageKit endpoint, allowed by CSP so images/video

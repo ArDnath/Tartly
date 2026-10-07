@@ -1,12 +1,12 @@
-import { SettingsPage } from "@/components/settings/settings-page";
-import { WritingStyleSettingsSection } from "@/components/settings/sections/writing-style-section";
+import { SettingsPage } from "@/components/app/settings/settings-page";
+import { WritingStyleSettingsSection } from "@/components/app/settings/sections/writing-style-section";
+import { SETTINGS_SECTIONS } from "@/components/app/settings/settings-sections";
+
+const { title, subtitle } = SETTINGS_SECTIONS["writing-style"];
 
 export default function WritingStyleSettingsPage() {
   return (
-    <SettingsPage
-      title="Voice & memory"
-      subtitle="How your assistant writes — and what it remembers about you."
-    >
+    <SettingsPage title={title} subtitle={subtitle}>
       <WritingStyleSettingsSection />
     </SettingsPage>
   );

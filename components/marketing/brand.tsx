@@ -1,14 +1,13 @@
-import Image from "next/image";
-
+import { TartlyLogo } from "@/components/shared/brand/tartly-logo";
+import { TartlyWordmark } from "@/components/shared/brand/tartly-wordmark";
 import { cn } from "@/lib/utils";
-import logo from "@/public/logo.png";
 
 /**
- * Shared Lunabox lockup (logo + wordmark). Server-rendered so the public
+ * Shared Tartly lockup (logo + wordmark). Server-rendered so the public
  * landing and legal pages stay light.
  */
 export function Brand({
-  size = 32,
+  size = 40,
   wordmarkClassName,
   className,
 }: {
@@ -17,24 +16,9 @@ export function Brand({
   className?: string;
 }) {
   return (
-    <span className={cn("flex items-center gap-2.5", className)}>
-      <Image
-        src={logo}
-        alt="Lunabox logo"
-        width={size}
-        height={size}
-        priority
-        className="rounded-lg object-contain"
-        style={{ width: size, height: size }}
-      />
-      <span
-        className={cn(
-          "font-semibold tracking-[-0.03em]",
-          wordmarkClassName ?? "text-lg",
-        )}
-      >
-        Lunabox
-      </span>
+    <span className={cn("flex items-center gap-3", className)}>
+      <TartlyLogo size={size} className="rounded-lg" />
+      <TartlyWordmark className={wordmarkClassName ?? "text-xl"} />
     </span>
   );
 }

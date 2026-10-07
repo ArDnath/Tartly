@@ -2,8 +2,8 @@ import { redirect } from "next/navigation";
 import { after } from "next/server";
 import type { ReactNode } from "react";
 
-import { AppShell } from "@/components/app-shell/app-shell";
-import { InboxSidebar } from "@/components/inbox/inbox-sidebar";
+import { AppShell } from "@/components/app/shell/app-shell";
+import { InboxSidebar } from "@/components/app/inbox/inbox-sidebar";
 import { kickDrain } from "@/lib/email-operator/drain";
 import { ensureMailboxForUser } from "@/lib/email-operator/mailbox";
 import { getInboxCounts } from "@/lib/inbox/service";

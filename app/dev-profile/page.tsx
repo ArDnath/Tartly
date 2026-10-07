@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 
-import { DevProfileHarness } from "@/components/onboarding/dev-profile-harness";
+import { DevProfileHarness } from "@/components/app/onboarding/dev-profile-harness";
 
 /**
  * Local-only harness for iterating on the onboarding profile step. It has no

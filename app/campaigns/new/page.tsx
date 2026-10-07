@@ -1,5 +1,5 @@
-import { PageHeader } from "@/components/app-shell/page-header";
-import { CampaignWizard } from "@/components/campaigns/campaign-wizard";
+import { PageHeader } from "@/components/app/shell/page-header";
+import { CampaignWizard } from "@/components/app/campaigns/campaign-wizard";
 import { isCampaignsEnabled } from "@/lib/env";
 import { requireSession } from "@/lib/session";
 

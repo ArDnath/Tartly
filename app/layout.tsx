@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
-import { Inter, Space_Grotesk } from "next/font/google";
+import { Geist, Inter, Roboto_Flex } from "next/font/google";
 import type { ReactNode } from "react";
-import { SafePointerCapture } from "@/components/safe-pointer-capture";
-import { ImageKitRootProvider } from "@/components/media";
+import { SafePointerCapture } from "@/components/shared/safe-pointer-capture";
+import { TARTLY_LOGO_URL } from "@/components/shared/brand/brand-assets";
+import { ImageKitRootProvider } from "@/components/shared/media";
+import { MotionProvider } from "@/components/shared/motion/motion-provider";
 import "./globals.css";
 
 const inter = Inter({
@@ -13,14 +15,27 @@ const inter = Inter({
 });
 
 /**
- * Brand-only display face. Inter stays the single UI voice; Space Grotesk is
- * scoped to the Tartly wordmark (see `components/brand/tartly-wordmark.tsx`) so
- * the name reads as a logo rather than another piece of chrome.
+ * Variable font behind the hero "Variable Proximity" heading. The effect
+ * interpolates both the `wght` and `opsz` axes, so `opsz` is opted in
+ * explicitly — next/font only includes weight by default.
  */
-const display = Space_Grotesk({
+const robotoFlex = Roboto_Flex({
   subsets: ["latin"],
   display: "swap",
-  variable: "--font-display",
+  axes: ["opsz"],
+  variable: "--font-roboto-flex",
+});
+
+/**
+ * Geist is the landing page's supporting-text face. Every non-heading element
+ * on the public marketing page — eyebrows, body copy, nav and footer text —
+ * reads in Geist, while headings stay on Inter / the proximity effect.
+ * Exposed as a variable so the landing can map `font-subtext` to it.
+ */
+const geist = Geist({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-geist",
 });
 
 /**
@@ -57,6 +72,10 @@ export const metadata: Metadata = {
   publisher: "Tartly",
   category: "productivity",
   alternates: { canonical: "/" },
+  // Browser-tab and home-screen icons come from the `app/favicon.ico`,
+  // `app/icon.png` and `app/apple-icon.png` file conventions — rounded Tartly
+  // tiles (≈22% corner radius). Declaring `icons` here would take precedence
+  // and suppress those files, so it is intentionally omitted.
   openGraph: {
     siteName: "Tartly",
     title: "Tartly — Your AI email operator",
@@ -97,7 +116,7 @@ const structuredData = {
       "@id": `${siteUrl}/#organization`,
       name: "Tartly",
       url: siteUrl,
-      logo: `${siteUrl}/logo.png`,
+      logo: TARTLY_LOGO_URL,
       email: "support@tartly.app",
     },
     {
@@ -129,10 +148,15 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`dark h-full ${inter.className} ${inter.variable} ${display.variable}`}
+      className={`dark h-full ${inter.className} ${inter.variable} ${robotoFlex.variable} ${geist.variable}`}
     >
       <body className="min-h-full" suppressHydrationWarning>
         <SafePointerCapture />
+        {/* Entrance animations write opacity/transform inline; without script
+            they would never settle. Reveal everything for no-JS visitors. */}
+        <noscript>
+          <style>{`[data-reveal]{opacity:1 !important;transform:none !important;filter:none !important}`}</style>
+        </noscript>
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
@@ -140,11 +164,13 @@ export default function RootLayout({
         {/* ImageKit context for <MediaImage> / <MediaVideo> in the tree. A no-op
             while NEXT_PUBLIC_IMAGEKIT_URL_ENDPOINT is blank. */}
         <ImageKitRootProvider>
-          {children}
-          {/* Intercepted routes (@modal). Renders null unless a soft navigation
-              matches a settings route, in which case the section opens as a
-              glass popup over the current screen. */}
-          {modal}
+          <MotionProvider>
+            {children}
+            {/* Intercepted routes (@modal). Renders null unless a soft navigation
+                matches a settings route, in which case the section opens as a
+                glass popup over the current screen. */}
+            {modal}
+          </MotionProvider>
         </ImageKitRootProvider>
       </body>
     </html>

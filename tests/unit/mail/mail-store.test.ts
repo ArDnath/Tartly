@@ -9,19 +9,22 @@ import type { MailMessage } from "@/lib/mail/types";
  */
 const fetchMailbox = vi.fn();
 const fetchMailboxPage = vi.fn();
+const fetchThread = vi.fn();
 
 vi.mock("@/lib/mail/client", () => ({
   fetchMailbox: (...args: unknown[]) => fetchMailbox(...args),
   fetchMailboxPage: (...args: unknown[]) => fetchMailboxPage(...args),
+  fetchThread: (...args: unknown[]) => fetchThread(...args),
   errorMessage: (error: unknown, fallback: string) =>
     error instanceof Error ? error.message : fallback,
 }));
 
-import { mailFilterKey, useMailStore } from "@/components/mail/mail-store";
+import { mailFilterKey, useMailStore } from "@/components/app/mail/mail-store";
 
 function message(id: string, box: MailMessage["box"] = "inbox"): MailMessage {
   return {
     id,
+    threadId: `t-${id}`,
     box,
     from: { name: "Sender", email: "sender@example.com" },
     to: [{ name: "Me", email: "me@example.com" }],
@@ -57,6 +60,7 @@ function page(ids: string[], nextPageToken?: string) {
 beforeEach(() => {
   fetchMailbox.mockReset();
   fetchMailboxPage.mockReset();
+  fetchThread.mockReset();
   useMailStore.setState({
     messages: [],
     pages: {},
@@ -68,6 +72,9 @@ beforeEach(() => {
     account: null,
     filter: { kind: "view", value: "all" },
     prefetchSettled: false,
+    openThreadId: null,
+    thread: null,
+    threadStatus: "idle",
   });
 });
 

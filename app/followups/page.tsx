@@ -1,5 +1,5 @@
-import { PageHeader } from "@/components/app-shell/page-header";
-import { FollowupList } from "@/components/followups/followup-list";
+import { PageHeader } from "@/components/app/shell/page-header";
+import { FollowupList } from "@/components/app/followups/followup-list";
 import { listFollowups } from "@/lib/followup/service";
 import { requireSession } from "@/lib/session";
 

@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { PageHeader } from "@/components/app-shell/page-header";
+import { PageHeader } from "@/components/app/shell/page-header";
 import { flowRunRepository } from "@/lib/repositories/flow-runs";
 import { requireSession } from "@/lib/session";
 import { cn } from "@/lib/utils";

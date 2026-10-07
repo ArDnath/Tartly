@@ -149,7 +149,10 @@ body {
 }
 
 @theme inline {
-  --font-heading: var(--font-sans);
+  /* Headings keep the app's self-hosted Inter voice; supporting copy on the
+     landing page switches to Geist via `font-subtext`. */
+  --font-heading: var(--font-inter), "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-subtext: var(--font-geist), "Geist", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-sans: var(--font-sans);
   --color-canvas: var(--canvas);
   --color-canvas-foreground: var(--canvas-foreground);
@@ -218,6 +221,55 @@ body {
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+  /* Landing (ChatDeck template) animation tokens. */
+  --animate-gradient: gradient 8s linear infinite;
+  @keyframes gradient {
+    to {
+      background-position: var(--bg-size, 300%) 0;
+    }
+  }
+  --animate-shimmer-slide: shimmer-slide var(--speed) ease-in-out infinite
+    alternate;
+  --animate-spin-around: spin-around calc(var(--speed) * 2) infinite linear;
+  @keyframes shimmer-slide {
+    to {
+      transform: translate(calc(100cqw - 100%), 0);
+    }
+  }
+  @keyframes spin-around {
+    0% {
+      transform: translateZ(0) rotate(0);
+    }
+    15%,
+    35% {
+      transform: translateZ(0) rotate(90deg);
+    }
+    65%,
+    85% {
+      transform: translateZ(0) rotate(270deg);
+    }
+    100% {
+      transform: translateZ(0) rotate(360deg);
+    }
+  }
+  --animate-marquee: marquee var(--duration) infinite linear;
+  --animate-marquee-vertical: marquee-vertical var(--duration) linear infinite;
+  @keyframes marquee {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(calc(-100% - var(--gap)));
+    }
+  }
+  @keyframes marquee-vertical {
+    from {
+      transform: translateY(0);
+    }
+    to {
+      transform: translateY(calc(-100% - var(--gap)));
+    }
+  }
   @keyframes collapsible-down {
   from {
     height: 0;
@@ -245,6 +297,22 @@ body {
   }
   html {
     @apply font-sans;
+    /* In-page anchors (#features, #trust, #faq, #how) scroll to an element's
+       top; the marketing nav is fixed at ~72px, so without this the heading
+       lands underneath it. Offset every hash jump by the nav height plus air.
+       Only the root scroller is affected, so the app's inner scroll areas are
+       untouched. */
+    scroll-padding-top: 6rem;
+    /* Marketing pages scroll on the root scroller; ease hash jumps and CTA
+       anchors. The app shell scrolls in inner containers (which keep the
+       default `auto`), so this only animates the public pages. */
+    scroll-behavior: smooth;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
   }
 }
 
@@ -259,7 +327,7 @@ body {
   }
 
   /* Actionable surface. The mail client's "Compose mail" button uses the
-     light-on-dark primary instead (Lunabox primary is light), but this ramp is
+     light-on-dark primary instead (Tartly primary is light), but this ramp is
      kept for surfaces that want a raised dark gradient. */
   .surface-primary-gradient {
     background-image: linear-gradient(180deg, #2e2e2e 0%, #262626 100%);
@@ -278,6 +346,50 @@ body {
       #8a43e1 66.66%,
       #1800e7 133.16%
     );
+  }
+
+  /* Brand wordmark. Set in the app's Inter voice with a cool chrome-and-blush
+     finish so the name reads as a logo without introducing a second typeface.
+     Falls back to plain foreground ink where background-clip:text is absent. */
+  .tartly-wordmark {
+    display: inline-block;
+    white-space: nowrap;
+    font-family: var(
+        --font-inter,
+        ui-sans-serif,
+        system-ui,
+        -apple-system,
+        sans-serif
+      );
+    font-weight: 700;
+    letter-spacing: -0.045em;
+    /* The wordmark is filled with a background gradient clipped to the glyphs
+       (`background-clip: text`). The gradient only paints inside the element's
+       box, so a tight `line-height` sheared off the descender of the "y" — it
+       sat below the box and rendered transparent. Keep the line box tall enough
+       to contain the descender, and pad the trailing edge so the final stem
+       isn't cut either. */
+    line-height: 1.25;
+    padding-right: 0.06em;
+    padding-bottom: 0.06em;
+    color: var(--canvas-foreground);
+  }
+
+  @supports ((-webkit-background-clip: text) or (background-clip: text)) {
+    .tartly-wordmark {
+      background-image: linear-gradient(
+        100deg,
+        #f2b4cb 0%,
+        #f7d2e0 5%,
+        #ffffff 20%,
+        #f4f4f5 58%,
+        #a6a6b0 100%
+      );
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      -webkit-text-fill-color: transparent;
+    }
   }
 
   .shadow-row {
@@ -543,3 +655,105 @@ body {
  ---break---
  */
 @custom-variant data-closed (&:where([data-state="closed"], [data-closed]:not([data-closed="false"])));
+
+/* ------------------------------------------------------------------ *
+ * Landing (ChatDeck template) utilities                              *
+ * ------------------------------------------------------------------ */
+
+/* Logo carousel: 12 items * 12rem = 144rem. */
+@keyframes logo-scroll {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-144rem);
+  }
+}
+
+.animate-logo-scroll {
+  animation: logo-scroll 30s linear infinite;
+}
+
+.animate-logo-scroll:hover {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Continuous CSS marquees are the one "motion" here that `motion` does not
+     own, so gate them explicitly. */
+  .animate-marquee,
+  .animate-marquee-vertical,
+  .animate-logo-scroll {
+    animation: none !important;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Landing — dotted hover frame around the hero video                 *
+ * Ported from portfolio-neo's frame gutters: a muted dot field with  *
+ * an accent layer that lights up the dots under the pointer. Colors  *
+ * are pinned to the portfolio's dark palette (#6f6d68 muted base,    *
+ * #cf8b5c accent) so the landing matches it exactly.                 *
+ * ------------------------------------------------------------------ */
+.landing-dot-grid {
+  background-image: radial-gradient(
+    color-mix(in oklab, #6f6d68 24%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 12px 12px;
+}
+
+.landing-dot-grid-lit {
+  background-image: radial-gradient(
+    color-mix(in oklab, #cf8b5c 75%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 12px 12px;
+  opacity: var(--dot-lit, 0);
+  mask-image: radial-gradient(
+    circle 7.5rem at var(--dot-x, -50%) var(--dot-y, -50%),
+    black,
+    transparent 70%
+  );
+  -webkit-mask-image: radial-gradient(
+    circle 7.5rem at var(--dot-x, -50%) var(--dot-y, -50%),
+    black,
+    transparent 70%
+  );
+  transition: opacity 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Keep the animated theme toggler's view-transition from cross-fading. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+/* ------------------------------------------------------------------ *
+ * Landing — motion safety                                            *
+ * ------------------------------------------------------------------ */
+
+/*
+ * Scroll/entrance reveals write opacity/transform/filter as inline styles
+ * (see components/motion/*). Animate the wrapped element itself — never
+ * descendants — so nested decorative opacities (mock-up `opacity-20` layers)
+ * are left alone. Print and reduced-motion users, plus no-JS visitors (via the
+ * <noscript> rule in app/layout.tsx), get the settled state instead of a blank
+ * section.
+ */
+@media print {
+  [data-reveal] {
+    opacity: 1 !important;
+    transform: none !important;
+    filter: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-reveal] {
+    opacity: 1 !important;
+    transform: none !important;
+    filter: none !important;
+  }
+}

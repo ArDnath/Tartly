@@ -501,7 +501,7 @@ async function runLiveEvals(): Promise<void> {
         ctx: testCtx(),
         model,
         system:
-          "You are Lunabox's email assistant operating the user's mailbox through tools. Prefer doing over explaining.",
+          "You are Tartly's email assistant operating the user's mailbox through tools. Prefer doing over explaining.",
         messages: [{ role: "user", content: scenario.prompt }],
         registry,
         events: (event) => events.push(event),

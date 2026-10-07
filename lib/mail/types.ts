@@ -46,6 +46,12 @@ export interface MailAttachment {
 
 export interface MailMessage {
   id: string;
+  /**
+   * Gmail's conversation id. Every reply in a conversation shares one
+   * `threadId`, which is what lets the list collapse messages into the single
+   * row Gmail shows.
+   */
+  threadId: string;
   box: MailBox;
   from: MailAddress;
   to: MailAddress[];
@@ -129,4 +135,45 @@ export interface InitialMailbox {
   account: MailAddress;
   /** Cursor for the page after this one, so “load more” works before a refetch. */
   nextPageToken?: string;
+}
+
+/**
+ * One whole Gmail conversation, oldest message first. This is what the reader
+ * opens: the list carries metadata only, so a thread's bodies are fetched the
+ * first time it is opened.
+ */
+export interface MailThread {
+  id: string;
+  subject: string;
+  messages: MailMessage[];
+}
+
+/**
+ * A conversation collapsed into the one row the list renders, the way Gmail
+ * shows threads rather than individual messages. `messages` is every message
+ * known for the thread in the current view, newest first.
+ */
+export interface MailConversation {
+  threadId: string;
+  subject: string;
+  preview: string;
+  receivedAt: string;
+  /** The conversation is bold if *any* message in it is unread. */
+  unread: boolean;
+  /** Starred if any message is, since Gmail stars the conversation. */
+  starred: boolean;
+  hasAttachments: boolean;
+  /** Messages known for this thread (newest first). */
+  messageCount: number;
+  /** Whose people annotate the row, newest first — Gmail's sender column. */
+  participants: MailAddress[];
+  /** Pre-joined participant names for the row's first column. */
+  senderLine: string;
+  /** The physical box of the conversation's newest message. */
+  box: MailBox;
+  tag: MailTag;
+  labels: string[];
+  replied: boolean;
+  draftCount?: number;
+  messages: MailMessage[];
 }

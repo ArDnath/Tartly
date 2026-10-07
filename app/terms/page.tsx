@@ -3,8 +3,8 @@ import type { Metadata } from "next";
 import { LegalPage } from "@/components/marketing/legal-page";
 
 export const metadata: Metadata = {
-  title: "Terms of Service — Lunabox",
-  description: "The terms that govern your use of Lunabox.",
+  title: "Terms of Service — Tartly",
+  description: "The terms that govern your use of Tartly.",
 };
 
 export default function TermsPage() {
@@ -12,14 +12,14 @@ export default function TermsPage() {
     <LegalPage title="Terms of Service" updated="September 27, 2026">
       <p>
         These Terms of Service (&ldquo;Terms&rdquo;) govern your access to and
-        use of Lunabox (the &ldquo;Service&rdquo;). By creating an account or
+        use of Tartly (the &ldquo;Service&rdquo;). By creating an account or
         using the Service, you agree to these Terms. If you do not agree, do not
         use the Service.
       </p>
 
       <h2>1. The Service</h2>
       <p>
-        Lunabox is an AI-assisted email tool. It connects to your email and
+        Tartly is an AI-assisted email tool. It connects to your email and
         calendar accounts to triage messages, draft replies, schedule meetings,
         and track follow-ups. Features may change or be added over time.
       </p>
@@ -89,7 +89,7 @@ export default function TermsPage() {
 
       <h2>9. Limitation of liability</h2>
       <p>
-        To the maximum extent permitted by law, Lunabox is not liable for any
+        To the maximum extent permitted by law, Tartly is not liable for any
         indirect, incidental, special, or consequential damages, or for lost
         data, profits, or business, arising from your use of the Service.
       </p>
@@ -104,7 +104,7 @@ export default function TermsPage() {
       <h2>11. Contact</h2>
       <p>
         Questions about these Terms? Reach us at{" "}
-        <a href="mailto:support@lunabox.app">support@lunabox.app</a>.
+        <a href="mailto:support@tartly.app">support@tartly.app</a>.
       </p>
     </LegalPage>
   );

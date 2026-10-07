@@ -1,5 +1,5 @@
 ---
-name: Lunabox
+name: Tartly
 description: A dark, Gmail-native AI email operator — an operator's desk for the inbox.
 colors:
   canvas: "#1b1b1b"
@@ -103,13 +103,13 @@ components:
     padding: "2px 8px"
 ---
 
-# Design System: Lunabox
+# Design System: Tartly
 
 ## Overview
 
 **Creative North Star: "The Operator's Desk"**
 
-Lunabox is a dark, quiet workstation. The room is one near-black canvas
+Tartly is a dark, quiet workstation. The room is one near-black canvas
 (`#1b1b1b`) and everything important sits on it as a slightly raised instrument:
 mail surfaces at `#222222`, controls at `#2e2e2e`, hairlines at 8% white. There
 is almost no colour, and what exists is functional — one warm signal light for the
@@ -133,7 +133,8 @@ operator, often after hours, in front of a screen full of mail.
 
 - Single dark palette anchored on `#1b1b1b`; hierarchy carried by tonal steps,
   not borders or big shadows.
-- One typeface (Inter) across display, UI, and data; no second voice.
+- One UI typeface (Inter) across display, UI, and data, including the brand
+  wordmark.
 - One warm accent (`#f2b4cb`) reserved for activity/peak signal.
 - A distinct AI gradient (`#ff5e00 → #8a43e1 → #1800e7`) that marks
   machine-authored content only.
@@ -198,6 +199,7 @@ and nothing else. It never becomes a brand accent or a decorative flourish.
 **Display Font:** Inter (with `ui-sans-serif`, `system-ui`, `-apple-system`,
 `sans-serif`)
 **Body Font:** Inter — the same family.
+**Brand Wordmark:** Inter (same family), used as a gradient-clipped mark.
 **Label/Mono Font:** none distinct; the system uses Inter at small sizes with
 `tabular-nums` and wide tracking, not a monospace.
 
@@ -205,6 +207,11 @@ and nothing else. It never becomes a brand accent or a decorative flourish.
 in the same register and lets hierarchy come from size, weight, and tracking
 rather than a font change. (The typeface is intentionally the familiar neutral
 sans an Operate surface wants; it is not a place to introduce a decorative face.)
+
+The **Tartly wordmark** uses Inter with a cool chrome-and-blush gradient and
+tight tracking (`.tartly-wordmark`) so it reads as a logo. It is a mark, not a
+voice — use it only where the name stands alone (lockups, loaders, the sidebar),
+never for headlines or body copy.
 
 ### Hierarchy
 
@@ -221,8 +228,10 @@ sans an Operate surface wants; it is not a place to introduce a decorative face.
 
 ### Named Rules
 
-**The One Voice Rule.** Inter is the only typeface. No display face, no
-monospace costume — data uses `tabular-nums` on Inter.
+**The One Voice Rule.** Inter is the only typeface, UI and brand mark alike. No
+second display face, no monospace costume — data uses `tabular-nums` on Inter.
+The **Tartly wordmark** stays in Inter too, distinguished only by its gradient
+treatment.
 
 **The Instrument Label Rule.** In the app shell, metadata is a 10px uppercase
 label with `0.12em` tracking; figures sit next to it in tabular numerals.
@@ -344,13 +353,24 @@ self-contained palette (blue/pink/purple/orange/red plus a grey no-data step) an
 use the system's hairlines and mono-spaced numerals; the warm `--activity-accent`
 is used for the active underline, not the series.
 
+### Signature: the Tartly wordmark
+
+The signature is the gradient, not a second face. `TartlyWordmark`
+(`components/shared/brand/tartly-wordmark.tsx`) sets "Tartly" in Inter at 700 with
+`-0.045em` tracking and a single cool gradient — Blush Signal through near-white
+to a cool grey — clipped to the text; it degrades to foreground ink where
+`background-clip: text` is unsupported. It appears only in brand lockups (the
+marketing `Brand`, the boot/`MatrixBrandMark`, and the sidebar header) and never
+mid-sentence or as a headline treatment.
+
 ## Do's and Don'ts
 
 ### Do:
 
 - **Do** separate surfaces by tone first (`#1b1b1b → #222222 → #262626 →
   #2e2e2e`) and reach for the 8% hairline only when tones meet.
-- **Do** keep one typeface (Inter) and let size/weight/tracking carry hierarchy.
+- **Do** keep one typeface (Inter) and let size/weight/tracking carry hierarchy;
+  distinguish the **Tartly wordmark** with its gradient treatment, not a new face.
 - **Do** use `tabular-nums` for every figure and 10px uppercase `0.12em` labels
   for metadata.
 - **Do** reserve Blush Signal (`#f2b4cb`) for a single focal element per screen.
@@ -364,7 +384,8 @@ is used for the active underline, not the series.
   single dark palette is a use-scene decision.
 - **Don't** use the Operator Spectrum as a brand accent or general decoration.
 - **Don't** use `rounded-full` outside pills, tag chips, avatars, and status dots.
-- **Don't** use gradient text, hard/offset shadows, or colored side borders.
+- **Don't** use gradient text except the single clipped gradient on the Tartly
+  wordmark; never hard/offset shadows or colored side borders.
 - **Don't** use borders or shadows as the first tool for hierarchy — that is the
   tonal ramp's job.
 - **Don't** fabricate testimonials, customer logos, benchmarks, or press; none

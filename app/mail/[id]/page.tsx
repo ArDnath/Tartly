@@ -1,4 +1,4 @@
-import { MailScreen } from "@/components/mail/mail-screen";
+import { MailScreen } from "@/components/app/mail/mail-screen";
 
 /** Deep link: opens one message in the live mail client. */
 export default async function MailMessagePage({

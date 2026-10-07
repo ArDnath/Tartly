@@ -1,4 +1,4 @@
-import type { DitherColor } from "@/components/dither-kit";
+import type { DitherColor } from "@/components/shared/charts/dither-kit";
 
 /**
  * Shape of the Activity dashboard payload.
