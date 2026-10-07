@@ -1,6 +1,11 @@
 /** Selection and grouping for the mail list: which messages a view/label +
  * filter popover show, the sidebar counts, and the date sections. */
+import {
+  conversationKey,
+  groupConversations,
+} from "@/lib/mail/conversations";
 import type {
+  MailConversation,
   MailFilter,
   MailMessage,
   MailQuery,
@@ -86,6 +91,23 @@ export function selectMessages(
         matchesQuery(message, query),
     )
     .sort(byNewest);
+}
+
+/**
+ * The conversation rows visible for the active view: the same predicate as
+ * `selectMessages`, folded into one summary per `threadId`. This is what the
+ * list renders.
+ */
+export function selectConversations(
+  messages: MailMessage[],
+  filter: MailFilter,
+  query: MailQuery,
+  scope?: ReadonlySet<string> | null,
+  selfEmail?: string | null,
+): MailConversation[] {
+  return groupConversations(selectMessages(messages, filter, query, scope), {
+    selfEmail,
+  });
 }
 
 /** Count of messages a sidebar destination (view or label) holds. */
@@ -177,4 +199,41 @@ export function groupByDate(
     current.messages.push(message);
   }
   return groups;
+}
+
+/** The conversation-shaped date sections the list renders. */
+export function groupConversationsByDate(
+  conversations: MailConversation[],
+): { label: string; conversations: MailConversation[] }[] {
+  const groups: { label: string; conversations: MailConversation[] }[] = [];
+  let current: { label: string; conversations: MailConversation[] } | null = null;
+  for (const conversation of [...conversations].sort(
+    (a, b) =>
+      new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime(),
+  )) {
+    const label = dateBucketLabel(conversation.receivedAt);
+    if (!current || current.label !== label) {
+      current = { label, conversations: [] };
+      groups.push(current);
+    }
+    current.conversations.push(conversation);
+  }
+  return groups;
+}
+
+/**
+ * How many distinct conversations a set of selected message ids covers. Gmail
+ * counts conversations in the selection bar, not messages.
+ */
+export function conversationCount(
+  messages: MailMessage[],
+  selectedIds: readonly string[],
+): number {
+  if (selectedIds.length === 0) return 0;
+  const threadById = new Map(
+    messages.map((message) => [message.id, conversationKey(message)]),
+  );
+  const threads = new Set<string>();
+  for (const id of selectedIds) threads.add(threadById.get(id) ?? id);
+  return threads.size;
 }

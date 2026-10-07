@@ -22,6 +22,19 @@
   "menuColor": "default",
   "menuAccent": "subtle",
   "registries": {
-    "@evilcharts": "https://evilcharts.com/r/{name}.json"
+    "@evilcharts": "https://evilcharts.com/r/{name}.json",
+    "@reactbits-starter": {
+      "url": "https://pro.reactbits.dev/api/r/starter/{name}.json",
+      "headers": {
+        "Authorization": "Bearer ${REACTBITS_LICENSE_KEY}"
+      }
+    },
+    "@reactbits-pro": {
+      "url": "https://pro.reactbits.dev/api/r/pro/{name}.json",
+      "headers": {
+        "Authorization": "Bearer ${REACTBITS_LICENSE_KEY}"
+      }
+    },
+    "@react-bits": "https://reactbits.dev/r/{name}.json"
   }
 }

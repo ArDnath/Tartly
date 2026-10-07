@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 
-import { OnboardingFlow } from "@/components/onboarding/onboarding-flow";
-import { OnboardingProvider } from "@/components/onboarding/onboarding-provider";
+import { OnboardingFlow } from "@/components/app/onboarding/onboarding-flow";
+import { OnboardingProvider } from "@/components/app/onboarding/onboarding-provider";
 import { splitDisplayName } from "@/lib/onboarding/profile";
 import { getOrCreateOnboardingState } from "@/lib/onboarding/server";
 import { ONBOARDING_STATUS } from "@/lib/onboarding/types";

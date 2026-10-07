@@ -1,12 +1,12 @@
 # syntax=docker/dockerfile:1.7
 #
-# Production images for Lunabox (SKILL §15.1).
+# Production images for Tartly (SKILL §15.1).
 #
-#   docker build --target runner -t lunabox-web .
-#   docker run -p 3000:3000 --env-file .env lunabox-web
+#   docker build --target runner -t tartly-web .
+#   docker run -p 3000:3000 --env-file .env tartly-web
 #
-#   docker build --target worker -t lunabox-worker .
-#   docker run --env-file .env lunabox-worker
+#   docker build --target worker -t tartly-worker .
+#   docker run --env-file .env tartly-worker
 #
 # The `runner` target is a tiny, non-root image built from Next's traced
 # `standalone` output. The `worker` target runs the long-lived durable-queue

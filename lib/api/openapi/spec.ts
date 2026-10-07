@@ -204,7 +204,7 @@ export function buildOpenApiDocument(
   return {
     openapi: "3.1.0",
     info: {
-      title: options.title ?? "Lunabox API",
+      title: options.title ?? "Tartly API",
       version: options.version,
       ...(options.description ? { description: options.description } : {}),
     },

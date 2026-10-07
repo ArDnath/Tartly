@@ -1,12 +1,12 @@
-import { SettingsPage } from "@/components/settings/settings-page";
-import { KnowledgeSettingsSection } from "@/components/settings/sections/knowledge-section";
+import { SettingsPage } from "@/components/app/settings/settings-page";
+import { KnowledgeSettingsSection } from "@/components/app/settings/sections/knowledge-section";
+import { SETTINGS_SECTIONS } from "@/components/app/settings/settings-sections";
+
+const { title, subtitle } = SETTINGS_SECTIONS.knowledge;
 
 export default function KnowledgeSettingsPage() {
   return (
-    <SettingsPage
-      title="Knowledge & snippets"
-      subtitle="Facts the assistant can reuse, and shortcuts for text you repeat."
-    >
+    <SettingsPage title={title} subtitle={subtitle}>
       <KnowledgeSettingsSection />
     </SettingsPage>
   );

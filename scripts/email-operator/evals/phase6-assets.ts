@@ -127,7 +127,7 @@ export async function run(): Promise<void> {
   );
   assert(sha256Hex(bytes).length === 64, "sha256 is a 64-char hex digest");
   assert(
-    inlineCid("abc") === "asset-abc@lunabox",
+    inlineCid("abc") === "asset-abc@tartly",
     "inline Content-IDs are stable and namespaced",
   );
 

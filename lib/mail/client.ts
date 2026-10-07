@@ -1,4 +1,4 @@
-import type { MailAddress, MailMessage } from "@/lib/mail/types";
+import type { MailAddress, MailMessage, MailThread } from "@/lib/mail/types";
 
 /**
  * The mail feature talks to the signed-in user's real Gmail through the BFF
@@ -133,6 +133,18 @@ export async function fetchMailbox(
  */
 export function fetchMessageBody(id: string): Promise<MailMessage> {
   return request<MailMessage>(`/api/v1/mail/messages/${encodeURIComponent(id)}`);
+}
+
+/**
+ * The whole conversation, oldest message first, with full bodies — what the
+ * reader shows once a row is opened. Gmail's `threads.get` also returns the
+ * messages this mailbox view no longer lists (an archived reply, say), so the
+ * reader is always the complete conversation.
+ */
+export function fetchThread(threadId: string): Promise<MailThread> {
+  return request<MailThread>(
+    `/api/v1/mail/threads/${encodeURIComponent(threadId)}`,
+  );
 }
 
 // --------------------------------------------------------------------------

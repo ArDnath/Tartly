@@ -111,7 +111,7 @@ export function createTavilyAdapter(
       // let it reach loopback/private/metadata addresses (SSRF).
       const safe = await assertSafeOutboundUrl(url);
       const response = await fetch(safe, {
-        headers: { "User-Agent": "LunaboxResearch/1.0" },
+        headers: { "User-Agent": "TartlyResearch/1.0" },
         signal: signal ?? AbortSignal.timeout(OPERATOR_TIMEOUT_MS),
       });
       if (!response.ok) {

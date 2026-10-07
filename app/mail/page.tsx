@@ -1,4 +1,4 @@
-import { MailScreen } from "@/components/mail/mail-screen";
+import { MailScreen } from "@/components/app/mail/mail-screen";
 
 /**
  * The live Gmail client. All data is fetched client-side from Gmail through

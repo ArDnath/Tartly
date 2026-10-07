@@ -1,0 +1,22 @@
+/*
+ * "Variable Proximity" styles. The variable-font family is loaded through
+ * `next/font` in the root layout (see app/layout.tsx) rather than an
+ * `@import` here — a component-level external `@import` can be dropped or
+ * reordered when Next.js concatenates stylesheets for production.
+ */
+.variable-proximity {
+  font-family: var(--font-roboto-flex), "Roboto Flex", sans-serif;
+}
+
+/* Scoped so it never shadows Tailwind's global `.sr-only` utility. */
+.variable-proximity .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

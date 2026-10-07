@@ -1,4 +1,4 @@
-import { AgentChat } from "@/components/assistant/agent-chat";
+import { AgentChat } from "@/components/app/assistant/agent-chat";
 import { storedMessageToUIMessage } from "@/lib/agent/messages";
 import { loadConversationMessages } from "@/lib/agent/persistence";
 import { createChatThread, listChatThreads } from "@/lib/ai/chat-service";

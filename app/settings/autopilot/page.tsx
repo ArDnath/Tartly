@@ -1,14 +1,14 @@
-import { SettingsPage } from "@/components/settings/settings-page";
-import { AutopilotSettingsSection } from "@/components/settings/sections/autopilot-section";
+import { SettingsPage } from "@/components/app/settings/settings-page";
+import { AutopilotSettingsSection } from "@/components/app/settings/sections/autopilot-section";
+import { SETTINGS_SECTIONS } from "@/components/app/settings/settings-sections";
+
+const { title, subtitle } = SETTINGS_SECTIONS.autopilot;
 
 export const dynamic = "force-dynamic";
 
 export default function AutopilotSettingsPage() {
   return (
-    <SettingsPage
-      title="24/7 Autopilot"
-      subtitle="Let Lunabox send safe replies on its own, inside the hours you choose."
-    >
+    <SettingsPage title={title} subtitle={subtitle}>
       <AutopilotSettingsSection />
     </SettingsPage>
   );

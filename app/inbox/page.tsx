@@ -1,4 +1,4 @@
-import { InboxView } from "@/components/inbox/inbox-view";
+import { InboxView } from "@/components/app/inbox/inbox-view";
 import {
   listInbox,
   normalizeView,

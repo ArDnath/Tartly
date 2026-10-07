@@ -61,6 +61,14 @@ const BLOB_HOSTS = [
 /** Google account avatars. */
 const IMAGE_HOSTS = ["https://*.googleusercontent.com"];
 
+/**
+ * ImageKit's default CDN. Images, video and HLS manifests are loaded directly
+ * by the browser, so they must be allowed in `img-src`, `media-src` and
+ * `connect-src`. A per-request `imagekitOrigin` (parsed from
+ * `NEXT_PUBLIC_IMAGEKIT_URL_ENDPOINT`) additionally covers custom domains.
+ */
+const IMAGEKIT_HOSTS = ["https://ik.imagekit.io", "https://*.imagekit.io"];
+
 export type BuildCspOptions = {
   /** Fresh, unpredictable per-request nonce (base64 or base64url). */
   nonce: string;
@@ -68,10 +76,21 @@ export type BuildCspOptions = {
   isDev: boolean;
   /** Optional violation sink, e.g. `/api/csp-report`. */
   reportUri?: string;
+  /**
+   * Extra origin allowed for images, media and `connect-src` — used for a
+   * custom ImageKit domain. Pass the origin (scheme + host) of
+   * `NEXT_PUBLIC_IMAGEKIT_URL_ENDPOINT`.
+   */
+  imagekitOrigin?: string;
 };
 
 /** Build the full policy string for one request. */
-export function buildCsp({ nonce, isDev, reportUri }: BuildCspOptions): string {
+export function buildCsp({
+  nonce,
+  isDev,
+  reportUri,
+  imagekitOrigin,
+}: BuildCspOptions): string {
   const scriptSrc = [
     "'self'",
     `'nonce-${nonce}'`,
@@ -81,7 +100,11 @@ export function buildCsp({ nonce, isDev, reportUri }: BuildCspOptions): string {
   ];
   if (isDev) scriptSrc.push("'unsafe-eval'");
 
-  const connectSrc = ["'self'", ...BLOB_HOSTS];
+  const mediaHosts = imagekitOrigin
+    ? [...BLOB_HOSTS, ...IMAGEKIT_HOSTS, imagekitOrigin]
+    : [...BLOB_HOSTS, ...IMAGEKIT_HOSTS];
+
+  const connectSrc = ["'self'", ...mediaHosts];
   if (isDev) {
     // Next's HMR channel is a websocket on the dev origin.
     connectSrc.push("ws:", "wss:");
@@ -96,8 +119,8 @@ export function buildCsp({ nonce, isDev, reportUri }: BuildCspOptions): string {
     `style-src-elem 'self' 'nonce-${nonce}'`,
     // React style={{…}} attributes cannot carry a nonce.
     "style-src-attr 'unsafe-inline'",
-    `img-src 'self' blob: data: ${[...BLOB_HOSTS, ...IMAGE_HOSTS].join(" ")}`,
-    `media-src 'self' blob: ${BLOB_HOSTS.join(" ")}`,
+    `img-src 'self' blob: data: ${[...mediaHosts, ...IMAGE_HOSTS].join(" ")}`,
+    `media-src 'self' blob: ${mediaHosts.join(" ")}`,
     "font-src 'self' data:",
     `connect-src ${connectSrc.join(" ")}`,
     "worker-src 'self' blob:",

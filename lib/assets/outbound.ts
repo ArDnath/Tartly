@@ -22,7 +22,7 @@ export type ResolvedOutboundAssets = {
 };
 
 export function inlineCid(assetId: string): string {
-  return `asset-${assetId}@lunabox`;
+  return `asset-${assetId}@tartly`;
 }
 
 export async function resolveOutboundAssets({

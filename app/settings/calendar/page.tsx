@@ -1,12 +1,12 @@
-import { SettingsPage } from "@/components/settings/settings-page";
-import { CalendarSettingsSection } from "@/components/settings/sections/calendar-section";
+import { SettingsPage } from "@/components/app/settings/settings-page";
+import { CalendarSettingsSection } from "@/components/app/settings/sections/calendar-section";
+import { SETTINGS_SECTIONS } from "@/components/app/settings/settings-sections";
+
+const { title, subtitle } = SETTINGS_SECTIONS.calendar;
 
 export default function CalendarSettingsPage() {
   return (
-    <SettingsPage
-      title="Calendar"
-      subtitle="When your assistant may book time on your behalf."
-    >
+    <SettingsPage title={title} subtitle={subtitle}>
       <CalendarSettingsSection />
     </SettingsPage>
   );

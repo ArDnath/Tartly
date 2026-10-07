@@ -1,4 +1,4 @@
-# PLAN — Lunabox 24/7 Autopilot (Overnight Unattended Replies)
+# PLAN — Tartly 24/7 Autopilot (Overnight Unattended Replies)
 
 **Document ID:** `PLAN-24-7-autopilot` · **Version:** 2 (production-hardening) · **Status:** implemented
 **Scope:** Gmail only · **Surface:** webhook → queue → engine → settings → inbox → agent → marketing
@@ -17,7 +17,7 @@
 > code disagree, fix one in the same change.
 >
 > **Reference product:** `../../inbox-zero` (sibling repo). Borrowed patterns are marked
-> **[ref: inbox-zero]** with the concrete Lunabox equivalent named. Borrow patterns, not architecture.
+> **[ref: inbox-zero]** with the concrete Tartly equivalent named. Borrow patterns, not architecture.
 
 ---
 
@@ -43,7 +43,7 @@ as:
 
 ## 1. Vision and the 24/7 contract
 
-Lunabox's primary promise is: **your inbox is handled around the clock, even when the app is
+Tartly's primary promise is: **your inbox is handled around the clock, even when the app is
 closed — and you decide how much it may send without you.**
 
 The 24/7 contract has three clauses. Each is independently testable:
@@ -328,7 +328,7 @@ if (isNew) {
 ```
 
 **[ref: inbox-zero]** inbox-zero acknowledges the Pub/Sub message immediately and processes via
-`after(...)` in `/api/google/webhook`, and it skips enqueue when the provider is rate-limited. Lunabox
+`after(...)` in `/api/google/webhook`, and it skips enqueue when the provider is rate-limited. Tartly
 should adopt the same **rate-limit guard**: if Gmail returns a rate-limit signal mid-sync, do not
 hammer; leave the job pending for the next drain. Add a `getEmailProviderRateLimitState`-equivalent
 only if measurements show quota pressure; otherwise rely on Gmail 429 handling in `gmailFetch`.
@@ -882,7 +882,7 @@ Server page `app/settings/autopilot/page.tsx` + client form
 
 Sections:
 1. **Master switch** (off by default) with exact copy:
-   > "When this is on, Lunabox can send replies on its own inside the window below. Anything risky
+   > "When this is on, Tartly can send replies on its own inside the window below. Anything risky
    > becomes a draft instead. You can pause this at any time."
 2. **When** — mode (`window` recommended / `always` with a warning), timezone, days, start/end.
 3. **What it may send** — min confidence, require known sender (on), category allowlist (default
@@ -1162,7 +1162,7 @@ All must hold:
 ## 28. Marketing, positioning, and compliance
 
 **Positioning (true):**
-> Lunabox works around the clock. It triages and drafts even while you're asleep — and with 24/7
+> Tartly works around the clock. It triages and drafts even while you're asleep — and with 24/7
 > Autopilot you can let it send safe replies inside the hours you choose. Anything risky waits for
 > you.
 
@@ -1209,7 +1209,7 @@ All must hold:
 
 ### Appendix C — inbox-zero reference map
 
-| Pattern | inbox-zero | Lunabox |
+| Pattern | inbox-zero | Tartly |
 |---|---|---|
 | Fast ack + `after()` processing | `/api/google/webhook` | `/api/webhooks/gmail` (already) + bounded drain (new) |
 | Watch renewal cron | `/api/watch/all` | `renewExpiringWatches` in daily cron |

@@ -1,7 +1,7 @@
 # Production Hardening — Phase Plan & Tracker
 
 > **What this file is.** The single source of truth for turning `app-server`
-> (Lunabox) into a scalable, fault-tolerant, high-throughput backend, measured
+> (Tartly) into a scalable, fault-tolerant, high-throughput backend, measured
 > against the universal backend skill. It is written so a **fresh agent thread
 > with zero prior context** can read this file alone and continue the work.
 >
@@ -20,7 +20,7 @@
 
 ## 0. Context bootstrap (read this if you are a new thread)
 
-**Product.** Lunabox is a Next.js 16 (App Router) serverless backend on Vercel:
+**Product.** Tartly is a Next.js 16 (App Router) serverless backend on Vercel:
 an AI email operator over Gmail + Google Calendar. Postgres (Drizzle) is the
 source of truth; Upstash Redis is a speed layer; a durable Postgres job queue
 (`lib/queue/queue.ts`) drives async work. Auth is Better Auth (Google OAuth).
@@ -111,7 +111,7 @@ of 500. `lib/db` gained `readDb`/`readPool`/`closeDatabasePools()`. Re-verified:
 Docker `runner` + `worker` build and the runner serves `/api/health/live` → 200.
 All still uncommitted on HEAD `deea08c`.
 
-**Related plan.** `PLAN-24-7-autopilot.md` (Lunabox 24/7 unattended replies) is
+**Related plan.** `PLAN-24-7-autopilot.md` (Tartly 24/7 unattended replies) is
 the next feature build and depends on this shell: it reuses `withUser`, the
 error envelope (B8), the durable queue, and the C2/C3 repository + test seams.
 

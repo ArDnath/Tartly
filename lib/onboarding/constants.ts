@@ -16,7 +16,7 @@ export const ONBOARDING_MOTION_DURATION_SECONDS = 0.32;
 /*  Welcome animation                                                          */
 /* -------------------------------------------------------------------------- */
 
-export const WELCOME_TITLE_MESSAGE = "Welcome to Lunabox";
+export const WELCOME_TITLE_MESSAGE = "Welcome to Tartly";
 export const WELCOME_TITLE_HANDOFF_CONTINUATION =
   "Your assistant is ready to set things up with you.";
 

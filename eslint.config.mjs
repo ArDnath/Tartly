@@ -18,6 +18,9 @@ const eslintConfig = defineConfig([
     // tsconfig too and target a newer React Compiler lint ruleset than this
     // app; linting them only produces noise about third-party code.
     "components/ai-elements/**",
+    // Vendored SVG icon set ported from the ZeroMail landing page. It is a
+    // large third-party icon library; linting it only produces noise.
+    "components/marketing/landing/icons.tsx",
     // Generated coverage output (already gitignored) is not source.
     "coverage/**",
   ]),

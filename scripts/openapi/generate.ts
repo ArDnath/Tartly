@@ -177,7 +177,7 @@ function packageVersion(): string {
 function render(): string {
   const document = buildOpenApiDocument(buildOperations(), {
     version: packageVersion(),
-    title: "Lunabox API",
+    title: "Tartly API",
     description:
       "AI email operator over Gmail + Google Calendar. Cookie-session auth, " +
       "`{ data }` / `{ data, pagination }` / `{ error }` envelopes.",

@@ -1,4 +1,4 @@
-# Lunabox — AI Capability Upgrade Plan
+# Tartly — AI Capability Upgrade Plan
 
 **Status:** **implemented (all Phases 0–7 shipped)** · **Scope:** Gmail only · **Surface:** user-facing (`/mail`, `/assistant`, `/inbox`, `/settings`)
 **Target:** Vercel-native (Hobby now, Pro later — config-only upgrade) · **Rule:** additive, cost-disciplined, production-ready
@@ -11,7 +11,7 @@ extends them. When code and this doc disagree, fix one in the same change.
 
 ## 0. TL;DR
 
-Lunabox already has a strong spine: a live Gmail client, a push-first automation engine
+Tartly already has a strong spine: a live Gmail client, a push-first automation engine
 (`webhook → event_log → job_queue → flow engine`), a bounded confirmation-gated agent runtime,
 per-user AI budgets, rich guardrails, idempotent sends, and an activity dashboard.
 
@@ -58,7 +58,7 @@ client's "Draft with AI". `AI_MODEL_REASONING_ID` exists but is unused by the op
 
 ## 2. Gap analysis — the capabilities that win users
 
-Benchmarked against best-in-class AI inbox products. **Gap** = Lunabox doesn't have it today.
+Benchmarked against best-in-class AI inbox products. **Gap** = Tartly doesn't have it today.
 
 | # | Capability | Gap | User value | Cost profile | Phase |
 |---|---|---|---|---|---|
@@ -103,7 +103,7 @@ These are the rules every phase must satisfy. They are the "guidelines" the work
 
 ### 3.1 Cost principles
 1. **Heuristic first, model last.** Every AI decision has a deterministic path that runs when
-   the model is unavailable or over budget (Lunabox already does this for triage/draft — extend it).
+   the model is unavailable or over budget (Tartly already does this for triage/draft — extend it).
 2. **Never call a model on page load.** Precompute at webhook/queue time; cache in Postgres; the
    UI reads the cache. (Already the pattern for `/inbox`.)
 3. **Right model for the job.** `fast` for classification/extraction, `standard` for drafting,
@@ -422,8 +422,8 @@ and `/mail`, "Unsubscribe & archive" in sender menus.
 
 ### Phase 3 — Plain-English rules (≈3 engineer-weeks) — *the flagship differentiator*
 
-**Goal:** let users describe automation in English; Lunabox compiles it to structured rules and
-runs them through the existing engine. **This is the capability that most differentiates Lunabox.**
+**Goal:** let users describe automation in English; Tartly compiles it to structured rules and
+runs them through the existing engine. **This is the capability that most differentiates Tartly.**
 
 **User benefit:** "Tell it what to do; it just does it — my way."
 
@@ -584,7 +584,7 @@ and campaigns — with proper inline-image and attachment support in outbound ma
 **Goal:** upload an Excel/CSV sheet, map columns, compose a personalized email with images, send it
 as a safe, throttled batch, and handle replies automatically.
 
-**User benefit:** personalized outreach to hundreds without leaving Lunabox — no separate mail-merge
+**User benefit:** personalized outreach to hundreds without leaving Tartly — no separate mail-merge
 tool, no copy-paste, no deliverability roulette.
 
 **Build**

@@ -36,7 +36,22 @@ import {
  */
 
 /** Pages anyone can view without a session. Their static render cannot carry a nonce. */
-const PUBLIC_PATHS = new Set(["/", "/terms", "/privacy"]);
+const PUBLIC_PATHS = new Set(["/", "/pricing", "/terms", "/privacy"]);
+
+/**
+ * Origin of the configured ImageKit endpoint, allowed by CSP so images/video
+ * load from a custom domain. Returns `undefined` for the default
+ * `ik.imagekit.io` host (already allowed) or when delivery is unconfigured.
+ */
+function imagekitCspOrigin(): string | undefined {
+  const raw = process.env.NEXT_PUBLIC_IMAGEKIT_URL_ENDPOINT;
+  if (!raw) return undefined;
+  try {
+    return new URL(raw).origin;
+  } catch {
+    return undefined;
+  }
+}
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -60,6 +75,8 @@ export async function proxy(request: NextRequest) {
     // Blank value means "use the in-repo collector"; set CSP_REPORT_URI to
     // override it (or to an external sink).
     reportUri: process.env.CSP_REPORT_URI || "/api/csp-report",
+    // Allow a custom ImageKit domain for images, video and HLS manifests.
+    imagekitOrigin: imagekitCspOrigin(),
   });
 
   const requestHeaders = new Headers(request.headers);

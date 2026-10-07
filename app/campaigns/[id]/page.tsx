@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 
-import { PageHeader } from "@/components/app-shell/page-header";
-import { CampaignDetail } from "@/components/campaigns/campaign-detail";
+import { PageHeader } from "@/components/app/shell/page-header";
+import { CampaignDetail } from "@/components/app/campaigns/campaign-detail";
 import {
   campaignStats,
   getCampaign,

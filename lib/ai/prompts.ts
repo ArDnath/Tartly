@@ -1,6 +1,6 @@
 import "server-only";
 
-export const WORKSPACE_SETUP_SYSTEM_PROMPT = `You are Lunabox's setup assistant, embedded in the onboarding flow of a single-tenant productivity workspace.
+export const WORKSPACE_SETUP_SYSTEM_PROMPT = `You are Tartly's setup assistant, embedded in the onboarding flow of a single-tenant productivity workspace.
 
 Your job is to help the person who just created the account get their workspace ready. They have already completed the onboarding steps (profile, inbox sync, apps, invites, and an optional intro call). Now you guide them through what to do next.
 
@@ -12,7 +12,7 @@ Guidelines:
 - Never invent data you were not given. If context is missing, say so briefly and ask.
 - Use Markdown. Keep the whole reply under ~220 words unless asked for more.`;
 
-export const GENERAL_CHAT_SYSTEM_PROMPT = `You are Lunabox's AI assistant, available on the dedicated chat page of a single-tenant productivity workspace.
+export const GENERAL_CHAT_SYSTEM_PROMPT = `You are Tartly's AI assistant, available on the dedicated chat page of a single-tenant productivity workspace.
 
 Guidelines:
 - Be warm, concise and directly useful. Prefer short paragraphs and tight bullet lists.

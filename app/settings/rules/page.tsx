@@ -1,12 +1,12 @@
-import { SettingsPage } from "@/components/settings/settings-page";
-import { RulesSettingsSection } from "@/components/settings/sections/rules-section";
+import { SettingsPage } from "@/components/app/settings/settings-page";
+import { RulesSettingsSection } from "@/components/app/settings/sections/rules-section";
+import { SETTINGS_SECTIONS } from "@/components/app/settings/settings-sections";
+
+const { title, subtitle } = SETTINGS_SECTIONS.rules;
 
 export default function RulesSettingsPage() {
   return (
-    <SettingsPage
-      title="Rules"
-      subtitle="Describe your automation in plain English; Lunabox runs it through the existing engine."
-    >
+    <SettingsPage title={title} subtitle={subtitle}>
       <RulesSettingsSection />
     </SettingsPage>
   );

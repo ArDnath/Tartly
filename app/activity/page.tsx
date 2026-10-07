@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 
-import { ActivityDashboardView } from "@/components/activity/dashboard";
+import { ActivityDashboardView } from "@/components/app/activity/dashboard";
 import { getActivityDashboard } from "@/lib/activity/service";
 import { requireSession } from "@/lib/session";
 
 export const metadata: Metadata = {
-  title: "Activity — Lunabox",
+  title: "Activity — Tartly",
 };
 
 /**

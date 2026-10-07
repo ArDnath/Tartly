@@ -65,8 +65,8 @@ deployment can instead run a dedicated process:
 
 ```bash
 npm run worker                 # local / VM
-docker build --target worker -t lunabox-worker .
-docker run --env-file .env lunabox-worker
+docker build --target worker -t tartly-worker .
+docker run --env-file .env tartly-worker
 ```
 
 The worker loop:

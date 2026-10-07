@@ -1,12 +1,12 @@
-import { SettingsPage } from "@/components/settings/settings-page";
-import { AssetsSettingsSection } from "@/components/settings/sections/assets-section";
+import { SettingsPage } from "@/components/app/settings/settings-page";
+import { AssetsSettingsSection } from "@/components/app/settings/sections/assets-section";
+import { SETTINGS_SECTIONS } from "@/components/app/settings/settings-sections";
+
+const { title, subtitle } = SETTINGS_SECTIONS.assets;
 
 export default function AssetsSettingsPage() {
   return (
-    <SettingsPage
-      title="Assets"
-      subtitle="Images and files you can reuse in mail and campaigns."
-    >
+    <SettingsPage title={title} subtitle={subtitle}>
       <AssetsSettingsSection />
     </SettingsPage>
   );

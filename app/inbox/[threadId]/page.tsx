@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 
-import { ThreadView } from "@/components/inbox/thread-view";
+import { ThreadView } from "@/components/app/inbox/thread-view";
 import { getThreadDetail } from "@/lib/inbox/service";
 import { requireSession } from "@/lib/session";
 
