@@ -237,6 +237,8 @@ Then future deploys are simply `git pull --ff-only && bash deploy/scripts/deploy
 
 **Verified correct (2026-10-23 09:20 UTC):** `DATABASE_URL` → `postgres:5432/tartly` and its password matches `.env`; Redis → `redis-http:80` and its token matches; `BETTER_AUTH_URL`/`PUBLIC_URL` → `https://tartly.in`; the client bundle contains `tartly.in` and zero `localhost:3000`; Dodo is `test_mode` with live disabled; CSP is report-only; contract validation is enforce. `TAG` is now the deployed tag, not `latest`.
 
+> **TAG trap (found 2026-10-23 10:22 UTC):** `render-env.mjs` preserves `TAG` from the local `deploy/.env`. After every deploy, update the local `TAG` to the live tag *before* re-rendering, or copying the rendered `deploy/.env` to the host will silently point Compose at the previous image. Local and server `deploy/.env` now match byte-for-byte (`TAG=8453e0d`). Root `.env` origins were also corrected from `localhost:3000` to `https://tartly.in`; the renderer overrides them, but the stale values were a trap.
+
 | Missing / weak | Where | Needed for | Owner |
 | --- | --- | --- | --- |
 | `BETTER_AUTH_SECRET` is **19 chars** | root `.env` → render | security; rotate to 32+ random bytes | user approval (A3) |
