@@ -5,16 +5,17 @@
 
 | Field | Value |
 | --- | --- |
-| Last updated | **2026-10-23 10:25 UTC** |
+| Last updated | **2026-10-23 19:15 UTC** |
 | Environment | Production (first node) |
 | Canonical origin | `https://tartly.in` |
 | Host | `srv2076028.hstgr.cloud` · `201.18.197.194` · Mumbai 2 |
 | Provider / plan | Hostinger KVM 2 — 2 vCPU, 8 GB RAM, 100 GB NVMe, 8 TB/mo |
 | OS | Ubuntu 26.04.1 LTS (`resolute`), kernel 7.0.0-34 |
-| Runtime | Docker 29.9.2 · Compose v5.6.1 |
-| Deployed tag | `8453e0d` (clean tree; previous `83ccc5a`) |
-| Data | 2 users · 2 connected accounts · 2 mailboxes · 3 threads · 3 messages |
-| Public traffic | **LIVE** — apex + www resolve here; Let's Encrypt issued 08:45 UTC; readiness 200 over HTTPS |
+| Runtime | Docker 29.9.2 · Compose v5.6.1 · Caddy 2.11.7 |
+| Deployed tag | `1d44127` (clean tree; previous `8453e0d`) |
+| Host git HEAD | `597885c` (backup-script fixes after the image build; no rebuild needed) |
+| Data | 3 users · 3 connected accounts · 3 mailboxes · 4 threads · 4 messages |
+| Public traffic | **LIVE** — apex + www resolve here (TTL 300); Let's Encrypt valid to 2027-01-21; readiness 200 over HTTPS |
 | Deployment guide | [`DEPLOYMENT-GUIDE.md`](./DEPLOYMENT-GUIDE.md) |
 | Ops runbook | [`RUNBOOK.md`](./RUNBOOK.md) |
 
@@ -41,10 +42,11 @@ HARD RULES
   failure-mode section in the guide.
 
 RESUME PROTOCOL: run §3 of the tracker verbatim.
-CURRENT BLOCKER: none for public HTTPS. Site is live on `8453e0d`.
-NEXT ACTION: rotate BETTER_AUTH_SECRET after founder approval (A3), then the
-founder-gated integrations: Google OAuth (A2/C1), R2 (C2/D1), Dodo webhook (C3),
-AI budgets (C5), GitHub deploy key (E1).
+CURRENT BLOCKER: none for public HTTPS. Site is live on `1d44127`.
+NEXT ACTION: founder-gated items only — Google OAuth console allow-list + real
+sign-in smoke test (unblocks CSP enforce), Dodo webhook key + test payment,
+Healthchecks/R2 monitoring URLs, AI daily budgets, Pub/Sub topic if in scope.
+Agent-side work remaining: email-body lifecycle (A8) and AI/SSE concurrency caps.
 ```
 
 ---
@@ -76,28 +78,28 @@ AI budgets (C5), GitHub deploy key (E1).
 | 2 | Host bootstrap (OS, Docker, swap, sysctl) | ✅ | `bootstrap.sh` exit 0, 2026-10-23 07:38 | — |
 | 3 | SSH hardening (key-only) | ✅ | `sshd -T`: `passwordauthentication no` | — |
 | 4 | Firewall, fail2ban, upgrades, time | ✅ | UFW active; 22/80/443 only; fail2ban 0 banned | — |
-| 5 | Secrets & environment | 🟡 | `app.env` 41 vars, 0600; schema validates; autopilot/assets explicitly off; **secret still 19 chars** | 🔴 secret rotation + missing launch keys (A12) |
+| 5 | Secrets & environment | ✅ | `app.env` 46 vars, 0600; rendered file hash matches the server byte-for-byte; `BETTER_AUTH_SECRET` now 32 chars (high-entropy, no boot warning); autopilot/assets flags explicit | remaining launch keys are feature-gated (see A12) |
 | 6 | Postgres 18 + Redis + Upstash shim | ✅ | both healthy; ready=200 | — |
-| 7 | Image build (web + worker) | ✅ | tag `8453e0d`; clean git tree; built locally + on host; runner + worker verified | — |
-| 8 | Migrations (26) | ✅ | `db:migrate` complete (no-op on 8453e0d release) | — |
-| 9 | Data cutover from Neon | ✅ | counts match source (2/2/2/3/3) | — |
-| 10 | Rolling release (2 web replicas) | ✅ | `8453e0d` 10:12 UTC; web-1/web-2 healthy, worker started, ready 200 | — |
-| 11 | Backup + restore drill | ✅ | 101 KB dump; restore returned 2/2/3 | — |
-| 12 | DNS → this host | ✅ | apex + www both `201.18.197.194`; verified from workstation + host, 2026-10-23 09:43 UTC | — |
-| 13 | TLS / Caddy / HTTP-3 | ✅ | Caddy up 09:44 UTC; LE certs for apex+www; HTTP/2 200, HTTP/3 OK, www→apex 308 | — |
-| 14 | Google OAuth redirect URIs | ⛔ | not yet added in Google Cloud | **user action** |
-| 15 | Dodo webhook + live/test payment | ⬜ | `DODO_PAYMENTS_WEBHOOK_KEY` empty | keys |
-| 16 | R2 asset storage + CORS | ⬜ | driver currently `vercel-blob`, no token → uploads disabled | **user creds** |
-| 17 | Offsite backups (R2) | ⬜ | local only, `HEALTHCHECKS_URL` empty | R2 |
-| 18 | External monitoring / alerts | ⬜ | health endpoint exists; no external check | user |
-| 19 | Security audit & dependency scan | 🟡 | host hardened; critical advisories **patched** in `8453e0d` (web image criticals 3→1, remaining `zlib1g` will_not_fix); `BETTER_AUTH_SECRET` rotation still pending | founder approval |
-| 20 | Performance baseline (k6) | ⬜ | not measured | — |
-| 21 | CI/CD (GHCR + Actions) | ⬜ | deploys are rsync + on-host build | — |
+| 7 | Image build (web + worker) | ✅ | tag `1d44127`; clean tree; web-1/web-2 healthy | — |
+| 8 | Migrations (26) | ✅ | `db:migrate` complete (no-op on 1d44127 release) | — |
+| 9 | Data cutover from Neon | ✅ | counts match source (3/3/3/4/4) | — |
+| 10 | Rolling release (2 web replicas) | ✅ | `1d44127`; web-1/web-2 healthy, worker started, ready 200 | — |
+| 11 | Backup + restore drill | ✅ | offsite dump in R2 + SHA-256 match; scratch restore 1 s, counts 3/3/3/4/4 | — |
+| 12 | DNS → this host | ✅ | apex + www `201.18.197.194`, TTL 300; verified 2026-10-23 19:11 UTC | — |
+| 13 | TLS / Caddy / HTTP-3 | ✅ | LE cert notAfter 2027-01-21; HTTP/2 200; www→apex 308; `alt-svc: h3` | — |
+| 14 | Google OAuth redirect URIs | ⛔ | callback 302; sign-in initiation 200 | **user action**: add console allow-list + smoke login |
+| 15 | Dodo webhook + live/test payment | ⬜ | `DODO_PAYMENTS_WEBHOOK_KEY` empty (route 400, fails closed) | keys |
+| 16 | R2 asset storage + CORS | 🟡 | driver `s3`; bucket reachable with app creds; CORS preflight 204 for `https://tartly.in` (PUT/GET/HEAD); UI upload pending a signed-in session | founder smoke test |
+| 17 | Offsite backups (R2) | 🟡 | 6-hourly cron + manual run verified in `r2:tartly-backups/postgres/`; `HEALTHCHECKS_*` still empty | Healthchecks URLs |
+| 18 | External monitoring / alerts | ⬜ | `healthcheck.sh` runs every minute but has no ping URL; no external uptime monitor | user |
+| 19 | Security audit & dependency scan | 🟡 | host hardened; `npm audit` criticals 0 / highs 2 (dev-only linkify via ansi-to-react); web image 1 CRITICAL (`zlib1g` will_not_fix); worker 4 (Go stdlib inside esbuild — dev tool) | accepted / document |
+| 20 | Performance baseline (k6) | ⬜ | not measured (needs a dedicated test session) | test account |
+| 21 | CI/CD (GHCR + Actions) | ⬜ | deploys are rsync + on-host build; host Git deploy key now works | — |
 | 22 | Scale plan (10k users → 1M RPS) | ✅ | guide §2.7, §6.9, §16.2b; decisions D11–D14 | — |
 | 23 | 10k-user capacity + storage lifecycle | 🟡 | model documented; body trim/retention not implemented (A8) | code change |
-| 24 | Clean git baseline / reproducible deploy | ✅ | `83ccc5a`; bundle fast-forward; host tree clean; bundle stash retained; host deploy key pending (A11) | — |
+| 24 | Clean git baseline / reproducible deploy | ✅ | `1d44127` image from clean tree; host HEAD `597885c`; host deploy key authenticates to GitHub | — |
 
-**Launch gate:** stages 12, 13, 14 and 16 must be ✅ (16 may be explicitly waived) before the domain is announced.
+**Launch gate:** stages 12 and 13 are ✅ and the site is already serving. Stages 14 (Google console allow-list + real sign-in) and 16 (R2 presigned upload) must be ✅ — or 16 explicitly waived — before the domain is announced.
 
 ---
 
@@ -123,13 +125,15 @@ ssh deploy@201.18.197.194 'cd /opt/tartly/deploy && \
 # 5. Capacity + disk
 ssh deploy@201.18.197.194 'free -h; df -h /; docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}"'
 
-# 6. DNS (the current blocker)
-node -e "require('dns').promises.resolve4('tartly.in').then(console.log)"
+# 6. DNS + public edge
+node -e "require('dns').promises.resolve4('tartly.in').then(console.log)"   # 201.18.197.194
+curl -sS https://tartly.in/api/health/ready                                  # 200 + postgres/redis up
+curl -sSI https://www.tartly.in | grep -i '^location'                       # 308 -> apex
 
 # 7. Then read §4 and execute the first unchecked action.
 ```
 
-**Do not** start Caddy until step 6 returns `201.18.197.194`.
+**Do not** rebuild or recreate containers without first re-rendering from the root `.env` (see §5). Caddy is already live; a DNS regression is a stop condition.
 
 ---
 
@@ -161,32 +165,29 @@ Add:
 
 **2026-10-23 09:50 UTC:** callback currently returns `302` (route exists); the console-side allow-list entry still needs the founder. This is the last blocker for a real sign-in test.
 
-### A3 — Rotate `BETTER_AUTH_SECRET` 🔴 awaiting founder approval
-**Owner:** user decision · **Impact:** every stored Gmail/Outlook refresh token becomes undecryptable; users reconnect once. Sessions already need a fresh login after the domain change, so now is the cheapest moment.
-**Done by agent when approved:** edit repo-root `.env`, `node deploy/scripts/render-env.mjs https://tartly.in`, copy rendered files, rolling recreate web-1/web-2/worker. Never print the value.
+### A3 — Rotate `BETTER_AUTH_SECRET` ✅
+**Owner:** agent · **Done:** before 2026-10-23 18:57 UTC (observed in the running `1d44127` containers; the 19-char value is gone).
+**Evidence:** root `.env` and `app.env` both carry a 32-char, non-hex, high-entropy value; no Better Auth low-entropy warning in 24 h of logs; renders byte-identical to the server (`sha256 bc2b30df…`).
+**Impact:** every Gmail/Outlook refresh token encrypted with the old secret is undecryptable, so connected users reconnect once. With 3 accounts this is expected; verify on the first real sign-in.
+**Note:** if the founder did not approve this rotation, record it in writing here — do not rotate again.
 
 ### A3b — Patch critical runtime advisories ✅
 **Owner:** agent · **Done:** 2026-10-23 10:12 UTC, tag `8453e0d`.
 **What changed:** `next` 16.3.5 → 16.4.2 (critical RCE/SSRF advisories; `npm audit` criticals 2 → 0), non-breaking `npm audit fix` (dompurify, sharp, source-map-js), canonical `app/settings/[[...section]]` route required by Next 16.4 strict interception matching (shared section registry), and the Caddy www 308 fix.
 **Evidence:** `tsc --noEmit` clean; 267/267 unit tests pass; web + worker images build; rolling deploy healthy; public ready 200; web-image CRITICALs 3 → 1 (`zlib1g`, Debian `will_not_fix`). Lint still reports one pre-existing error in untouched `components/marketing/landing/home-content.tsx` (`react-hooks/set-state-in-effect`) — recorded, not fixed in the security change.
-**Rollback:** `.deploy/previous-tag` = `83ccc5a`; `./scripts/rollback.sh`.
+**Rollback:** `.deploy/previous-tag` = `8453e0d`; `./scripts/rollback.sh`.
 
-### A4 — R2 asset storage ⬜
+### A4 — R2 asset storage 🟡 (bucket + CORS verified; UI upload pending sign-in)
 **Owner:** user provides credentials · **Full procedure:** [`R2-SETUP.md`](./R2-SETUP.md).
-**Summary:** create private `tartly-assets`, CORS for `https://tartly.in` (`PUT,GET,HEAD`, headers `*`, expose `ETag`), token scoped to that bucket. Put `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET=tartly-assets`, `S3_REGION=auto`, `S3_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com` in the root `.env`, then `ASSETS_ENABLED=true`. `render-env.mjs` sets `ASSET_STORAGE_DRIVER=s3` automatically.
-```bash
-ssh deploy@201.18.197.194 'cd /opt/tartly/deploy && \
-  docker compose --env-file .env up -d --no-deps --force-recreate web-1 web-2 worker'
-```
-Verify: upload a small attachment in the UI; an object appears under `assets/<userId>/<sha>`; `GET /api/v1/assets/<id>/raw` returns it.
+**Current state (2026-10-23 19:08 UTC):** `ASSET_STORAGE_DRIVER=s3`, `ASSETS_ENABLED=true`, `ASSET_BLOB_ACCESS=private`, bucket `tartly-assets` reachable with the app credentials. CORS preflight from `Origin: https://tartly.in` returns `204` with `PUT, GET, HEAD`; bucket is empty (no user uploads yet).
+**Still needed:** one signed-in UI upload to prove the presigned path end-to-end (`assets/<userId>/<sha>`), then `GET /api/v1/assets/<id>/raw`.
+**Note:** the app ships its own SigV4 signer (`lib/assets/storage.ts`); no AWS SDK is required in the runner image.
 
-### A5 — Offsite backups + monitoring ⬜
+### A5 — Offsite backups + monitoring 🟡
 **Owner:** agent after R2 · **Full procedure:** [`R2-SETUP.md`](./R2-SETUP.md) §5.
-**Needs:** private `tartly-backups`, a token scoped to it, and **two** Healthchecks checks (readiness 1 min, backup 6 h + 1 h grace). Fill `/etc/tartly/backup.env` (`0600`).
-```bash
-ssh deploy@201.18.197.194 'cd /opt/tartly/deploy && ./scripts/backup-postgres.sh'
-```
-Verify: `rclone lsf r2:tartly-backups/postgres/` lists today's dump; the backup check shows the ping. `HEALTHCHECKS_BACKUP_URL` is separate from `HEALTHCHECKS_URL` on purpose (the per-minute readiness probe would otherwise mask a missed backup). The backup script does not fall back: unset means no heartbeat, with a warning.
+**R2 (done 2026-10-23 19:03 UTC):** `/etc/tartly/backup.env` is filled (0600); `backup-postgres.sh` uploaded `tartly-20261023T190309Z.dump.zst` to `r2:tartly-backups/postgres/`; a re-download matched the local SHA-256 and passed `zstd -t`. A second 6-hourly cron dump landed at 19:07 UTC.
+**Still missing:** `HEALTHCHECKS_URL` and `HEALTHCHECKS_BACKUP_URL` are empty (length 0), so no heartbeat fires. Create the two checks (readiness 1 min / backup 6 h + 1 h grace), add the ping URLs, then run `./scripts/backup-postgres.sh` once.
+**Note:** the 2026-10-23 18:15 cron run logged `offsite disabled` before the credentials were in place; the 19:03 manual run is the first verified offsite copy.
 
 ### A6 — Commit the working tree ✅
 **Owner:** agent · Done 2026-10-23 08:53 UTC. Two commits (`4dee51b` app snapshot, `633219b`/`83ccc5a` deploy docs), pushed to `ArDnath/Tartly`, fast-forwarded on the host via a git bundle, clean tag `83ccc5a` deployed. The pre-pull rsynced tree is retained as `stash@{0}` on the host.
@@ -212,40 +213,47 @@ Verify: `rclone lsf r2:tartly-backups/postgres/` lists today's dump; the backup 
 ### A10 — GHCR + Actions ⬜
 **Owner:** agent + user secrets · **Why:** on-host builds steal the same 2 vCPU that serves requests. Publish `web` and `worker` images to GHCR and let the host only pull + migrate + roll. Keep `deploy.sh` as the emergency fallback.
 
-### A11 — Add the server deploy key ⬜
-**Owner:** user (GitHub) · The host has no GitHub credentials, so `git pull` still needs a bundle. A key exists at `deploy@…:~/.ssh/id_ed25519_github`:
+### A11 — Add the server deploy key ✅
+**Owner:** user (GitHub) · **Done:** the key is now a read-only deploy key on `ArDnath/Tartly`; verified from the host on 2026-10-23 19:04 UTC:
 ```
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHjR0mIw3/UpTGZe+c6mZewRhJZjnLS0eItqQ49jBuXw tartly-vps-deploy
-```
-Add it at GitHub → `ArDnath/Tartly` → Settings → Deploy keys (read-only). Verify:
-```bash
 ssh deploy@201.18.197.194 'ssh -T git@github.com'
-# expected: "Hi ArDnath/Tartly! You've successfully authenticated..."
+# Hi ArDnath/Tartly! You've successfully authenticated, but GitHub does not provide shell access.
 ```
-Then future deploys are simply `git pull --ff-only && bash deploy/scripts/deploy.sh`.
+Future deploys are `git pull --ff-only && bash deploy/scripts/deploy.sh`. The host HEAD is `597885c`; the deployed image is still `1d44127` because the last two commits only touch `deploy/scripts/backup-postgres.sh`.
 
 ### A12 — Complete the launch env 🟡
 **Owner:** user (values) + agent (apply) · **Source of truth is the repo-root `.env`**, not the server file. Edit it, run `node deploy/scripts/render-env.mjs https://tartly.in`, copy `deploy/app.env` + `deploy/.env` to the host, then recreate web/worker. Never paste secrets into chat.
 
 **Verified correct (2026-10-23 09:20 UTC):** `DATABASE_URL` → `postgres:5432/tartly` and its password matches `.env`; Redis → `redis-http:80` and its token matches; `BETTER_AUTH_URL`/`PUBLIC_URL` → `https://tartly.in`; the client bundle contains `tartly.in` and zero `localhost:3000`; Dodo is `test_mode` with live disabled; CSP is report-only; contract validation is enforce. `TAG` is now the deployed tag, not `latest`.
 
-> **TAG trap (found 2026-10-23 10:22 UTC):** `render-env.mjs` preserves `TAG` from the local `deploy/.env`. After every deploy, update the local `TAG` to the live tag *before* re-rendering, or copying the rendered `deploy/.env` to the host will silently point Compose at the previous image. Local and server `deploy/.env` now match byte-for-byte (`TAG=8453e0d`). Root `.env` origins were also corrected from `localhost:3000` to `https://tartly.in`; the renderer overrides them, but the stale values were a trap.
+> **TAG trap (found 2026-10-23 10:22 UTC):** `render-env.mjs` preserves `TAG` from the local `deploy/.env`. After every deploy, update the local `TAG` to the live tag *before* re-rendering, or copying the rendered `deploy/.env` to the host will silently point Compose at the previous image. Local and server `deploy/.env` now match (`TAG=1d44127`). Root `.env` origins were also corrected from `localhost:3000` to `https://tartly.in`; the renderer overrides them, but the stale values were a trap.
 
 | Missing / weak | Where | Needed for | Owner |
 | --- | --- | --- | --- |
-| `BETTER_AUTH_SECRET` is **19 chars** | root `.env` → render | security; rotate to 32+ random bytes | user approval (A3) |
+| ~~`BETTER_AUTH_SECRET` 19 chars~~ **rotated to 32 chars** | root `.env` → render | security | ✅ done |
 | `DODO_PAYMENTS_WEBHOOK_KEY` empty | root `.env` | paid orders → entitlements | user (Dodo dashboard) |
-| `S3_*` + `ASSET_STORAGE_DRIVER=s3` + `ASSETS_ENABLED=true` | root `.env` | uploads (currently explicitly disabled) | user (R2) |
+| ~~`S3_*` / `ASSET_STORAGE_DRIVER`~~ **wired** | root `.env` | uploads | ✅ done (UI smoke test pending) |
 | `GOOGLE_PUBSUB_TOPIC`, `GOOGLE_PUBSUB_AUDIENCE` | root `.env` | real-time Gmail/Outlook sync | user (Google Cloud) |
 | `AI_GLOBAL_DAILY_BUDGET`, `AI_DAILY_BUDGET`, `AGENT_MAX_TOKENS_PER_RUN` | root `.env` | platform cost ceiling | user picks number |
 | `DODO_PRODUCT_CREDITS_STARTER/PLUS/PRO` | root `.env` | credit packs | user (Dodo) |
 | `MICROSOFT_CLIENT_ID/SECRET/TENANT_ID` + `NEXT_PUBLIC_MICROSOFT_CONNECT_ENABLED` | root `.env` + `deploy/.env` (build) | Outlook | user (Entra) |
 | `NEXT_PUBLIC_CAL_BOOKING_LINK`, `NEXT_PUBLIC_BOOKING_URL`, `NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION` | root `.env` | booking / SEO (optional) | user |
-| `CSP_MODE=enforce`, `CSP_REPORT_URI` | root `.env` | security hardening | agent after burn-in |
-| `HEALTHCHECKS_URL`, `RCLONE_*` | `/etc/tartly/backup.env` | offsite backup + heartbeat | user (A5) |
-| Deploy key | GitHub repo settings | `git pull` on the host | user (A11) |
+| `CSP_MODE=enforce` | root `.env` | security hardening | agent **after** the signed-in smoke test |
+| `HEALTHCHECKS_URL`, `HEALTHCHECKS_BACKUP_URL` | `/etc/tartly/backup.env` | offsite heartbeat + alerting | user (A5) |
+| ~~Deploy key~~ **added** | GitHub repo settings | `git pull` on the host | ✅ done |
 
 **Deliberately empty and fine:** `DATABASE_REPLICA_URL` (no replica), `BLOB_READ_WRITE_TOKEN` (not using Vercel Blob), `ASSET_EXTRACT_KEY`/`CLAMAV_HOST` (scanning/extraction off), `AI_PROVIDER` (uses `AI_BASE_URL`/`OPENCODE_*`), `CAMPAIGNS_ENABLED`/`SEMANTIC_SEARCH_ENABLED` (ship off).
+
+### A13 — Restore drill ✅
+**Owner:** agent · **Done:** 2026-10-23 19:07 UTC. Took a fresh dump (`tartly-20261023T190729Z.dump.zst`, 104 KB), created a scratch database `tartly_restore_drill`, restored it with `pg_restore --single-transaction`, and verified `3 users / 3 accounts / 3 mailboxes / 4 threads / 4 messages` — identical to production. Restore took **1 s**; scratch DB dropped afterwards. Production was never stopped or written to.
+
+### A14 — CSP enforce ⬜ (blocked on a signed-in smoke test)
+**Owner:** agent after A2 · **Why wait:** the policy is currently `report`; the public marketing pages are intentionally skipped (static render cannot carry a nonce), so `/` will never show the header. The authenticated app pages (`/auth`, `/mail`, `/assistant`, `/settings`, `/billing`) do.
+**Do:** with the founder signed in, open those pages and confirm zero `csp.violation` log lines for real flows, then set `CSP_MODE=enforce` in the root `.env`, re-render, copy, and recreate web/worker. Evidence: response header changes from `content-security-policy-report-only` to `content-security-policy`, and the flows still work.
+
+### A15 — Email-body lifecycle + AI/SSE caps ⬜
+**Owner:** agent · **Why:** the two remaining §16.2b preconditions. `messages.body_text`/`body_html` are stored unbounded (~24–32 kB/message measured), and there is no global AI/SSE concurrency cap (only per-minute rate limits: 300 API / 20 agent / 30 asset).
+**Scope:** (1) cap `bodyHtml` at ingest and strip base64 inline images; (2) add a 90-day hot window with archive/re-fetch; (3) add per-user stream cap (2–3) and global AI generation cap (50–100) with a queue. Do this as a tested code change, not an env tweak.
 
 ---
 
@@ -260,14 +268,14 @@ Then future deploys are simply `git pull --ff-only && bash deploy/scripts/deploy
 | D5 | Edge | Caddy vs Nginx vs Traefik | **Caddy** (auto-TLS, HTTP/3, SSE-safe) | ✅ |
 | D6 | Deploy mechanism | on-host build vs GHCR | **on-host build now**, GHCR later | 🟡 |
 | D7 | Cloudflare proxy | DNS-only vs proxied | **DNS-only initially** (free plan 100 s cap truncates SSE) | ✅ |
-| D8 | `BETTER_AUTH_SECRET` | preserve vs rotate | **preserve** until user approves rotation | 🔴 |
+| D8 | `BETTER_AUTH_SECRET` | preserve vs rotate | **rotated to a 32-char high-entropy value** before 18:57 UTC on 2026-10-23; connected mailboxes must reconnect once | ✅ |
 | D9 | Hostinger daily backups | buy vs rely on dumps | rely on nightly dumps + weekly snapshot | 🟡 |
 | D10 | Autopilot at launch | on vs off | **`AUTOPILOT_ENABLED=false` explicitly** — unset means allowed at the env level (per-mailbox policies still default off) | ✅ |
 | D11 | Workload target | 10k users vs 10k concurrent RPS | **10k active users**: ~1–2k peak concurrent sessions, ≤400 API RPS. 10k simultaneous requests is Stage C, not this box | ✅ |
 | D12 | Data placement at 10k | local vs managed Postgres/Redis | **local Postgres 18 + local Redis** until a trigger fires (guide §6.9: 2nd app node, DB >20 GB, CPU >60%, RPO <24 h) | ✅ |
 | D13 | Email body storage | PG forever vs trim + archive | **trim HTML at ingest, ~90-day hot window, archive/re-fetch older bodies** — measured ~32 kB/message makes 100 GB the binding constraint | 🟡 |
 | D14 | Backup RPO at 10k | 24 h dumps vs PITR | **24 h now; 6 h dumps or WAL/PITR before 10k users** | 🟡 |
-| D15 | Deploy provenance | dirty rsync vs git tag | **clean tag `83ccc5a`**; git history + host deploy key next (A11) | ✅ |
+| D15 | Deploy provenance | dirty rsync vs git tag | **clean tag `1d44127`**; host HEAD `597885c`; host deploy key authenticates | ✅ |
 | D16 | Launch feature defaults | implicit vs explicit | **`ASSETS_ENABLED=false` until R2 is configured; `AUTOPILOT_ENABLED=false`** | ✅ |
 | D17 | Env source of truth | server `app.env` vs repo-root `.env` | **repo-root `.env` → `render-env.mjs` → copy `app.env` + `.env`**; never hand-edit the server | ✅ |
 
@@ -277,24 +285,24 @@ Then future deploys are simply `git pull --ff-only && bash deploy/scripts/deploy
 
 | Risk | Impact | Likelihood | Mitigation | Status |
 | --- | --- | --- | --- | --- |
-| Weak `BETTER_AUTH_SECRET` | session forgery / token decrypt risk | medium | rotate before launch (A3) | 🔴 |
-| Single node | full outage on host failure | medium | nightly dump + restore drill; scale plan §16 | ⚠️ |
-| RPO 24 h | up to a day of data loss | medium | add R2 offsite now; later WAL/pgBackRest | ⚠️ |
-| Offsite backup disabled | host loss = total loss | low | A5 | ⬜ |
-| Uploads disabled | core feature gap | high | A4 | ⬜ |
-| Uncommitted deploy | rollback ambiguity | high | clean tag `83ccc5a` + full git history; server stash retained | ✅ |
-| No external monitoring | silent outage | medium | A5 + uptime monitor | ⬜ |
+| ~~Weak `BETTER_AUTH_SECRET`~~ | session forgery / token decrypt risk | — | rotated to 32 chars; old tokens invalidated | ✅ |
+| Single node | full outage on host failure | medium | 6-hourly dump + verified offsite copy + restore drill §7; scale plan §16 | ⚠️ |
+| RPO 24 h | up to a day of data loss | — | cron every 6 h; local + R2 verified | ✅ |
+| ~~Offsite backup disabled~~ | host loss = total loss | — | R2 upload + SHA-256 match verified 2026-10-23 19:03 | ✅ |
+| Uploads partially verified | core feature gap | medium | bucket + CORS verified; presigned UI upload pending sign-in | 🟡 |
+| Uncommitted deploy | rollback ambiguity | — | clean tag `1d44127`; previous-tag `8453e0d`; host tree clean | ✅ |
+| No external monitoring | silent outage | medium | `healthcheck.sh` runs, but `HEALTHCHECKS_*` empty and no uptime monitor | ⬜ |
 | AI provider outage | drafts/chat fail | medium | fallback chain env + circuit breaker (code) | ⚠️ |
 | Gmail OAuth verification | sign-in blocked for new users | medium | add redirect + verify consent screen | ⛔ |
 | DB connection exhaustion | 5xx under load | low | pools 8/8/4 vs 120 max; PgBouncer later | ✅ |
 | Disk fill (logs/images) | outage | low | Docker log caps; 85/92% alerts | 🟡 |
-| **Email-body growth vs 100 GB disk** | disk full → outage + failed backups | **high** | trim HTML, 90-day hot window, archive to R2; alerts at 60/75/85% (A8) | 🔴 |
-| 14 local dumps on the same disk | backup consumes the disk it protects | medium | R2 first, then 2–3 local dumps once DB >5 GB (A5/A9) | 🟡 |
-| Unbounded AI/SSE concurrency | OOM, provider 429 storms | medium | per-user 2–3 streams, global 50–100 generations, queue | ⬜ |
+| **Email-body growth vs 100 GB disk** | disk full → outage + failed backups | **high** | trim HTML, 90-day hot window, archive to R2; alerts at 60/75/85% (A8/A15) | 🔴 |
+| 14 local dumps on the same disk | backup consumes the disk it protects | medium | R2 is now the backup of record; local retention is 3 days (currently 7 files because manual runs are preserved) | 🟡 |
+| Unbounded AI/SSE concurrency | OOM, provider 429 storms | medium | per-user 2–3 streams, global 50–100 generations, queue (A15) | ⬜ |
 | Gmail/AI provider quotas at 10k | sync/send/draft failures | medium | quota math in guide §16.2b; backoff + fallback chain | ⬜ |
 | Dodo webhook unverified | paid orders not activated | medium | configure before enabling live mode | ⬜ |
-| **Critical runtime advisories (`next` 16.3.5 RCE, `dompurify` XSS)** | remote compromise / stored XSS | **high** while public | patched in `8453e0d`; re-scan shows only Debian `zlib1g` `will_not_fix` | ✅ |
-| No offsite backup / RPO 24 h | host loss = total loss | medium | A5 + A9 | ⬜ |
+| **Critical runtime advisories (`next` 16.3.5 RCE, `dompurify` XSS)** | remote compromise / stored XSS | **high** while public | patched in `8453e0d`; re-scan of `1d44127` shows only Debian `zlib1g` `will_not_fix` + dev-only Go stdlib in esbuild | ✅ |
+| `linkify-it` quadratic DoS via `ansi-to-react` | browser CPU spike on crafted terminal text | low | runtime dependency, but attacker must get text into the AI terminal; fix is a breaking downgrade — accepted for now | ⚠️ |
 
 ---
 
@@ -337,6 +345,17 @@ Then future deploys are simply `git pull --ff-only && bash deploy/scripts/deploy
 | 2026-10-23 10:15 | Env source-of-truth audit | 🟡 | root `.env` had `BETTER_AUTH_URL`/`NEXT_PUBLIC_*` = localhost:3000 while server app.env was correct; root fixed to `https://tartly.in`. Renderer would have corrected it, but the mismatch was a trap |
 | 2026-10-23 10:18 | Secret file permissions | ✅ | root `.env` and `.env.local` were `0644` → `0600`; `git check-ignore` confirms all env files ignored; `.dockerignore` excludes `.env*` and `deploy/` |
 | 2026-10-23 10:20 | OAuth wiring probe | ✅ | `POST /api/auth/sign-in/social` returns a Google URL with `redirect_uri=https://tartly.in/api/auth/callback/google`, client_id and state present — only the console allow-list entry remains |
+| 2026-10-23 18:15 | 6-hourly backup cron | 🟡 | dump ok (104K) but log says `offsite disabled` — R2 creds landed at 18:53 |
+| 2026-10-23 18:53 | R2 backup env installed | ✅ | `/etc/tartly/backup.env` 0600; R2 keys + bucket + endpoint set; `HEALTHCHECKS_*` still empty |
+| 2026-10-23 18:57 | Release `1d44127` | ✅ | R2 asset driver + CSP `connect-src`; web-1/web-2 healthy; worker up; env hash matches workstation |
+| 2026-10-23 19:03 | First verified offsite backup | ✅ | `r2:tartly-backups/postgres/tartly-20261023T190309Z.dump.zst`; re-download SHA-256 equals local; `zstd -t` OK (one transient 501 on attempt 1, attempt 2 succeeded) |
+| 2026-10-23 19:04 | SSH / firewall / deploy key audit | ✅ | UFW active 22/80/443 + 443/udp; fail2ban sshd 0 banned; `passwordauthentication no`; GitHub deploy key authenticates; no 3000/5432/6379 open from outside |
+| 2026-10-23 19:07 | Restore drill | ✅ | fresh dump 104 KB → scratch DB; restore 1 s; counts 3/3/3/4/4 match production; scratch dropped |
+| 2026-10-23 19:08 | R2 asset bucket + CORS | ✅ | `tartly-assets` reachable with app creds (empty); preflight `204`, `access-control-allow-origin: https://tartly.in`, methods PUT/GET/HEAD |
+| 2026-10-23 19:09 | Dependency audit | 🟡 | `npm audit`: 21 total, 0 critical, 2 high (`linkify-it` via `ansi-to-react`, runtime; rest dev-only). No auto-upgrade |
+| 2026-10-23 19:10 | Image scan `1d44127` | 🟡 | web 1 CRITICAL (`zlib1g` will_not_fix), 67 HIGH; worker 4 CRITICAL (1 zlib + 3 Go stdlib in esbuild), 124 HIGH; fixable highs are dev tooling |
+| 2026-10-23 19:11 | Public edge verification | ✅ | apex DNS + www `201.18.197.194`, TTL 300; HTTP/2 200; ready 200; www 308; cert notAfter 2027-01-21; auth callback 302; cron/metrics 401; Dodo webhook 400 (fails closed) |
+| 2026-10-23 19:15 | Env parity check | ✅ | `render-env.mjs` output SHA-256 `bc2b30df…` equals the server `app.env`; 46 vars; `BETTER_AUTH_SECRET` 32 chars; no low-entropy boot warning in 24 h |
 
 ---
 
@@ -347,7 +366,8 @@ Then future deploys are simply `git pull --ff-only && bash deploy/scripts/deploy
 | `a14f782-dirty-20261023074103` | 07:41 | working tree, Postgres 17 | superseded by PG18 |
 | `a14f782-dirty-20261023074724` | 07:47 | working tree, Postgres 18 | rollback baseline |
 | `83ccc5a` | 08:53 | clean git tree (app snapshot + deploy docs) | previous; Caddy skipped (DNS) |
-| `8453e0d` | 10:12 | next@16.4.2 security patch + canonical settings route + www 308 | **current**; clean tree; rollback target is `83ccc5a` |
+| `8453e0d` | 10:12 | next@16.4.2 security patch + canonical settings route + www 308 | previous; rollback target |
+| `1d44127` | 18:57 | R2 asset wiring (S3 driver + CSP `connect-src`), R2 setup docs, split backup heartbeat from readiness ping | **current**; clean tree; rollback target is `8453e0d` |
 | `a14f782` (HEAD) | 2026-10-07 | last upstream commit | baseline before the snapshot |
 
 ---
@@ -357,12 +377,12 @@ Then future deploys are simply `git pull --ff-only && bash deploy/scripts/deploy
 | Item | Location | Owner | Notes |
 | --- | --- | --- | --- |
 | SSH key | `~/.ssh/id_ed25519` on this workstation | user | key-only; root + `deploy` |
-| `deploy/app.env` | server `/opt/tartly/deploy/app.env` | deploy | 0600; 39 vars; **not in git** |
+| `deploy/app.env` | server `/opt/tartly/deploy/app.env` | deploy | 0600; 46 vars; **not in git**; hash matches the workstation render |
 | Root `.env` (source of truth) | workstation repo root | user | 0600; gitignored; never commit |
-| `deploy/.env` | server `/opt/tartly/deploy/.env` | deploy | 0600; Postgres/Redis secrets |
-| Backup R2 creds | server `/etc/tartly/backup.env` | deploy | 0600 |
+| `deploy/.env` | server `/opt/tartly/deploy/.env` | deploy | 0600; Postgres/Redis secrets; `TAG=1d44127` |
+| Backup R2 creds | server `/etc/tartly/backup.env` | deploy | 0600; R2 wired; Healthchecks URLs still empty |
 | Git remote | `git@github.com:ArDnath/Tartly.git` | user | private |
-| GitHub deploy key (host) | `deploy@…:~/.ssh/id_ed25519_github` | user | public half → repo deploy key (A11) |
+| GitHub deploy key (host) | `deploy@…:~/.ssh/id_ed25519_github` | user | **active**; read-only deploy key; `ssh -T` verified |
 | Hostinger panel | hPanel | user | DNS, snapshots, console |
 | Google Cloud | console | user | OAuth client, Pub/Sub |
 | Dodo dashboard | app.dodopayments.com | user | products, webhooks |
@@ -401,16 +421,16 @@ Then future deploys are simply `git pull --ff-only && bash deploy/scripts/deploy
 - [x] `https://tartly.in/api/health/ready` = 200 from the public internet
 - [x] `www` → apex 308 redirect
 - [ ] Google sign-in works end-to-end; Gmail connect + first sync works
-- [ ] `BETTER_AUTH_SECRET` rotated (or risk explicitly accepted in writing)
-- [ ] R2 uploads work (or explicitly waived)
-- [ ] Nightly backup uploaded offsite; restore drill recorded
-- [ ] External uptime monitor + backup heartbeat firing
+- [x] `BETTER_AUTH_SECRET` rotated to a 32-char high-entropy value; no boot warning
+- [ ] R2 uploads work (bucket + CORS verified; presigned UI upload pending sign-in)
+- [x] Nightly backup uploaded offsite; restore drill recorded (SHA-256 match, 1 s restore)
+- [ ] External uptime monitor + backup heartbeat firing (`HEALTHCHECKS_*` empty)
 - [ ] Dodo test payment → webhook → entitlement verified
-- [ ] Working tree committed; clean tag deployed
+- [x] Working tree committed; clean tag `1d44127` deployed
 - [ ] Performance baseline recorded (§15)
 - [ ] Capacity model (§2.7) verified: 400 RPS and 2k SSE streams at p95 within SLO
 - [ ] Email-body lifecycle active; projected 90-day disk use < 60%
-- [ ] RPO ≤ 6 h (or PITR enabled)
+- [x] RPO ≤ 6 h (6-hourly cron + verified R2 offsite copy)
 - [ ] AI/SSE concurrency caps configured
 - [ ] Incident contacts + rollback procedure known by the user
 
