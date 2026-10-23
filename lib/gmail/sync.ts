@@ -2,6 +2,7 @@ import "server-only";
 
 import { nanoid } from "nanoid";
 
+import { capStoredBodies } from "@/lib/gmail/body";
 import {
   defaultGmailTransport,
   gmailJson,
@@ -147,6 +148,11 @@ export async function upsertParsedMessage({
     parsed.snippet ||
     "";
 
+  // Bound what we persist: Gmail does not cap decoded bodies, and a single
+  // multi-MB newsletter is copied into Postgres, WAL, dumps and offsite
+  // storage. Capping here protects the disk without changing the UI contract.
+  const storedBody = capStoredBodies({ text: bodyText, html: parsed.bodyHtml });
+
   const thread = await threadRepository.upsertMirrored({
     id: nanoid(),
     mailboxId,
@@ -179,8 +185,8 @@ export async function upsertParsedMessage({
       fromAddr: parsed.from?.email ?? null,
       toAddr: parsed.to.map((address) => address.email),
       subject: parsed.subject,
-      bodyText,
-      bodyHtml: parsed.bodyHtml,
+      bodyText: storedBody.text,
+      bodyHtml: storedBody.html,
       snippet: parsed.snippet,
       unsubscribe: parsed.unsubscribe,
       autoSubmitted: parsed.autoSubmitted,
