@@ -5,7 +5,7 @@
 
 | Field | Value |
 | --- | --- |
-| Last updated | **2026-10-23 08:57 UTC** |
+| Last updated | **2026-10-23 09:00 UTC** |
 | Environment | Production (first node) |
 | Canonical origin | `https://tartly.in` |
 | Host | `srv2076028.hstgr.cloud` · `201.18.197.194` · Mumbai 2 |
@@ -44,6 +44,8 @@ RESUME PROTOCOL: run §3 of the tracker verbatim.
 CURRENT BLOCKER: DNS apex A record for tartly.in still points at Hostinger
 parking (2.57.91.91), not 201.18.197.194.
 NEXT ACTION: after DNS resolves here, start Caddy and verify TLS (see §4, A1).
+OTHER USER GATES: Google OAuth redirect (A2), R2 credentials (A4),
+Dodo webhook key (stage 15), server deploy key (A11).
 ```
 
 ---
@@ -94,7 +96,7 @@ NEXT ACTION: after DNS resolves here, start Caddy and verify TLS (see §4, A1).
 | 21 | CI/CD (GHCR + Actions) | ⬜ | deploys are rsync + on-host build | — |
 | 22 | Scale plan (10k users → 1M RPS) | ✅ | guide §2.7, §6.9, §16.2b; decisions D11–D14 | — |
 | 23 | 10k-user capacity + storage lifecycle | 🟡 | model documented; body trim/retention not implemented (A8) | code change |
-| 24 | Clean git baseline / reproducible deploy | ✅ | `83ccc5a`; bundle fast-forward; host tree clean; bundle stash retained | GitHub deploy key (A11) |
+| 24 | Clean git baseline / reproducible deploy | ✅ | `83ccc5a`; bundle fast-forward; host tree clean; bundle stash retained; host deploy key pending (A11) | — |
 
 **Launch gate:** stages 12, 13, 14 and 16 must be ✅ (16 may be explicitly waived) before the domain is announced.
 
