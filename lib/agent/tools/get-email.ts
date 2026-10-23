@@ -51,6 +51,8 @@ function buildGetEmailTool(email: EmailService): AnyToolDefinition {
         subject: message.subject,
         date: message.receivedAt,
         direction: message.direction,
+        unread: message.unread,
+        starred: message.starred,
         labels: message.labels,
         attachments: message.attachments.map((attachment) => ({
           name: attachment.name,

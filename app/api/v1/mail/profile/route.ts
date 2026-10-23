@@ -1,7 +1,13 @@
 import { ok } from "@/lib/api/http";
-import { profile } from "@/lib/mail/service";
+import { resolveProviderEmails } from "@/lib/mail/accounts";
 import { withMailUser } from "@/lib/mail/route";
 
+/**
+ * The signed-in account address the composer shows. With a shared inbox this is
+ * the primary connected account (Gmail first), falling back to Outlook.
+ */
 export const GET = withMailUser(async (userId) => {
-  return ok(await profile(userId));
+  const emails = await resolveProviderEmails(userId);
+  const emailAddress = emails.gmail ?? emails.outlook ?? "";
+  return ok({ emailAddress, messagesTotal: 0 });
 });

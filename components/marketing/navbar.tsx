@@ -27,8 +27,14 @@ import RubberSegment from '@/components/shared/motion/RubberSegment'
  * one. The control is a radio group of buttons rather than anchors, so its
  * `onChange` routes: in-page sections (`/#features`, …) smooth-scroll on the
  * landing page and `/pricing` navigates normally.
+ *
+ * `active` names the slot the current page should start on. It is passed by
+ * the rendering page instead of being derived from `usePathname()`: on
+ * statically prerendered pages served through `proxy.ts`, the server's
+ * pathname and the browser's can disagree, which made the control's
+ * `aria-checked`/`tabIndex` differ during hydration.
  */
-export const Navbar = () => {
+export const Navbar = ({ active = 'Features' }: { active?: string }) => {
     const [menuState, setMenuState] = React.useState(false)
     const [scrolled, setScrolled] = React.useState(false)
     const [contentWidth, setContentWidth] = React.useState<number | null>(null)
@@ -38,7 +44,6 @@ export const Navbar = () => {
     const router = useRouter()
 
     const navItems = NAV_LINKS.map((item) => item.label)
-    const defaultNav = pathname === '/pricing' ? 'Pricing' : 'Features'
 
     // The segmented control renders buttons, so selection drives routing.
     const handleRoute = React.useCallback(
@@ -141,11 +146,17 @@ export const Navbar = () => {
                         the way to the next section and squashes onto it on
                         landing. The control is a radio group of buttons, so its
                         `onChange` smooth-scrolls in-page sections and routes
-                        `/pricing`. */}
+                        `/pricing`. The initial slot comes from the page's
+                        `active` prop (serialized with the HTML) rather than
+                        `usePathname()`, which can differ between the server and
+                        the browser on statically prerendered pages reached
+                        through `proxy.ts`; keying by it resets the control when
+                        the route changes. */}
                     <div className="hidden shrink-0 lg:block">
                         <RubberSegment
+                            key={active}
                             items={navItems}
-                            defaultValue={defaultNav}
+                            defaultValue={active}
                             onChange={(_, index) => {
                                 const link = NAV_LINKS[index]
                                 if (link) handleRoute(link.href)

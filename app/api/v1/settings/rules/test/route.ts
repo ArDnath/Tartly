@@ -14,7 +14,7 @@ import {
  * evaluated with the `fast` model. Nothing is written and no mail is touched.
  */
 
-export const POST = withUser(async (userId, request) => {
+export const POST = withUser({ requiresSubscription: true }, async (userId, request) => {
   const parsed = bodySchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) return apiError("bad_request", "Invalid request", 400);
   const { instructions, ruleId, email } = parsed.data;

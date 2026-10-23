@@ -33,6 +33,10 @@ yarn-error.log*
 # env files — real secrets stay local; the committed template is .env.example
 .env*
 !.env.example
+# rendered production runtime env + deploy state
+/deploy/app.env
+/deploy/.deploy/
+/deploy/build.env
 
 # vercel
 .vercel

@@ -10,6 +10,7 @@ import { AuthorizationError, NotFoundError } from "@/lib/agent/errors";
 import {
   applyLabel as gmailApplyLabel,
   archive as gmailArchive,
+  deleteMessages as gmailDeleteMessages,
   getDraft as gmailGetDraft,
   getMessage as gmailGetMessage,
   getThread as gmailGetThread,
@@ -21,6 +22,7 @@ import {
   removeLabel as gmailRemoveLabel,
   saveDraft as gmailSaveDraft,
   setRead as gmailSetRead,
+  setStarred as gmailSetStarred,
   trash as gmailTrash,
   untrash as gmailUntrash,
   updateDraft as gmailUpdateDraft,
@@ -220,8 +222,16 @@ export function createGmailEmailProvider(
       await gmailUntrash(userId, [messageId], transport);
     },
 
+    async deleteMessage({ userId, messageId }) {
+      await gmailDeleteMessages(userId, [messageId], transport);
+    },
+
     async markRead({ userId, messageId, read }) {
       await gmailSetRead(userId, [messageId], read, transport);
+    },
+
+    async setStarred({ userId, messageId, starred }) {
+      await gmailSetStarred(userId, [messageId], starred, transport);
     },
 
     async addLabel({ userId, messageId, label }) {

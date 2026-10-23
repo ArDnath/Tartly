@@ -18,6 +18,8 @@ type CreateAssistantReplyStreamOptions = {
   modelMessages: ModelMessage[];
   /** Used when no model provider is configured. */
   buildFallbackText: () => string;
+  /** Called with the model's token usage once the stream settles. */
+  onUsage?: (usage: unknown) => void;
 };
 
 /**
@@ -36,6 +38,7 @@ export function createAssistantReplyStream({
   systemPrompt,
   modelMessages,
   buildFallbackText,
+  onUsage,
 }: CreateAssistantReplyStreamOptions): ReadableStream<Uint8Array> {
   const model = getChatModel();
   const encoder = new TextEncoder();
@@ -85,6 +88,12 @@ export function createAssistantReplyStream({
           for await (const delta of result.textStream) {
             fullText += delta;
             send("delta", { delta });
+          }
+          // Meter the call once the stream has produced its tokens.
+          try {
+            onUsage?.(await result.usage);
+          } catch {
+            // Usage is best-effort; never fail the reply over metering.
           }
         } else {
           for (const token of tokenizeForStreaming(buildFallbackText())) {

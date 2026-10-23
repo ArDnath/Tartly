@@ -61,6 +61,7 @@ function buildSearchEmailsTool(email: EmailService): AnyToolDefinition {
           date: message.receivedAt,
           direction: message.direction,
           unread: message.unread,
+          starred: message.starred,
           hasAttachments: message.hasAttachments,
         })),
       };

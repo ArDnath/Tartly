@@ -40,7 +40,8 @@ This repository is the Next.js application server for Tartly (mirrored here as
 
 | Capability | Route | Summary |
 | --- | --- | --- |
-| **Live mail client** | `/mail` | Full Gmail-style UI: folders, labels, search, compose, and per-message read / star / archive / trash / spam / label actions. Data is fetched live from Gmail. |
+| **Live mail client** | `/mail` | Full Gmail-style UI: folders, labels, search, compose, and per-message read / star / archive / trash / spam / label actions. Reads live from Gmail and, when both are connected, merges Gmail and Outlook into one **shared inbox** (All Mail). |
+| **Connected accounts** | `/settings/accounts` | Connect or reconnect Gmail and Outlook from one place; the shared inbox picks up every connected account. |
 | **AI triage inbox** | `/inbox` | Server-rendered views — **Needs you**, **Waiting on them**, **Handled** — driven by an AI triage step rather than a live model call on page load. |
 | **Drafts & approval** | `/inbox/[threadId]` | Tartly writes a reply in your voice; you edit, approve (send) or discard it. A single send gate guarantees nothing goes out unreviewed. |
 | **Meeting scheduling** | `/calendar` | Detects meeting intent, finds free slots against your working hours and Calendar, proposes times, then books the event with a Google Meet link. |
@@ -70,6 +71,7 @@ inbox + calendar → meeting preferences**, then lands them in the app.
 | `/activity` | Operator activity dashboard (charts, budget, activity log). |
 | `/runs` · `/runs/[id]` | Flow-run index and step trace. |
 | `/settings/calendar` | Calendar, working-hours and autonomy settings. |
+| `/settings/accounts` | Connected accounts: connect or reconnect Gmail and Outlook; the shared All Mail view merges them. |
 | `/settings/autopilot` | 24/7 Autopilot: master switch, send window, risk limits, preview and pause. |
 | `/privacy`, `/terms` | Legal pages. |
 | `/dev-profile` | Local development profile harness (excluded from the proxy guard). |
@@ -371,7 +373,30 @@ and return `{ data }` or `{ error: { code, message } }`.
 
 ## Deployment
 
-Tartly is built for **Vercel + serverless Postgres + Upstash Redis**.
+### Self-hosted production (current)
+
+The production stack is **provisioned but not yet public**: DNS and TLS are the
+remaining launch gates (see the tracker). It runs on a Hostinger KVM 2 VPS
+(2 vCPU / 8 GB / 100 GB NVMe / 8 TB transfer) with Docker Compose — Caddy, two
+Next.js replicas, a queue worker, Postgres 18, Redis + Upstash REST shim, and
+R2 for assets.
+
+**Capacity target:** 10k active users (~1–2k peak concurrent sessions,
+100–400 API RPS) with local Postgres and Redis. Guide §2.7 defines the model,
+§6.9 the local-vs-managed triggers, and §16.2b the preconditions. 10k
+*concurrent requests* is a multi-node stage, not this box.
+
+Start with:
+
+- [`deploy/DEPLOYMENT-TRACKER.md`](./deploy/DEPLOYMENT-TRACKER.md) — live state,
+  blockers, next actions. **Read this first.**
+- [`deploy/DEPLOYMENT-GUIDE.md`](./deploy/DEPLOYMENT-GUIDE.md) — the full
+  multi-stage deployment, security, performance and scaling reference.
+- [`deploy/RUNBOOK.md`](./deploy/RUNBOOK.md) — day-2 operations.
+
+### Vercel (original target)
+
+Tartly was originally built for **Vercel + serverless Postgres + Upstash Redis**.
 
 1. Import the repository into Vercel.
 2. Add environment variables (see [`.env.example`](./.env.example)).

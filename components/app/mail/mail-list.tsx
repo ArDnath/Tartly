@@ -3,7 +3,9 @@
 import * as React from "react";
 import { ChevronLeft, ChevronRight, CircleAlert, Inbox } from "lucide-react";
 
+import { openPaywall, usePaywallStore } from "@/components/app/paywall/paywall-store";
 import { useMailStore } from "@/components/app/mail/mail-store";
+import { authClient } from "@/lib/auth-client";
 import { groupConversationsByDate } from "@/lib/mail/filter";
 import { MailRow } from "@/components/app/mail/mail-row";
 import {
@@ -12,6 +14,13 @@ import {
 } from "@/components/app/mail/mail-row-menu";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  GOOGLE_CONNECT_ADDITIONAL_PARAMS,
+  GOOGLE_CONNECT_SCOPES,
+  MAIL_RECONNECT_CALLBACK_PATH,
+  MAIL_RECONNECT_ERROR_CALLBACK_PATH,
+} from "@/lib/onboarding/constants";
+import { MICROSOFT_MAIL_SCOPES } from "@/lib/outlook/scopes";
 import type { MailConversation } from "@/lib/mail/types";
 
 interface MailListProps {
@@ -20,6 +29,12 @@ interface MailListProps {
   loading: boolean;
   /** Set when the last mailbox load failed; shown only when nothing loaded. */
   error: string | null;
+  /**
+   * The server's error code for that failure. `gmail_not_connected` swaps the
+   * retry for a "Reconnect Google" action, since a retry cannot fix a dead
+   * grant.
+   */
+  errorCode: string | null;
   onRetry: () => void;
   focusedThreadId: string | null;
   /** A page before the current one is loaded and reachable. */
@@ -52,6 +67,31 @@ function LoadingRows({ count = 8 }: { count?: number }) {
   );
 }
 
+/**
+ * Shown under the list for a free account: the server only returns the five
+ * newest conversations, so this explains the cap and opens the paywall.
+ */
+function FreeReadingFooter() {
+  return (
+    <div className="mx-3 my-4 flex flex-col items-center gap-2 rounded-xl border border-border bg-card px-4 py-5 text-center">
+      <p className="text-[13px] font-medium text-mail-strong">
+        Free plan shows your 5 newest emails
+      </p>
+      <p className="max-w-xs text-[12px] text-mail-muted">
+        Subscribe to Tartly Professional to read, search and send without limits.
+      </p>
+      <Button
+        type="button"
+        size="sm"
+        onClick={() => openPaywall("mail_view")}
+        className="mt-1"
+      >
+        Unlock all mail
+      </Button>
+    </div>
+  );
+}
+
 function EmptyState() {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-20 text-center">
@@ -67,13 +107,68 @@ function EmptyState() {
   );
 }
 
+/**
+ * Shown when a mailbox load fails and there is nothing to display. A dead
+ * provider grant surfaces as `gmail_not_connected` / `outlook_not_connected`;
+ * retrying just replays the rejected token, so that case offers a fresh consent
+ * instead.
+ */
 function ErrorState({
   message,
+  errorCode,
   onRetry,
 }: {
   message: string;
+  errorCode: string | null;
   onRetry: () => void;
 }) {
+  const { data: session } = authClient.useSession();
+  const [reconnecting, setReconnecting] = React.useState(false);
+
+  const provider =
+    errorCode === "gmail_not_connected"
+      ? ("google" as const)
+      : errorCode === "outlook_not_connected"
+        ? ("microsoft" as const)
+        : null;
+
+  const handleReconnect = async () => {
+    if (!provider) return;
+    setReconnecting(true);
+    try {
+      const result =
+        provider === "microsoft"
+          ? await authClient.linkSocial({
+              provider: "microsoft",
+              scopes: [...MICROSOFT_MAIL_SCOPES],
+              callbackURL: MAIL_RECONNECT_CALLBACK_PATH,
+              errorCallbackURL: MAIL_RECONNECT_ERROR_CALLBACK_PATH,
+              disableRedirect: true,
+            })
+          : await authClient.linkSocial({
+              provider: "google",
+              scopes: [...GOOGLE_CONNECT_SCOPES],
+              callbackURL: MAIL_RECONNECT_CALLBACK_PATH,
+              errorCallbackURL: MAIL_RECONNECT_ERROR_CALLBACK_PATH,
+              // Top-level navigation, not a popup: keep it out of history.
+              disableRedirect: true,
+              // Pin consent to the signed-in account; dropping this lets Google
+              // pick whichever account is active, which the link callback then
+              // rejects.
+              ...(session?.user?.email ? { loginHint: session.user.email } : {}),
+              additionalParams: { ...GOOGLE_CONNECT_ADDITIONAL_PARAMS },
+            });
+
+      if (result.data?.url) {
+        window.location.replace(result.data.url);
+        return;
+      }
+      setReconnecting(false);
+    } catch {
+      setReconnecting(false);
+    }
+  };
+
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-20 text-center">
       <CircleAlert className="size-8 text-mail-muted/60" aria-hidden />
@@ -81,6 +176,21 @@ function ErrorState({
         Couldn&apos;t load your mailbox
       </p>
       <p className="max-w-xs text-[13px] text-mail-muted">{message}</p>
+      {provider ? (
+        <Button
+          type="button"
+          size="sm"
+          onClick={handleReconnect}
+          disabled={reconnecting}
+          className="mt-1 rounded-full px-4"
+        >
+          {reconnecting
+            ? "Opening\u2026"
+            : provider === "microsoft"
+              ? "Reconnect Outlook"
+              : "Reconnect Google"}
+        </Button>
+      ) : null}
       <button
         type="button"
         onClick={onRetry}
@@ -149,6 +259,7 @@ export function MailList({
   conversations,
   loading,
   error,
+  errorCode,
   onRetry,
   focusedThreadId,
   hasPrev,
@@ -168,11 +279,17 @@ export function MailList({
   // One handle for the whole list — see MailRowMenu for why this can't be
   // per-row without reintroducing the two-menus-open / flash-to-origin bugs.
   const menuHandle = React.useMemo(() => createMailRowMenuHandle(), []);
+  const isSubscriber = usePaywallStore(
+    (state) => state.entitlement?.isSubscriber ?? false,
+  );
+  const entitlementLoaded = usePaywallStore((state) =>
+    Boolean(state.entitlement),
+  );
 
   // A failed load must not masquerade as an endless spinner: surface it with a
   // retry, but only when there is nothing to show (a stale list beats a blank).
   if (error && !conversations.length) {
-    return <ErrorState message={error} onRetry={onRetry} />;
+    return <ErrorState message={error} errorCode={errorCode} onRetry={onRetry} />;
   }
   if (loading) return <LoadingRows />;
 
@@ -212,6 +329,9 @@ export function MailList({
       ) : (
         <EmptyState />
       )}
+      {entitlementLoaded && !isSubscriber && conversations.length > 0 ? (
+        <FreeReadingFooter />
+      ) : null}
       {paginated ? (
         <PagerBar
           range={range}

@@ -65,6 +65,14 @@ describe("buildCsp", () => {
     expect(csp["font-src"]).toBe("'self' data:");
   });
 
+  it("allows remote email images inside the mail frame", () => {
+    // A srcdoc mail frame inherits this policy; without the schemes every
+    // image a newsletter references is blocked.
+    const csp = directives(buildCsp({ nonce: NONCE, isDev: false }));
+    expect(csp["img-src"]).toContain("https:");
+    expect(csp["img-src"]).toContain("http:");
+  });
+
   it("allows ImageKit media by default and a custom endpoint origin", () => {
     const fallback = directives(buildCsp({ nonce: NONCE, isDev: false }));
     expect(fallback["img-src"]).toContain("https://ik.imagekit.io");
@@ -122,5 +130,18 @@ describe("buildCsp", () => {
     // Level-2 fallback; scripts stay nonce-bound.
     expect(csp["style-src"]).toBe("'self'");
     expect(csp["script-src"]).not.toContain("'unsafe-inline'");
+  });
+
+  it("allows nonce-less runtime styles in development only", () => {
+    const dev = directives(buildCsp({ nonce: NONCE, isDev: true }));
+
+    // A nonce would make browsers ignore 'unsafe-inline', so dev drops it —
+    // otherwise React/dev-overlay/font styles injected at runtime are blocked.
+    expect(dev["style-src-elem"]).toContain("'unsafe-inline'");
+    expect(dev["style-src-elem"]).not.toContain(`'nonce-${NONCE}'`);
+    // The CSP2 fallback must relax too.
+    expect(dev["style-src"]).toContain("'unsafe-inline'");
+    // Scripts stay nonce-bound even in dev.
+    expect(dev["script-src"]).toContain(`'nonce-${NONCE}'`);
   });
 });

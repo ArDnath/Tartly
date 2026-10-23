@@ -25,6 +25,40 @@
   }
 }
 
+/* Legibility layer between the morphing canvas and the copy. On wide screens
+   the copy lives in the left column, so the darkening runs left→right and
+   dissolves well before the imagery on the right (which needs no help — the
+   glass checklist carries it). Narrow screens stack the copy at the top, so
+   the gradient flips to top→bottom instead. Kept as a gradient, never a flat
+   fill, so the backdrop still reads as vibrant. */
+.trust-morph .trust-scrim {
+  background: linear-gradient(
+    to right,
+    rgba(12, 12, 14, 0.96) 0%,
+    rgba(12, 12, 14, 0.82) 38%,
+    rgba(12, 12, 14, 0) 74%
+  );
+}
+
+@media (max-width: 1023px) {
+  .trust-morph .trust-scrim {
+    background: linear-gradient(
+      to bottom,
+      rgba(12, 12, 14, 0.96) 0%,
+      rgba(12, 12, 14, 0.8) 30%,
+      rgba(12, 12, 14, 0) 66%
+    );
+  }
+}
+
+/* A soft shadow under the fixed headline and swappable support line — the
+   scrim handles the common case, this catches the bright pixels that still
+   show through mid-morph. Inherited by the letter spans the proximity effect
+   renders. */
+.trust-morph .trust-copy {
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.55);
+}
+
 .trust-morph .morph-slider-caption {
   left: 32px;
   right: 32px;

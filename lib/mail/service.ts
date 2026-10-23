@@ -2,9 +2,10 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 
-import { defaultGmailTransport, gmailJson, type GmailTransport } from "@/lib/gmail/client";
+import { defaultGmailTransport, gmailJson, GmailApiError, type GmailTransport } from "@/lib/gmail/client";
 import { buildRawMessage } from "@/lib/gmail/mime";
 import { decodeBase64Url, decodeRfc2047, parseUnsubscribeHeaders } from "@/lib/gmail/parse";
+import { promoteLazyImages, rewriteInlineImages } from "@/lib/mail/render-email";
 
 /**
  * Live Gmail pass-through for the mail client.
@@ -155,7 +156,23 @@ function stripHtml(html: string): string {
 }
 
 /**
- * Both representations of the body.
+ * An inline image part referenced from the HTML as `cid:<content-id>`.
+ *
+ * The bytes either ride along in the payload (`data`) or live behind an
+ * attachment id we resolve on demand; either way the reader needs a URL, which
+ * `toMailMessage` builds.
+ */
+interface InlineImagePart {
+  cid: string;
+  contentType: string;
+  /** Inline bytes carried in the payload (base64url), when present. */
+  data?: string;
+  /** Otherwise the attachment to fetch through the proxy. */
+  attachmentId?: string;
+}
+
+/**
+ * Both representations of the body, plus the inline images the HTML refers to.
  *
  * A `multipart/alternative` message carries the same content twice, and the
  * two are not interchangeable: the HTML part is what the sender designed, and
@@ -165,14 +182,32 @@ function stripHtml(html: string): string {
 function extractBody(payload: GmailPart | null | undefined): {
   text: string;
   html: string;
+  inline: InlineImagePart[];
 } {
-  if (!payload) return { text: "", html: "" };
+  if (!payload) return { text: "", html: "", inline: [] };
 
   const plain: string[] = [];
   const html: string[] = [];
+  const inline: InlineImagePart[] = [];
 
   const walk = (part: GmailPart) => {
     const mime = part.mimeType ?? "";
+    // A part with a Content-ID and an image type is the target of a `cid:` ref.
+    const contentId = headerValue(part.headers, "Content-ID")
+      .trim()
+      .replace(/^<|>$/g, "");
+    if (contentId && mime.startsWith("image/")) {
+      if (part.body?.data) {
+        inline.push({ cid: contentId, contentType: mime, data: part.body.data });
+      } else if (part.body?.attachmentId) {
+        inline.push({
+          cid: contentId,
+          contentType: mime,
+          attachmentId: part.body.attachmentId,
+        });
+      }
+    }
+
     if (part.body?.data) {
       if (mime === "text/plain") plain.push(decodeBase64Url(part.body.data));
       else if (mime === "text/html") html.push(decodeBase64Url(part.body.data));
@@ -186,6 +221,7 @@ function extractBody(payload: GmailPart | null | undefined): {
     // Derive text from HTML only when the sender didn't provide it.
     text: plain.length > 0 ? plain.join("\n").trim() : stripHtml(htmlBody),
     html: htmlBody,
+    inline,
   };
 }
 
@@ -193,6 +229,26 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** Same-origin URL the reader loads an inline (cid:) attachment from. */
+function attachmentProxyUrl(
+  messageId: string,
+  attachmentId: string,
+  contentType: string,
+): string {
+  const params = new URLSearchParams({
+    messageId,
+    attachmentId,
+    type: contentType,
+  });
+  return `/api/v1/mail/attachments?${params.toString()}`;
+}
+
+/** Gmail serves base64url without padding; a data: URI wants standard base64. */
+function toStandardBase64(base64url: string): string {
+  const normalized = base64url.replace(/-/g, "+").replace(/_/g, "/");
+  return normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
 }
 
 /**
@@ -214,7 +270,10 @@ function collectAttachments(
   const attachments: MailAttachment[] = [];
 
   const walk = (part: GmailPart) => {
-    if (part.filename && part.body?.attachmentId) {
+    // Inline images (a part with a Content-ID) are rendered in the body, not
+    // listed as attachments.
+    const inline = Boolean(headerValue(part.headers, "Content-ID"));
+    if (part.filename && part.body?.attachmentId && !inline) {
       attachments.push({
         id: part.body.attachmentId,
         name: part.filename,
@@ -270,11 +329,26 @@ function toMailMessage(
   };
   const to = parseAddressList(headerValue(headers, "To"));
   const cc = parseAddressList(headerValue(headers, "Cc"));
-  const { text: body, html: bodyHtml } = extractBody(message.payload);
+  const { text: body, html: rawHtml, inline } = extractBody(message.payload);
   const attachments = collectAttachments(message.payload);
   const sender = senderLine(from, to);
 
   const subject = headerValue(headers, "Subject");
+
+  // Promote lazy-loaded images, then resolve any `cid:` inline images onto a
+  // URL the sandboxed frame can fetch (bytes we already have become data URIs;
+  // the rest load through the same-origin attachment proxy).
+  let bodyHtml = rawHtml ? promoteLazyImages(rawHtml) : "";
+  if (bodyHtml && inline.length > 0) {
+    const urls = new Map<string, string>();
+    for (const part of inline) {
+      const url = part.data
+        ? `data:${part.contentType};base64,${toStandardBase64(part.data)}`
+        : attachmentProxyUrl(message.id ?? "", part.attachmentId!, part.contentType);
+      urls.set(part.cid, url);
+    }
+    bodyHtml = rewriteInlineImages(bodyHtml, urls);
+  }
 
   return {
     id: message.id ?? "",
@@ -599,6 +673,28 @@ export async function getThread(
   };
 }
 
+/**
+ * One attachment's bytes, for the same-origin proxy that renders inline
+ * (`cid:`) images. Gmail returns base64url; the caller re-wraps it as bytes.
+ */
+export async function getAttachment(
+  userId: string,
+  messageId: string,
+  attachmentId: string,
+  transport: GmailTransport = defaultGmailTransport,
+): Promise<Buffer> {
+  const attachment = await gmailJson<{ data?: string | null }>(
+    userId,
+    `/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}`,
+    undefined,
+    transport,
+  );
+  if (!attachment.data) {
+    throw new GmailApiError(404, "Attachment is empty or unavailable.");
+  }
+  return Buffer.from(toStandardBase64(attachment.data), "base64");
+}
+
 // --------------------------------------------------------------------------
 // Mutations
 // --------------------------------------------------------------------------
@@ -683,8 +779,9 @@ export function setSpam(
 }
 
 /**
- * Trash, not delete. `messages.delete` is irreversible and needs a scope we
- * deliberately don't hold; trashing is what the UI's "delete" means anyway.
+ * Trash, not delete. Trashing is reversible (Gmail keeps it for 30 days) and is
+ * what the list's "Delete" means; permanent deletion lives in `deleteMessages`
+ * and needs the restricted full-mailbox scope.
  */
 export async function trash(
   userId: string,
@@ -704,6 +801,69 @@ export async function untrash(
   await pooled(ids, LIST_CONCURRENCY, (id) =>
     gmailJson<void>(userId, `/messages/${id}/untrash`, { method: "POST" }, transport),
   );
+}
+
+/** Gmail caps `messages.batchDelete` at 1000 ids per call. */
+const DELETE_BATCH_SIZE = 500;
+
+/**
+ * Permanently delete messages, bypassing the trash. Irreversible, and — unlike
+ * every other mutation here — it needs the restricted full-mailbox scope
+ * (`https://mail.google.com/`); `gmail.modify` cannot do it.
+ */
+export async function deleteMessages(
+  userId: string,
+  ids: string[],
+  transport: GmailTransport = defaultGmailTransport,
+): Promise<void> {
+  if (ids.length === 0) return;
+  for (let start = 0; start < ids.length; start += DELETE_BATCH_SIZE) {
+    await gmailJson<void>(
+      userId,
+      "/messages/batchDelete",
+      {
+        method: "POST",
+        body: JSON.stringify({ ids: ids.slice(start, start + DELETE_BATCH_SIZE) }),
+      },
+      transport,
+    );
+  }
+}
+
+/** Every message id currently in the trash, paged through Gmail. */
+async function listTrashIds(
+  userId: string,
+  transport: GmailTransport,
+): Promise<string[]> {
+  const ids: string[] = [];
+  let pageToken: string | undefined;
+  do {
+    const query = new URLSearchParams({ q: "in:trash", maxResults: "500" });
+    if (pageToken) query.set("pageToken", pageToken);
+    const page = await gmailJson<{
+      messages?: Array<{ id?: string }>;
+      nextPageToken?: string;
+    }>(userId, `/messages?${query.toString()}`, { method: "GET" }, transport);
+    for (const message of page.messages ?? []) {
+      if (message.id) ids.push(message.id);
+    }
+    pageToken = page.nextPageToken;
+  } while (pageToken);
+  return ids;
+}
+
+/**
+ * Permanently delete everything in the trash. Gmail has no "empty trash"
+ * endpoint, so this lists `in:trash` and batch-deletes the ids. Returns how many
+ * were removed.
+ */
+export async function emptyTrash(
+  userId: string,
+  transport: GmailTransport = defaultGmailTransport,
+): Promise<number> {
+  const ids = await listTrashIds(userId, transport);
+  await deleteMessages(userId, ids, transport);
+  return ids.length;
 }
 
 export async function applyLabel(

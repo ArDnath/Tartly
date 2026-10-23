@@ -8,9 +8,22 @@ import { getSession } from "@/lib/session";
  * Public sign-in page. Signed-in users are bounced to Mail
  * (authoritative check; proxy.ts also redirects via cookie).
  */
-export default async function AuthPage() {
+/** Only in-app, relative paths are honoured as a post-sign-in destination. */
+function safeNext(value: string | string[] | undefined): string {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/onboarding";
+  return raw;
+}
+
+export default async function AuthPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ next?: string | string[] }>;
+}) {
   const session = await getSession();
-  if (session?.user) redirect("/mail");
+  const params = await searchParams;
+  const next = safeNext(params.next);
+  if (session?.user) redirect(next === "/onboarding" ? "/mail" : next);
 
   return (
     <div className="relative flex min-h-dvh flex-1 items-center justify-center overflow-hidden text-canvas-foreground sm:px-6 sm:py-16">
@@ -24,7 +37,7 @@ export default async function AuthPage() {
         </div>
 
         <div className="mt-6 flex flex-col gap-3">
-          <GoogleSignInButton />
+          <GoogleSignInButton callbackURL={next} />
         </div>
         <p className="mt-16 text-center text-xs leading-relaxed text-muted-foreground">
           By using Tartly,

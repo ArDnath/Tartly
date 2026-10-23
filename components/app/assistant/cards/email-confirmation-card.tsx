@@ -16,7 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 import { useAgentEvents } from "@/components/app/assistant/use-agent-events";
 import { AgentEmailRef } from "./email-ref";
-import { asRecord, asString, asStringList, formatTimestamp } from "./shared";
+import { asBoolean, asRecord, asString, asStringList, formatTimestamp } from "./shared";
 
 /**
  * The confirmation card for an external side effect.
@@ -156,6 +156,7 @@ export function EmailConfirmationCard({
   const subject = asString(args.subject);
   const body = asString(args.body);
   const messageId = asString(args.messageId);
+  const permanent = asBoolean(args.permanent);
   const sendAt = formatTimestamp(args.sendAt);
   const expiresAt = formatTimestamp(result?.expiresAt);
 
@@ -164,7 +165,9 @@ export function EmailConfirmationCard({
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-sm">
           {icon(phase)}
-          {TITLES[toolName] ?? "Confirm action"}
+          {toolName === "delete_email" && permanent
+            ? "Confirm permanent delete"
+            : (TITLES[toolName] ?? "Confirm action")}
         </CardTitle>
         <div className="space-y-0.5 text-xs text-muted-foreground">
           {to.length ? <p className="truncate">To: {to.join(", ")}</p> : null}
@@ -183,6 +186,13 @@ export function EmailConfirmationCard({
 
         {/* The message this action refers to, as a clickable preview. */}
         {messageId ? <AgentEmailRef email={{ id: messageId }} /> : null}
+
+        {permanent ? (
+          <p className="flex items-center gap-1.5 text-xs text-destructive">
+            <ShieldAlertIcon className="size-3.5 shrink-0" aria-hidden />
+            This permanently deletes the message. It cannot be undone.
+          </p>
+        ) : null}
 
         {phase === "pending" ? (
           <p className="text-xs text-muted-foreground">
@@ -303,6 +313,9 @@ function summarizeResult(result: unknown): string | undefined {
   }
   if (record.trashed === true) {
     return "Moved to the trash. It is recoverable for 30 days.";
+  }
+  if (record.permanent === true) {
+    return "Permanently deleted. This cannot be undone.";
   }
   const to = asStringList(record.to);
   return to.length ? `Sent to ${to.join(", ")}.` : "Done.";

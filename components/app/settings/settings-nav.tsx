@@ -3,7 +3,9 @@
 import {
   BookOpen,
   CalendarDays,
+  CreditCard,
   FolderOpen,
+  Link2,
   ListChecks,
   Moon,
   Settings2,
@@ -33,6 +35,18 @@ export type SettingsGroup = { label: string; links: SettingsLink[] };
  * duplicating the list.
  */
 export const SETTINGS_GROUPS: SettingsGroup[] = [
+  {
+    label: "Plan",
+    links: [
+      { href: "/settings/billing", label: "Billing & credits", icon: CreditCard },
+    ],
+  },
+  {
+    label: "Connections",
+    links: [
+      { href: "/settings/accounts", label: "Connected accounts", icon: Link2 },
+    ],
+  },
   {
     label: "Workspace",
     links: [

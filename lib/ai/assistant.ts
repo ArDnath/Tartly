@@ -114,10 +114,13 @@ export function createAssistantStream({
   scope,
   question,
   context,
+  onUsage,
 }: {
   scope: AssistantScope;
   question: string;
   context?: AssistantContext;
+  /** Called with the model's token usage once the stream settles. */
+  onUsage?: (usage: unknown) => void;
 }): ReadableStream<Uint8Array> {
   const model = getChatModel();
   const encoder = new TextEncoder();
@@ -154,6 +157,12 @@ export function createAssistantStream({
 
           for await (const delta of result.textStream) {
             send("delta", { delta });
+          }
+          // Meter the call once the stream has produced its tokens.
+          try {
+            onUsage?.(await result.usage);
+          } catch {
+            // Best-effort metering; never fail the reply over it.
           }
         } else {
           for (const token of tokenizeForStreaming(

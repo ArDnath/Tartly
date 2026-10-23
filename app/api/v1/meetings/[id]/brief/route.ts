@@ -26,6 +26,7 @@ export const GET = withUser<{ params: Promise<{ id: string }> }>(
 );
 
 export const POST = withUser<{ params: Promise<{ id: string }> }>(
+  { requiresSubscription: true },
   async (userId, _request, context) => {
     const { id } = await context.params;
     if (!isMeetingBriefsEnabled()) {

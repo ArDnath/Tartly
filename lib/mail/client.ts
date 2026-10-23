@@ -1,4 +1,9 @@
-import type { MailAddress, MailMessage, MailThread } from "@/lib/mail/types";
+import type {
+  MailAccount,
+  MailAddress,
+  MailMessage,
+  MailThread,
+} from "@/lib/mail/types";
 
 /**
  * The mail feature talks to the signed-in user's real Gmail through the BFF
@@ -10,6 +15,26 @@ import type { MailAddress, MailMessage, MailThread } from "@/lib/mail/types";
 interface ApiEnvelope<T> {
   data?: T;
   error?: { code?: string; message?: string };
+}
+
+/**
+ * A mail API failure that preserves the server's error `code` (and status).
+ * The paywall keys off `code === "payment_required"`, so the store must be able
+ * to tell a paywall block apart from a generic Gmail failure.
+ */
+export class MailApiError extends Error {
+  constructor(
+    readonly code: string,
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "MailApiError";
+  }
+}
+
+export function isPaymentRequired(error: unknown): boolean {
+  return error instanceof MailApiError && error.code === "payment_required";
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -26,7 +51,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     | null;
 
   if (!response.ok) {
-    throw new Error(
+    throw new MailApiError(
+      payload?.error?.code ?? "unknown",
+      response.status,
       payload?.error?.message || `Request failed (${response.status})`,
     );
   }
@@ -69,6 +96,12 @@ export interface MailboxRequest {
    * page; pass it to fetch the page after the one already loaded.
    */
   pageToken?: string;
+  /**
+   * Which connected account to read. Defaults to `all` — the shared inbox — so
+   * Gmail and Outlook merge into one list. A label search is always Gmail-only
+   * on the server.
+   */
+  account?: "all" | "gmail" | "outlook";
 }
 
 /** The list slice of a mailbox fetch — no account/profile round trip. */
@@ -88,6 +121,7 @@ export async function fetchMailboxPage(
   const params = new URLSearchParams({
     box: request_.box,
     limit: String(request_.limit ?? 60),
+    account: request_.account ?? "all",
   });
   if (request_.search) params.set("search", request_.search);
   if (request_.pageToken) params.set("pageToken", request_.pageToken);
@@ -147,6 +181,14 @@ export function fetchThread(threadId: string): Promise<MailThread> {
   );
 }
 
+/** Connected mail accounts for the "connected accounts" settings surface. */
+export async function fetchMailAccounts(): Promise<MailAccount[]> {
+  const result = await request<{ accounts: MailAccount[] }>(
+    "/api/v1/settings/accounts",
+  );
+  return result.accounts;
+}
+
 // --------------------------------------------------------------------------
 // Mutations — each mirrors one Gmail label operation
 // --------------------------------------------------------------------------
@@ -185,6 +227,21 @@ export function setSpam(ids: string[], spam: boolean) {
   });
 }
 
+/** Permanently delete messages (bypassing the trash). Irreversible. */
+export function deleteMessages(ids: string[]) {
+  return request<{ updated: number }>("/api/v1/mail/messages/delete", {
+    method: "POST",
+    body: JSON.stringify({ ids }),
+  });
+}
+
+/** Permanently delete everything in the trash. Returns how many were removed. */
+export function emptyTrash() {
+  return request<{ deleted: number }>("/api/v1/mail/trash/empty", {
+    method: "POST",
+  });
+}
+
 export function applyLabel(ids: string[], label: string) {
   return request("/api/v1/mail/messages/label", {
     method: "POST",
@@ -213,6 +270,8 @@ export interface OutgoingMail {
   /** Phase 6: library assets to attach / inline. */
   assetIds?: string[];
   inlineImageIds?: string[];
+  /** Which connected account to send from; defaults to Gmail. */
+  account?: "gmail" | "outlook";
 }
 
 export async function sendMail(mail: OutgoingMail): Promise<string> {

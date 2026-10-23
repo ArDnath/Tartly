@@ -24,6 +24,7 @@ export const maxDuration = 60;
  * user themselves, and pause/resume/cancel control a running send.
  */
 export const POST = withUser<{ params: Promise<{ id: string }> }>(
+  { requiresSubscription: true },
   async (userId, request, context) => {
     const { id } = await context.params;
     if (!isCampaignsEnabled()) {

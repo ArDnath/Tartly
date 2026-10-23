@@ -1,6 +1,20 @@
 "use client";
 
 import React from "react";
+import {
+  BadgeCheck,
+  CircleX,
+  ClipboardCheck,
+  LifeBuoy,
+  Mails,
+  MessagesSquare,
+  ShieldCheck,
+  SlidersHorizontal,
+  Sparkles,
+  Users,
+  Workflow,
+  type LucideIcon,
+} from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import { Reveal } from "@/components/shared/motion/reveal";
@@ -10,8 +24,14 @@ import { cn } from "@/lib/utils";
 /*
  * Pricing plans. Professional is priced per user and gives a discount when
  * billed annually; Enterprise is quoted per organization. Feature copy is
- * intentionally drawn from capabilities already described on the landing page.
+ * intentionally drawn from capabilities already described on the landing page,
+ * and each privilege carries its own icon so the value reads at a glance.
  */
+type Feature = {
+  label: string;
+  icon: LucideIcon;
+};
+
 type Plan = {
   name: string;
   tagline: string;
@@ -22,7 +42,7 @@ type Plan = {
   /** Small print shown under a custom price. */
   note?: string;
   cta: { label: string; href: string };
-  features: string[];
+  features: Feature[];
 };
 
 const PLANS: Plan[] = [
@@ -34,12 +54,12 @@ const PLANS: Plan[] = [
     yearlyPrice: 20,
     cta: { label: "Get started", href: "/auth" },
     features: [
-      "Full AI inbox — summaries, drafts, and replies",
-      "Follow-ups and conversation tracking",
-      "Campaigns and multi-step workflows",
-      "Approval controls and full activity history",
-      "Gmail + Google Calendar",
-      "Cancel anytime",
+      { label: "Full AI inbox — summaries, drafts, and replies", icon: Sparkles },
+      { label: "Follow-ups and conversation tracking", icon: MessagesSquare },
+      { label: "Campaigns and multi-step workflows", icon: Workflow },
+      { label: "Approval controls and full activity history", icon: ClipboardCheck },
+      { label: "Gmail + Outlook — both connected together", icon: Mails },
+      { label: "Cancel anytime", icon: CircleX },
     ],
   },
   {
@@ -49,14 +69,28 @@ const PLANS: Plan[] = [
     note: "Volume pricing · security review · dedicated support",
     cta: { label: "Contact sales", href: "mailto:support@tartly.app" },
     features: [
-      "Everything in Professional",
-      "Custom workflows, limits, and retention",
-      "SSO and security review",
-      "Admin controls and seat management",
-      "Dedicated onboarding and support",
+      { label: "Everything in Professional", icon: BadgeCheck },
+      { label: "Gmail + Outlook for every seat", icon: Mails },
+      { label: "Custom workflows, limits, and retention", icon: SlidersHorizontal },
+      { label: "SSO and security review", icon: ShieldCheck },
+      { label: "Admin controls and seat management", icon: Users },
+      { label: "Dedicated onboarding and support", icon: LifeBuoy },
     ],
   },
 ];
+
+/**
+ * Resolve a plan's call to action. The paid plan always points at the in-app
+ * `/checkout` (which sends signed-out visitors through Google sign-in first, then
+ * back to checkout); Enterprise keeps its contact link.
+ */
+function planCta(plan: Plan, isYearly: boolean): { label: string; href: string } {
+  if (plan.customPricing) return plan.cta;
+  return {
+    label: plan.cta.label,
+    href: `/checkout?interval=${isYearly ? "year" : "month"}`,
+  };
+}
 
 /**
  * `geometric` is the squared treatment used by the landing page and the
@@ -210,6 +244,56 @@ function BillingToggle({
   );
 }
 
+/**
+ * The privilege list shared by both treatments. Every point carries its own
+ * line icon so value reads at a glance. The glyphs stay neutral (never
+ * coloured) so they sit flush on the hairline grid rather than fighting it.
+ */
+function FeatureList({
+  features,
+  variant,
+}: {
+  features: Feature[];
+  variant: PricingVariant;
+}) {
+  if (variant === "default") {
+    return (
+      <ul aria-label="Features" className="flex list-none flex-col gap-3 p-0">
+        {features.map(({ label, icon: Icon }) => (
+          <li key={label} className="flex items-start gap-2.5">
+            <Icon
+              aria-hidden
+              className="mt-px size-[18px] shrink-0 text-white/45"
+            />
+            <span className="flex-1 text-sm font-medium leading-[1.35] tracking-[-0.01em] text-white">
+              {label}
+            </span>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
+  return (
+    <ul
+      aria-label="Features"
+      className="mt-7 flex list-none flex-col gap-3.5 p-0"
+    >
+      {features.map(({ label, icon: Icon }) => (
+        <li key={label} className="flex items-start gap-3">
+          <Icon
+            aria-hidden
+            className="mt-0.5 size-4 shrink-0 text-white/45"
+          />
+          <span className="flex-1 text-[13px] font-medium leading-5 text-white/80">
+            {label}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /** The softer tonal-card treatment, kept as an alternate to `geometric`. */
 function DefaultPlans({
   billing,
@@ -225,6 +309,7 @@ function DefaultPlans({
       {PLANS.map((plan, i) => {
         const displayedPrice = isYearly ? plan.yearlyPrice : plan.monthlyPrice;
         const yearlyTotal = (plan.yearlyPrice ?? 0) * 12;
+        const cta = planCta(plan, isYearly);
 
         return (
           <Reveal
@@ -298,32 +383,18 @@ function DefaultPlans({
 
               <div className="h-px w-full bg-white/10" />
 
-              <ul aria-label="Features" className="flex list-none flex-col gap-3 p-0">
-                {plan.features.map((feature) => (
-                  <li key={feature} className="flex items-start gap-2.5">
-                    <span
-                      aria-hidden
-                      className="min-w-max translate-y-px font-extrabold leading-5 text-[#8b5cf6]"
-                    >
-                      ✓
-                    </span>
-                    <span className="flex-1 text-sm font-medium leading-[1.35] tracking-[-0.01em] text-white">
-                      {feature}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+              <FeatureList features={plan.features} variant="default" />
 
               <motion.a
-                href={plan.cta.href}
-                aria-label={plan.cta.label}
-                target={plan.cta.href.startsWith("http") ? "_blank" : undefined}
-                rel={plan.cta.href.startsWith("http") ? "noreferrer" : undefined}
+                href={cta.href}
+                aria-label={cta.label}
+                target={cta.href.startsWith("http") ? "_blank" : undefined}
+                rel={cta.href.startsWith("http") ? "noreferrer" : undefined}
                 whileHover={reduceMotion ? undefined : { backgroundColor: "#9469F7" }}
                 whileTap={reduceMotion ? undefined : { scale: 0.98 }}
                 className="mt-auto flex h-11 w-full items-center justify-center rounded-[10px] bg-[#8b5cf6] text-[15px] font-bold tracking-[-0.01em] text-white no-underline outline-none transition-shadow hover:shadow-[0_6px_20px_rgba(139,92,246,0.45)] focus-visible:ring-2 focus-visible:ring-white/70"
               >
-                <span className="min-w-max">{plan.cta.label}</span>
+                <span className="min-w-max">{cta.label}</span>
               </motion.a>
             </div>
           </Reveal>
@@ -357,6 +428,7 @@ function GeometricPlans({
             const displayedPrice = isYearly ? plan.yearlyPrice : plan.monthlyPrice;
             const yearlyTotal = (plan.yearlyPrice ?? 0) * 12;
             const quoted = plan.customPricing;
+            const cta = planCta(plan, isYearly);
 
             return (
               <div key={plan.name} className="relative flex flex-col p-7 sm:p-9">
@@ -401,26 +473,14 @@ function GeometricPlans({
 
                 <div className="mt-7 h-px w-full bg-white/10" />
 
-                <ul aria-label="Features" className="mt-7 flex list-none flex-col gap-3.5 p-0">
-                  {plan.features.map((feature) => (
-                    <li key={feature} className="flex items-start gap-3">
-                      <span
-                        aria-hidden
-                        className="mt-[7px] size-1.5 shrink-0 bg-[#8b5cf6]"
-                      />
-                      <span className="flex-1 text-[13px] font-medium leading-5 text-white/80">
-                        {feature}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+                <FeatureList features={plan.features} variant="geometric" />
 
                 <div className="mt-auto pt-9">
                   <a
-                    href={plan.cta.href}
-                    aria-label={plan.cta.label}
-                    target={plan.cta.href.startsWith("http") ? "_blank" : undefined}
-                    rel={plan.cta.href.startsWith("http") ? "noreferrer" : undefined}
+                    href={cta.href}
+                    aria-label={cta.label}
+                    target={cta.href.startsWith("http") ? "_blank" : undefined}
+                    rel={cta.href.startsWith("http") ? "noreferrer" : undefined}
                     className={cn(
                       "inline-flex h-11 w-full items-center justify-center text-[11px] font-semibold uppercase tracking-[0.2em] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#141414]",
                       quoted
@@ -428,7 +488,7 @@ function GeometricPlans({
                         : "bg-[#8b5cf6] text-white hover:bg-[#7c4ce0]",
                     )}
                   >
-                    {plan.cta.label}
+                    {cta.label}
                   </a>
                 </div>
               </div>

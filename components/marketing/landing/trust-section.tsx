@@ -146,7 +146,10 @@ export function TrustSection() {
             <MorphSlider
               items={TRUST_SLIDES}
               transition="melt"
-              duration={0.62}
+              // Snappy morph: the melt used to run for ~0.62s, which read as a
+              // long, low-legibility smear before the copy settled. ~0.45s keeps
+              // the displacement legible while the headline stays readable.
+              duration={0.45}
               intensity={0.55}
               scale={2.4}
               aberration={0.35}
@@ -154,6 +157,10 @@ export function TrustSection() {
               autoplay
               autoplayDelay={3}
               loop
+              // Cap the render scale below 2× DPR: this surface is a soft,
+              // full-bleed backdrop, so the extra device pixels bought nothing
+              // legible but cost roughly 2× the fragments on retina/mobile.
+              dprCap={1.5}
               radius={28}
               overlayColor="#0c0c0e"
               showCaptions
@@ -162,12 +169,19 @@ export function TrustSection() {
               onIndexChange={setIndex}
             />
 
-            {/* No scrim over the imagery — the morphing backdrop is meant to
-                stay vibrant. Copy legibility is carried by the glass panels
-                and the text colours instead of a darkening gradient. */}
+            {/* Legibility scrim. A full-bleed darkening would flatten the
+                morphing backdrop, so the gradient is anchored to the copy
+                column and dissolves before the imagery on the right — the side
+                that already carries the glass checklist. It sits above the
+                canvas and below the copy, so the headline reads on any frame
+                of the morph, not just the settled one. */}
+            <div
+              aria-hidden
+              className="trust-scrim pointer-events-none absolute inset-0 z-[1]"
+            />
 
             <div className="pointer-events-none absolute inset-0 z-10 grid lg:grid-cols-[1.1fr_0.9fr]">
-              <div className="flex flex-col justify-start p-7 pb-64 sm:p-9 sm:pb-64 md:p-12 md:pb-64 lg:justify-center lg:pb-12">
+              <div className="trust-copy flex flex-col justify-start p-7 pb-64 sm:p-9 sm:pb-64 md:p-12 md:pb-64 lg:justify-center lg:pb-12">
                 <span
                   key={slide.eyebrow}
                   className="trust-swap inline-flex w-fit items-center gap-2 rounded-full border border-white/15 bg-white/[0.06] px-3 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-white/70 backdrop-blur-md"
@@ -188,7 +202,7 @@ export function TrustSection() {
                   segmentBy="words"
                   direction="bottom"
                   delay={30}
-                  className="mt-4 max-w-xl text-sm font-light leading-relaxed text-white/70 md:text-base"
+                  className="mt-4 max-w-xl text-sm font-light leading-relaxed text-white/80 md:text-base"
                 />
               </div>
 

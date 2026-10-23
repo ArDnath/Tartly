@@ -5,7 +5,7 @@ import { generateMailBody } from "@/lib/mail/ai-draft";
 import { withMailUser } from "@/lib/mail/route";
 
 /** "Draft with AI": returns a suggested body. Never sends. */
-export const POST = withMailUser(async (userId, request) => {
+export const POST = withMailUser({ requiresSubscription: true }, async (userId, request) => {
   const parsed = schema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) return apiError("bad_request", "Invalid request", 400);
 

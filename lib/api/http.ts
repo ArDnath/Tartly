@@ -12,6 +12,7 @@ import {
   validateInbound,
   type ValidationIssue,
 } from "@/lib/api/contracts/validate";
+import { checkAiAccess } from "@/lib/billing/entitlements";
 import { jsonError } from "@/lib/api/error-envelope";
 import {
   beginIdempotent,
@@ -151,6 +152,13 @@ export type UserRouteOptions = {
    * Defaults to on; set `false` for routes where replay would be wrong.
    */
   idempotency?: boolean;
+  /**
+   * Require an active subscription before the handler runs. Used by every AI
+   * route: a free user gets a `402 payment_required` carrying a fresh
+   * entitlement snapshot. The denial also persists the paywall lock, so the
+   * wall survives reloads.
+   */
+  requiresSubscription?: boolean;
 };
 
 function methodHasBody(method: string): boolean {
@@ -327,6 +335,22 @@ export function withUser<Ctx = unknown>(
                 "Too many requests. Try again shortly.",
                 429,
                 { headers: { "Retry-After": String(result.retryAfterSeconds) } },
+              ),
+            );
+          }
+        }
+
+        if (options.requiresSubscription) {
+          const access = await checkAiAccess(session.user.id);
+          if (!access.allowed) {
+            logger.warn("request.payment_required", { status_code: 402 });
+            return finalize(
+              apiError(
+                "payment_required",
+                "A Tartly subscription is required to continue.",
+                402,
+                undefined,
+                { reason: "ai", entitlement: access.entitlement },
               ),
             );
           }

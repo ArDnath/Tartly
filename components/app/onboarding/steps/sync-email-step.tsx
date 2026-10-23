@@ -20,13 +20,20 @@ import {
   GOOGLE_CONNECT_CALLBACK_PATH,
   GOOGLE_CONNECT_ERROR_CALLBACK_PATH,
   GOOGLE_CONNECT_SCOPES,
+  MICROSOFT_CONNECT_CALLBACK_PATH,
+  MICROSOFT_CONNECT_ERROR_CALLBACK_PATH,
 } from "@/lib/onboarding/constants";
+import { MICROSOFT_MAIL_SCOPES } from "@/lib/outlook/scopes";
 
 export const SyncEmailStep = () => {
   const { isNavigating, syncEmailError, syncEmailErrorDetail, user } =
     useOnboarding();
   const [isConnecting, setIsConnecting] = useState(false);
+  const [isConnectingOutlook, setIsConnectingOutlook] = useState(false);
   const [connectError, setConnectError] = useState(false);
+
+  const outlookEnabled =
+    process.env.NEXT_PUBLIC_MICROSOFT_CONNECT_ENABLED === "true";
 
   const showError = connectError || syncEmailError;
 
@@ -64,6 +71,34 @@ export const SyncEmailStep = () => {
       setConnectError(true);
     } finally {
       setIsConnecting(false);
+    }
+  };
+
+  const handleConnectOutlook = async () => {
+    setIsConnectingOutlook(true);
+    setConnectError(false);
+
+    try {
+      const result = await authClient.linkSocial({
+        provider: "microsoft",
+        scopes: [...MICROSOFT_MAIL_SCOPES],
+        callbackURL: MICROSOFT_CONNECT_CALLBACK_PATH,
+        errorCallbackURL: MICROSOFT_CONNECT_ERROR_CALLBACK_PATH,
+        disableRedirect: true,
+      });
+
+      if (result.data?.url) {
+        window.location.replace(result.data.url);
+        return;
+      }
+
+      console.error("[onboarding] Outlook connect did not return a URL", result.error);
+      setConnectError(true);
+    } catch (error) {
+      console.error("[onboarding] Outlook connect failed", error);
+      setConnectError(true);
+    } finally {
+      setIsConnectingOutlook(false);
     }
   };
 
@@ -112,30 +147,66 @@ export const SyncEmailStep = () => {
             <ArrowRight className="size-4 shrink-0 text-muted-foreground transition-colors group-hover:text-neutral-500" />
           </button>
 
-          {/* Not yet available: rendered as a disabled control so it can't be
-              focused, pressed, or used to advance the flow. */}
-          <button
-            type="button"
-            disabled
-            aria-disabled="true"
-            aria-label="Continue with Outlook — coming soon"
-            className="flex w-full cursor-not-allowed items-center gap-4 rounded-2xl border border-border/60 bg-card/50 px-5 py-4 text-left opacity-70"
-          >
-            <span className="flex size-8 shrink-0 items-center justify-center">
-              <OutlookIcon className="size-6" />
-            </span>
-            <span className="flex min-w-0 flex-1 flex-col">
-              <span className="text-sm font-medium text-foreground/80">
-                Outlook
+          {/* Outlook connects to the same shared inbox when Entra ID
+              credentials are configured; otherwise it is rendered as a
+              disabled control so it can't advance the flow. */}
+          {outlookEnabled ? (
+            <button
+              type="button"
+              onClick={handleConnectOutlook}
+              disabled={isConnectingOutlook || isNavigating}
+              aria-busy={isConnectingOutlook}
+              aria-label={
+                isConnectingOutlook
+                  ? "Connecting to Outlook…"
+                  : "Continue with Outlook"
+              }
+              title="Continue with Outlook"
+              className="group flex w-full items-center gap-4 rounded-2xl border border-border bg-card px-5 py-4 text-left text-foreground transition-colors hover:border-white hover:bg-white hover:text-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-60"
+            >
+              <span className="flex size-8 shrink-0 items-center justify-center">
+                {isConnectingOutlook ? (
+                  <Loader2 className="size-6 animate-spin" />
+                ) : (
+                  <OutlookIcon className="size-6" />
+                )}
               </span>
-              <span className="text-xs text-muted-foreground">
-                Outlook Mail &amp; Calendar
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="text-sm font-medium">
+                  {isConnectingOutlook
+                    ? "Connecting to Outlook…"
+                    : "Continue with Outlook"}
+                </span>
+                <span className="text-xs text-muted-foreground transition-colors group-hover:text-neutral-500">
+                  Outlook Mail &amp; Calendar
+                </span>
               </span>
-            </span>
-            <span className="shrink-0 rounded-full border border-border/70 bg-gradient-to-r from-muted/80 to-transparent px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-              Coming soon
-            </span>
-          </button>
+              <ArrowRight className="size-4 shrink-0 text-muted-foreground transition-colors group-hover:text-neutral-500" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled
+              aria-disabled="true"
+              aria-label="Continue with Outlook — coming soon"
+              className="flex w-full cursor-not-allowed items-center gap-4 rounded-2xl border border-border/60 bg-card/50 px-5 py-4 text-left opacity-70"
+            >
+              <span className="flex size-8 shrink-0 items-center justify-center">
+                <OutlookIcon className="size-6" />
+              </span>
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="text-sm font-medium text-foreground/80">
+                  Outlook
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  Outlook Mail &amp; Calendar
+                </span>
+              </span>
+              <span className="shrink-0 rounded-full border border-border/70 bg-gradient-to-r from-muted/80 to-transparent px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                Coming soon
+              </span>
+            </button>
+          )}
 
           <p className="pt-1 text-center text-xs text-muted-foreground">
             You&apos;ll grant read, send, and calendar access. You can change

@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useMailStore } from "@/components/app/mail/mail-store";
 import { formatMailFullDate, mailInitials } from "@/lib/mail/format";
+import { isTrashView } from "@/lib/mail/filter";
 import { LabelAction } from "@/components/app/mail/mail-toolbar";
 import { MailTagBadge } from "@/components/app/mail/mail-tag-badge";
 import { MailHtmlBody } from "@/components/app/mail/mail-html-body";
@@ -73,10 +74,13 @@ function ThreadMessage({
   message,
   expanded,
   onToggle,
+  nonce,
 }: {
   message: MailMessage;
   expanded: boolean;
   onToggle: () => void;
+  /** CSP nonce for the embedded mail frame (see `MailHtmlBody`). */
+  nonce?: string;
 }) {
   const toggleStar = useMailStore((state) => state.toggleStar);
   const outbound = message.box === "sent";
@@ -208,7 +212,13 @@ function ThreadMessage({
             designed email is a lossy transcription where every link
             collapses to a bare URL. */}
         {message.bodyHtml ? (
-          <MailHtmlBody html={message.bodyHtml} />
+          <MailHtmlBody
+            html={message.bodyHtml}
+            nonce={nonce}
+            // Newsletters are designed for a white page; render them on one so
+            // their dark text and layout land as authored.
+            variant={message.tag === "newsletter" ? "light" : "dark"}
+          />
         ) : (
           <p className="text-[14px] leading-relaxed whitespace-pre-wrap text-mail-strong">
             {message.body}
@@ -246,6 +256,7 @@ export function MailReader({
   subject,
   messages,
   loading = false,
+  nonce,
 }: {
   /** The conversation's base subject, prefix-free. */
   subject: string;
@@ -253,14 +264,19 @@ export function MailReader({
   messages: MailMessage[];
   /** True while the thread is being fetched and nothing is on screen yet. */
   loading?: boolean;
+  /** The host document's CSP nonce, passed to each message frame. */
+  nonce?: string;
 }) {
   const closeConversation = useMailStore((state) => state.closeConversation);
   const archive = useMailStore((state) => state.archive);
   const remove = useMailStore((state) => state.remove);
+  const deleteForever = useMailStore((state) => state.deleteForever);
   const snooze = useMailStore((state) => state.snooze);
   const setRead = useMailStore((state) => state.setRead);
   const setStarred = useMailStore((state) => state.setStarred);
   const openCompose = useMailStore((state) => state.openCompose);
+  const filter = useMailStore((state) => state.filter);
+  const inTrash = isTrashView(filter);
 
   const ids = React.useMemo(
     () => messages.map((message) => message.id),
@@ -305,6 +321,10 @@ export function MailReader({
         : latest.from.email,
       subject: subject.startsWith("Re:") ? subject : `Re: ${subject}`,
       body: quoted(latest),
+      // Reply from the account the conversation lives in, so an Outlook thread
+      // does not try to send through Gmail.
+      ...(latest.provider ? { account: latest.provider } : {}),
+      ...(latest.threadId ? { threadId: latest.threadId } : {}),
     });
   };
 
@@ -338,7 +358,11 @@ export function MailReader({
           icon={ClockFading}
           onClick={() => snooze(ids, tomorrow)}
         />
-        <ReaderAction label="Delete" icon={Trash2} onClick={() => remove(ids)} />
+        <ReaderAction
+          label={inTrash ? "Delete forever" : "Delete"}
+          icon={Trash2}
+          onClick={() => (inTrash ? deleteForever(ids) : remove(ids))}
+        />
         {inbound?.unsubscribe ? (
           <ReaderAction
             label="Unsubscribe from sender"
@@ -405,6 +429,7 @@ export function MailReader({
                   message={message}
                   expanded={expanded.has(message.id)}
                   onToggle={() => toggle(message.id)}
+                  nonce={nonce}
                 />
               ))}
             </div>
@@ -437,6 +462,7 @@ export function MailReader({
                       ? subject
                       : `Fwd: ${subject}`,
                     body: quoted(latest),
+                    ...(latest.provider ? { account: latest.provider } : {}),
                   })
                 }
                 className="flex items-center gap-2 rounded-full border border-border px-4 py-2 text-[13px] font-medium text-mail-strong transition-colors hover:bg-mail-row-hover"

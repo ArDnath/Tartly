@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import { formatSignedPercent } from "@/lib/activity/format";
+import { CornerMarks } from "@/components/shared/geom/corner-marks";
 import { cn } from "@/lib/utils";
 
 /**
@@ -15,22 +16,6 @@ import { cn } from "@/lib/utils";
 
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
-}
-
-/**
- * Four L-shaped registration marks pinned to the tile's corners — the board's
- * geometric tell. They sit on the border itself, so each tile reads as a
- * measured panel rather than a soft card. Purely decorative.
- */
-function CornerMarks() {
-  return (
-    <div aria-hidden className="pointer-events-none absolute inset-0 z-10">
-      <span className="absolute -left-px -top-px size-2.5 border-l-2 border-t-2 border-foreground/25" />
-      <span className="absolute -right-px -top-px size-2.5 border-r-2 border-t-2 border-foreground/25" />
-      <span className="absolute -bottom-px -left-px size-2.5 border-b-2 border-l-2 border-foreground/25" />
-      <span className="absolute -bottom-px -right-px size-2.5 border-b-2 border-r-2 border-foreground/25" />
-    </div>
-  );
 }
 
 /**

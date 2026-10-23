@@ -1,0 +1,18 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "skills": {
+    "paths": ["node_modules/@dodopayments/opencode-plugin/skills"]
+  },
+  "mcp": {
+    "servers": {
+      "dodo-knowledge": {
+        "type": "remote",
+        "url": "https://knowledge.dodopayments.com/mcp"
+      },
+      "dodopayments-api": {
+        "type": "remote",
+        "url": "https://mcp.dodopayments.com/mcp"
+      }
+    }
+  }
+}

@@ -33,7 +33,16 @@ export function useSignOut() {
   return { signOut, isSigningOut };
 }
 
-export function GoogleSignInButton() {
+export function GoogleSignInButton({
+  callbackURL = "/onboarding",
+}: {
+  /**
+   * Where Better Auth returns after a successful sign-in. The auth page passes
+   * a validated, in-app `next` (e.g. checkout) here; the default continues into
+   * onboarding.
+   */
+  callbackURL?: string;
+} = {}) {
   const [isLoading, setIsLoading] = useState(false);
 
   return (
@@ -46,7 +55,7 @@ export function GoogleSignInButton() {
         try {
           const result = await authClient.signIn.social({
             provider: "google",
-            callbackURL: "/onboarding",
+            callbackURL,
             // Keep the OAuth URL out of the browser history. The onboarding
             // back button must never return to an in-progress OAuth request.
             disableRedirect: true,

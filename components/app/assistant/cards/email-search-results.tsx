@@ -1,9 +1,8 @@
 "use client";
 
-import { ChevronRightIcon, MailIcon } from "lucide-react";
+import { ChevronRightIcon } from "lucide-react";
 import { useState } from "react";
 
-import { Card } from "@/components/ui/card";
 import {
   Collapsible,
   CollapsibleContent,
@@ -11,6 +10,7 @@ import {
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 
+import { MailFrame } from "./mail-frame";
 import { MailTable, mailRowFromRecord } from "./mail-table";
 import { asNumber, asRecord } from "./shared";
 
@@ -18,6 +18,9 @@ import { asNumber, asRecord } from "./shared";
  * A compact mail table of `search_emails` results: one short row per message
  * (from, subject, type, date) that opens the message in the mail client. The
  * count header collapses the table for a very long result set.
+ *
+ * The frame is squared and hairline-ruled — a measured instrument panel rather
+ * than a rounded card.
  */
 export function EmailSearchResults({ output }: { output: unknown }) {
   const [open, setOpen] = useState(true);
@@ -26,16 +29,17 @@ export function EmailSearchResults({ output }: { output: unknown }) {
 
   if (rawRows.length === 0) {
     return (
-      <Card size="sm" className="w-full">
-        <p className="px-(--card-spacing) text-sm text-muted-foreground">
+      <MailFrame>
+        <p className="px-3 py-2 text-[12px] text-mail-muted">
           No matching emails.
         </p>
-      </Card>
+      </MailFrame>
     );
   }
 
   const rows = rawRows.map((raw) => mailRowFromRecord(asRecord(raw) ?? {}));
   const count = asNumber(data?.count) ?? rows.length;
+  const countLabel = `${count} ${count === 1 ? "message" : "messages"}`;
 
   return (
     <Collapsible
@@ -44,23 +48,19 @@ export function EmailSearchResults({ output }: { output: unknown }) {
       className="w-full"
       data-slot="email-search-results"
     >
-      <Card size="sm" className="w-full gap-0 py-0">
+      <MailFrame>
         <CollapsibleTrigger
           className={cn(
-            "group/results flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-[12px] font-medium text-card-foreground transition-colors hover:bg-mail-row-hover",
+            "group/results flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-mail-row-hover",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50",
           )}
-          aria-label={
-            open
-              ? `Hide ${count} ${count === 1 ? "message" : "messages"}`
-              : `Show ${count} ${count === 1 ? "message" : "messages"}`
-          }
+          aria-label={open ? `Hide ${countLabel}` : `Show ${countLabel}`}
         >
-          <MailIcon className="size-3.5 shrink-0 text-mail-muted" aria-hidden />
-          <span>
-            {count} {count === 1 ? "message" : "messages"}
+          <span className="size-1.5 shrink-0 bg-mail-muted/50" aria-hidden />
+          <span className="min-w-0 flex-1 truncate text-[10px] font-medium uppercase tracking-[0.16em] text-mail-muted">
+            {countLabel}
           </span>
-          <span className="ml-auto text-[11px] font-normal text-mail-muted">
+          <span className="shrink-0 text-[10px] font-medium uppercase tracking-[0.12em] text-mail-muted">
             {open ? "Hide" : "Show"}
           </span>
           <ChevronRightIcon
@@ -80,7 +80,7 @@ export function EmailSearchResults({ output }: { output: unknown }) {
         >
           <MailTable rows={rows} />
         </CollapsibleContent>
-      </Card>
+      </MailFrame>
     </Collapsible>
   );
 }

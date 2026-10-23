@@ -61,6 +61,7 @@
     "cn": "^0.3.0",
     "d3-scale": "^4.0.2",
     "d3-shape": "^3.2.0",
+    "dodopayments": "^2.54.2",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
     "echarts": "^6.1.0",
@@ -94,6 +95,7 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@dodopayments/opencode-plugin": "^0.6.5",
     "@tailwindcss/postcss": "^4",
     "@testcontainers/postgresql": "^11.14.0",
     "@types/d3-scale": "^4.0.9",

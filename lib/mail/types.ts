@@ -9,6 +9,30 @@ export type MailBox =
   | "spam";
 
 /**
+ * The mailbox a message came from. The mail client is a *shared inbox*: when
+ * more than one account is connected, every view merges them and each row is
+ * tagged with its origin so the reader and mutations route back to the right
+ * provider.
+ */
+export type MailProvider = "gmail" | "outlook";
+
+/** One connected mail account, as shown in the "connected accounts" surface. */
+export interface MailAccount {
+  provider: MailProvider;
+  /** Provider id Better Auth stores (`google` | `microsoft`). */
+  providerId: "google" | "microsoft";
+  email: string | null;
+  /** The account has a live grant (a Better Auth `account` row). */
+  connected: boolean;
+  /** The grant includes mailbox read/write, not just sign-in. */
+  mailboxAccess: boolean;
+  /** The deployment is configured to offer this provider at all. */
+  available: boolean;
+  /** Granted scope values, for debugging / "reconnect for more access". */
+  scopes: string[];
+}
+
+/**
  * A sidebar destination. Most map 1:1 onto a box, but `starred`, `reminders`
  * and `done` are saved views over the same messages — the same split Gmail
  * makes between folders and system labels.
@@ -53,6 +77,13 @@ export interface MailMessage {
    */
   threadId: string;
   box: MailBox;
+  /**
+   * Which connected account this message belongs to. Set on every message the
+   * shared inbox returns; `gmail` when simply reading Gmail directly.
+   */
+  provider?: MailProvider;
+  /** The address of the account that holds this message (shared-inbox label). */
+  accountEmail?: string;
   from: MailAddress;
   to: MailAddress[];
   cc?: MailAddress[];
@@ -126,6 +157,10 @@ export interface MailDraft {
   assetIds?: string[];
   /** Phase 6: library images to render inline. */
   inlineImageIds?: string[];
+  /** The account to send from when replying in the shared inbox. */
+  account?: MailProvider;
+  /** The conversation the reply belongs to (`outlook:`-prefixed for Outlook). */
+  threadId?: string;
 }
 
 /** A page of the default mailbox, fetched on the server to hydrate the store. */
@@ -171,6 +206,8 @@ export interface MailConversation {
   senderLine: string;
   /** The physical box of the conversation's newest message. */
   box: MailBox;
+  /** Which connected account the conversation's newest message came from. */
+  provider?: MailProvider;
   tag: MailTag;
   labels: string[];
   replied: boolean;

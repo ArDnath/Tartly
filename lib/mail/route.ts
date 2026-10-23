@@ -4,12 +4,13 @@ import type { NextRequest } from "next/server";
 
 import { apiError, withUser, type UserRouteOptions } from "@/lib/api/http";
 import { GmailApiError, GmailAuthError } from "@/lib/gmail/client";
+import { OutlookApiError, OutlookAuthError } from "@/lib/outlook/client";
 
 /**
  * Cookie-auth wrapper for the mail routes. Same session contract as `withUser`,
- * but maps the two Gmail-specific failures onto meaningful statuses:
- * a revoked/missing grant becomes a 403 "reconnect", and an upstream Gmail
- * error keeps its status instead of collapsing to a generic 500.
+ * but maps the provider-specific failures onto meaningful statuses:
+ * a revoked/missing grant becomes a 403 "reconnect", and an upstream error keeps
+ * its status instead of collapsing to a generic 500.
  */
 export function withMailUser<Ctx = unknown>(
   handler: (
@@ -57,6 +58,18 @@ export function withMailUser<Ctx = unknown>(
         const status =
           error.status >= 400 && error.status < 600 ? error.status : 502;
         return apiError("gmail_error", error.message, status);
+      }
+      if (error instanceof OutlookAuthError) {
+        return apiError(
+          "outlook_not_connected",
+          "Reconnect your Outlook account to use mail.",
+          403,
+        );
+      }
+      if (error instanceof OutlookApiError) {
+        const status =
+          error.status >= 400 && error.status < 600 ? error.status : 502;
+        return apiError("outlook_error", error.message, status);
       }
       throw error;
     }

@@ -11,6 +11,10 @@ import {
   type ReactNode,
 } from "react";
 
+import {
+  openPaywall,
+  usePaywallStore,
+} from "@/components/app/paywall/paywall-store";
 import type { ChatMessage, ChatThread } from "@/lib/ai/chat-types";
 import { readSseStream } from "@/lib/ai/sse-client";
 
@@ -245,6 +249,20 @@ export function AiChatProvider({
               signal: controller.signal,
             });
 
+        // The server is the authority; if it blocks for payment, surface the
+        // paywall instead of a generic failure.
+        if (response.status === 402) {
+          openPaywall("ai");
+          void usePaywallStore.getState().refresh();
+          setMessagesByThread((current) => ({
+            ...current,
+            [threadId]: (current[threadId] ?? []).filter(
+              (message) => message.id !== assistantMessageId,
+            ),
+          }));
+          return;
+        }
+
         if (!response.ok || !response.body) {
           throw new Error("The assistant failed to respond.");
         }
@@ -355,6 +373,10 @@ export function AiChatProvider({
     if (welcomeStartedRef.current) return;
     welcomeStartedRef.current = true;
 
+    // The welcome conversation is an AI response; free users never start it.
+    const entitlement = usePaywallStore.getState().entitlement;
+    if (entitlement && !entitlement.isSubscriber) return;
+
     try {
       const response = await fetch("/api/onboarding/workspace-setup-chat", {
         method: "POST",
@@ -428,6 +450,15 @@ export function AiChatProvider({
     async (text: string) => {
       const trimmed = text.trim();
       if (!trimmed) return;
+
+      // AI is subscriber-only. Block before creating a thread or streaming so
+      // the wall appears immediately, not after a failed request.
+      const entitlement = usePaywallStore.getState().entitlement;
+      if (entitlement && !entitlement.isSubscriber) {
+        openPaywall("ai");
+        return;
+      }
+
       setDraft("");
 
       if (isStreamingRef.current) {

@@ -4,6 +4,7 @@ import {
   ArchiveIcon,
   CheckCheckIcon,
   MailOpenIcon,
+  StarIcon,
   TagIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -71,6 +72,11 @@ function describe(
       return {
         icon: <TagIcon className="size-4" aria-hidden />,
         text: label ? `Label "${label}" applied` : "Label applied",
+      };
+    case "star_email":
+      return {
+        icon: <StarIcon className="size-4" aria-hidden />,
+        text: asBoolean(data.starred) ? "Starred" : "Star removed",
       };
     case "remove_label":
       return {

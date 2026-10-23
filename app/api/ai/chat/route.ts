@@ -3,7 +3,10 @@ import type { ModelMessage } from "ai";
 import { jsonError } from "@/lib/api/error-envelope";
 import { aiChatBody as bodySchema } from "@/lib/api/contracts/legacy";
 import { enforceUserRateLimit } from "@/lib/api/http";
+import { requireAiAccess } from "@/lib/billing/guard";
 import { appendMessage, loadThreadMessages } from "@/lib/ai/chat-service";
+import { extractUsage } from "@/lib/ai/generate";
+import { recordAiUsage } from "@/lib/ai/usage";
 import { buildFallbackSetupResponse } from "@/lib/ai/fallback-response";
 import { WORKSPACE_SETUP_SYSTEM_PROMPT } from "@/lib/ai/prompts";
 import { createAssistantReplyStream } from "@/lib/ai/stream-reply";
@@ -31,6 +34,9 @@ export async function POST(request: Request) {
     scope: "ai",
   });
   if (limited) return limited;
+
+  const paywall = await requireAiAccess(session.user.id);
+  if (paywall) return paywall;
 
   const parsed = bodySchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {
@@ -69,6 +75,17 @@ export async function POST(request: Request) {
         userName: session.user.name ?? null,
         workspaceName: "Tartly",
       }),
+    onUsage: (usage) => {
+      void recordAiUsage({
+        userId: session.user.id,
+        feature: "ai-chat",
+        provider: "opencode",
+        model: process.env.AI_MODEL_ID ?? "unknown",
+        role: "standard",
+        ...extractUsage(usage),
+        ok: true,
+      });
+    },
   });
 
   return new Response(stream, {

@@ -1,4 +1,5 @@
 import { createToolRegistry, type ToolRegistry } from "@/lib/agent/registry";
+import { toolGroupFor } from "@/lib/agent/tool-groups";
 
 import { addLabelTool } from "./add-label";
 import { addAssetTool } from "./add-asset";
@@ -39,6 +40,7 @@ import { sendEmailTool } from "./send-email";
 import { setAutopilotPolicyTool } from "./set-autopilot-policy";
 import { setThreadAutonomyTool } from "./set-thread-autonomy";
 import { startCampaignTool } from "./start-campaign";
+import { starEmailTool } from "./star-email";
 import { summarizeThreadTool } from "./summarize-thread";
 import { unsubscribeSenderTool } from "./unsubscribe-sender";
 import { updateCalendarTool } from "./update-calendar";
@@ -87,6 +89,7 @@ export const WRITE_TOOLS = [
   removeLabelTool,
   archiveEmailTool,
   markEmailReadTool,
+  starEmailTool,
   createFollowupTool,
   createRuleTool,
   addAssetTool,
@@ -107,12 +110,18 @@ export const SIDE_EFFECT_TOOLS = [
   updateCalendarTool,
 ];
 
-export function createDefaultToolRegistry(): ToolRegistry {
-  return createToolRegistry([
-    ...READ_TOOLS,
-    ...WRITE_TOOLS,
-    ...SIDE_EFFECT_TOOLS,
-  ]);
+export function createDefaultToolRegistry(
+  options: { webSearch?: boolean } = {},
+): ToolRegistry {
+  const all = [...READ_TOOLS, ...WRITE_TOOLS, ...SIDE_EFFECT_TOOLS];
+  // The composer's web-search toggle: when off, the research tools (search_web,
+  // open_web_page, research_*) are removed entirely so the model cannot call
+  // them. On by default for every non-composer caller.
+  const tools =
+    options.webSearch === false
+      ? all.filter((tool) => toolGroupFor(tool.name) !== "research")
+      : all;
+  return createToolRegistry(tools);
 }
 
 export {
@@ -156,6 +165,7 @@ export {
   setThreadAutonomyTool,
   startCampaignTool,
   summarizeThreadTool,
+  starEmailTool,
   unsubscribeSenderTool,
   updateCalendarTool,
   updateDraftTool,

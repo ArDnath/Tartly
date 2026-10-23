@@ -56,6 +56,7 @@ export const POST = withUser(
     rateLimit: { limit: 10, scope: "campaigns-import" },
     // A 10 MB sheet plus multipart overhead.
     maxBodyBytes: 11 * 1024 * 1024,
+    requiresSubscription: true,
   },
   handleImport,
 );

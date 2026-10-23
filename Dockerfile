@@ -29,13 +29,22 @@ WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 
 # `next build` evaluates server modules, so `lib/env.ts` needs the required
-# (non-secret) variables present. Real secrets are injected at runtime. The
-# public origin is baked into the client bundle, so it is a build arg.
+# (non-secret) variables present. Real secrets are injected at runtime. Every
+# `NEXT_PUBLIC_*` value is inlined into the client bundle, so it must be passed
+# as a build arg — setting it only at runtime is too late.
 ARG NEXT_PUBLIC_BETTER_AUTH_URL=http://localhost:3000
+ARG NEXT_PUBLIC_IMAGEKIT_URL_ENDPOINT=""
+ARG NEXT_PUBLIC_CAL_BOOKING_LINK=""
+ARG NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION=""
+ARG NEXT_PUBLIC_MICROSOFT_CONNECT_ENABLED=""
 ENV DATABASE_URL=postgresql://postgres:postgres@localhost:5432/app \
     BETTER_AUTH_SECRET=build-time-placeholder-secret-000000 \
     BETTER_AUTH_URL=http://localhost:3000 \
     NEXT_PUBLIC_BETTER_AUTH_URL=${NEXT_PUBLIC_BETTER_AUTH_URL} \
+    NEXT_PUBLIC_IMAGEKIT_URL_ENDPOINT=${NEXT_PUBLIC_IMAGEKIT_URL_ENDPOINT} \
+    NEXT_PUBLIC_CAL_BOOKING_LINK=${NEXT_PUBLIC_CAL_BOOKING_LINK} \
+    NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION=${NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION} \
+    NEXT_PUBLIC_MICROSOFT_CONNECT_ENABLED=${NEXT_PUBLIC_MICROSOFT_CONNECT_ENABLED} \
     GOOGLE_CLIENT_ID=build-time-placeholder \
     GOOGLE_CLIENT_SECRET=build-time-placeholder \
     UPSTASH_REDIS_REST_URL=https://upstash.invalid \

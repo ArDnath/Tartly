@@ -86,14 +86,18 @@ float noise(vec2 p) {
 }
 
 float fbm(vec2 p) {
+  // Three octaves is ample for the melt displacement at this scale. This field
+  // is sampled twice per pixel every frame across a full-bleed surface, so the
+  // two extra octaves were the section's heaviest fragment work; normalising by
+  // the three-octave amplitude sum (0.875) keeps the output range unchanged.
   float v = 0.0;
   float a = 0.5;
-  for (int i = 0; i < 5; i++) {
+  for (int i = 0; i < 3; i++) {
     v += a * noise(p);
     p *= 2.0;
     a *= 0.5;
   }
-  return v;
+  return v / 0.875;
 }
 
 mat2 rot(float a) {
@@ -128,7 +132,13 @@ void main() {
   vec2 uvN = uv;
   float m = smoothstep(0.0, 1.0, p);
 
-  if (uReduce < 0.5) {
+  // Displacement only exists mid-morph. At rest (progress 0 or 1) the blend is
+  // fully one texture and the noise would be computed only to be discarded, so
+  // skip it. This section renders continuously, which makes idle frames the
+  // common case — the win is felt on every frame between morphs.
+  bool morphing = p > 0.0001 && p < 0.9999;
+
+  if (uReduce < 0.5 && morphing) {
     if (uMode == 3) {
       vec2 c = uv - 0.5;
       float r = length(c);
@@ -231,7 +241,10 @@ class MorphEngine {
 
     this.renderer = new Renderer({
       alpha: false,
-      antialias: true,
+      // A single full-screen triangle has no interior edges to smooth, so MSAA
+      // only added fill/bandwidth cost here. The backend easing and cover-fit
+      // sampling are what keep this surface looking clean.
+      antialias: false,
       dpr: Math.min(window.devicePixelRatio || 1, dprCap)
     });
     this.gl = this.renderer.gl;
@@ -489,6 +502,7 @@ export default function MorphSlider({
   loop = true,
   radius = 16,
   overlayColor = '#000000',
+  dprCap = 2,
   showCaptions = true,
   showControls = true,
   showIndicators = true,
@@ -524,7 +538,7 @@ export default function MorphSlider({
       items,
       startIndex,
       reducedMotion,
-      dprCap: 2,
+      dprCap,
       getOptions: () => optsRef.current,
       onIndexChange: (i) => {
         setIndex(i);
@@ -538,7 +552,7 @@ export default function MorphSlider({
       engine.destroy();
       engineRef.current = null;
     };
-  }, [items, startIndex]);
+  }, [items, startIndex, dprCap]);
 
   const handleNext = useCallback(() => engineRef.current?.next(), []);
   const handlePrev = useCallback(() => engineRef.current?.prev(), []);

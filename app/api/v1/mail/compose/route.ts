@@ -100,6 +100,9 @@ const handleCompose: UserRouteHandler = async (userId, request) => {
 };
 
 export const POST = withMailUser(
-  { rateLimit: { limit: agentRateLimitPerMin(), scope: "agent" } },
+  {
+    rateLimit: { limit: agentRateLimitPerMin(), scope: "agent" },
+    requiresSubscription: true,
+  },
   handleCompose,
 );

@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
  * gate fetches this once per local day; the agent space then opens the plan the
  * payload carries.
  */
-export const GET = withUser(async (userId) => {
+export const GET = withUser({ requiresSubscription: true }, async (userId) => {
   const catchUp = await getCatchUp(userId);
   return ok({ catchUp });
 });

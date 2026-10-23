@@ -10,6 +10,7 @@ import {
   MailOpen,
   OctagonAlert,
   Search,
+  Star,
   Tag,
   Trash2,
   X,
@@ -18,6 +19,14 @@ import {
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Popover,
   PopoverContent,
@@ -272,7 +281,11 @@ export function MailToolbar({ visible }: MailToolbarProps) {
   const restore = useMailStore((state) => state.restore);
   const snooze = useMailStore((state) => state.snooze);
   const setRead = useMailStore((state) => state.setRead);
+  const setStarred = useMailStore((state) => state.setStarred);
   const markSpam = useMailStore((state) => state.markSpam);
+  const deleteForever = useMailStore((state) => state.deleteForever);
+  const emptyTrash = useMailStore((state) => state.emptyTrash);
+  const [confirmEmpty, setConfirmEmpty] = React.useState(false);
 
   const searchOpen = useMailStore((state) => state.searchOpen);
   const setSearchOpen = useMailStore((state) => state.setSearchOpen);
@@ -302,6 +315,18 @@ export function MailToolbar({ visible }: MailToolbarProps) {
       conversation.unread &&
       conversation.messages.some((message) => selectedSet.has(message.id)),
   );
+  // Whether every selected conversation already carries a star, so the bulk
+  // action can toggle the whole selection in one direction.
+  const selectedConversations = React.useMemo(
+    () =>
+      visible.filter((conversation) =>
+        conversation.messages.some((message) => selectedSet.has(message.id)),
+      ),
+    [visible, selectedSet],
+  );
+  const allStarred =
+    selectedConversations.length > 0 &&
+    selectedConversations.every((conversation) => conversation.starred);
   // Gmail counts conversations in the selection bar, not messages.
   const selectedCount = React.useMemo(
     () => conversationCount(messages, selectedIds),
@@ -345,14 +370,21 @@ export function MailToolbar({ visible }: MailToolbarProps) {
             </>
           )}
           <ToolbarAction
-            label="Delete"
+            label={inTrash ? "Delete forever" : "Delete"}
             icon={Trash2}
-            onClick={() => remove(selectedIds)}
+            onClick={() =>
+              inTrash ? deleteForever(selectedIds) : remove(selectedIds)
+            }
           />
           <ToolbarAction
             label={anyUnread ? "Mark as read" : "Mark as unread"}
             icon={anyUnread ? MailOpen : Mail}
             onClick={() => setRead(selectedIds, anyUnread)}
+          />
+          <ToolbarAction
+            label={allStarred ? "Remove star" : "Add star"}
+            icon={Star}
+            onClick={() => setStarred(selectedIds, !allStarred)}
           />
           <LabelAction ids={selectedIds} />
         </div>
@@ -397,6 +429,16 @@ export function MailToolbar({ visible }: MailToolbarProps) {
             {mailListTitle(filter)}
           </h2>
           <div className="flex shrink-0 items-center gap-4">
+            {inTrash ? (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => setConfirmEmpty(true)}
+              >
+                <Trash2 className="size-4" aria-hidden />
+                Empty trash
+              </Button>
+            ) : null}
             <FilterPopover />
             <button
               type="button"
@@ -409,6 +451,32 @@ export function MailToolbar({ visible }: MailToolbarProps) {
           </div>
         </>
       )}
+
+      <Dialog open={confirmEmpty} onOpenChange={setConfirmEmpty}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Empty trash?</DialogTitle>
+            <DialogDescription>
+              Everything in Trash will be permanently deleted. This can&apos;t be
+              undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmEmpty(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                setConfirmEmpty(false);
+                void emptyTrash();
+              }}
+            >
+              Delete forever
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

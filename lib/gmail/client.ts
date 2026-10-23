@@ -191,7 +191,16 @@ export async function googleAuthFailure(
   userId: string,
 ): Promise<never> {
   const reasons = await googleErrorReasons(response);
-  if (shouldReconnectGoogle(response.status, reasons)) {
+  const reconnect = shouldReconnectGoogle(response.status, reasons);
+  // Google's 403 body is the only place the real cause lives (scope vs.
+  // disabled API vs. quota vs. a dead grant). Log it: without this the
+  // distinction is invisible and every 403 looks like "reconnect Google".
+  console.error(
+    `[google] ${apiLabel} auth failure (${response.status}) for user ${userId}` +
+      ` — reasons: ${reasons.length ? reasons.join(", ") : "(none reported)"}` +
+      ` — ${reconnect ? "reconnect required" : "no reconnect (project/quota)"}`,
+  );
+  if (reconnect) {
     // Evict before throwing so the next attempt after a reconnect re-reads the
     // stored tokens instead of replaying the rejected one.
     await forgetGoogleAccessToken(userId).catch(() => {});

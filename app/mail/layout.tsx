@@ -3,6 +3,7 @@ import { after } from "next/server";
 import { Suspense, type ReactNode } from "react";
 
 import { AiChatProvider } from "@/components/app/ai-chat/ai-chat-provider";
+import { BillingReturnNotice } from "@/components/billing/billing-return-notice";
 import { AppShell } from "@/components/app/shell/app-shell";
 import { AppSidebar } from "@/components/app/shell/app-sidebar";
 import { MailPrefetch } from "@/components/app/mail/mail-prefetch";
@@ -66,6 +67,9 @@ export default async function MailLayout({
         {children}
       </AppShell>
       <MailWelcomeOverlayGate />
+      <Suspense fallback={null}>
+        <BillingReturnNotice />
+      </Suspense>
     </AiChatProvider>
   );
 }

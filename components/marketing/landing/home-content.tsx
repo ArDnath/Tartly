@@ -437,7 +437,7 @@ const FAQS = [
   },
   {
     q: 'Which email providers are supported?',
-    a: 'Tartly connects to Gmail plus Google Calendar today, so it fits the workflow you already use.',
+    a: 'Tartly connects to both Gmail and Outlook, plus Google Calendar, so it fits the workflow you already use.',
   },
   {
     q: 'How fast can I get value?',

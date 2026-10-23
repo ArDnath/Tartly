@@ -1,15 +1,13 @@
 "use client";
 
-import { MessagesSquareIcon } from "lucide-react";
-
-import { Card } from "@/components/ui/card";
-
+import { MailFrame } from "./mail-frame";
 import { MailTable, mailRowFromRecord } from "./mail-table";
 import { asNumber, asRecord, asString } from "./shared";
 
 /**
  * A `get_thread` conversation as a compact table: the subject once at the top,
  * then one short row per message (from, date) that opens it in the mail client.
+ * Squared and hairline-ruled to match the other transcript mail artifacts.
  */
 export function EmailThreadCard({ output }: { output: unknown }) {
   const data = asRecord(output);
@@ -22,16 +20,13 @@ export function EmailThreadCard({ output }: { output: unknown }) {
   const omitted = asNumber(data.olderMessagesOmitted) ?? 0;
 
   return (
-    <Card size="sm" className="w-full gap-0 py-0">
+    <MailFrame>
       <div className="flex items-center gap-2 border-b border-mail-line px-3 py-2">
-        <MessagesSquareIcon
-          className="size-3.5 shrink-0 text-mail-muted"
-          aria-hidden
-        />
-        <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-card-foreground">
+        <span className="size-1.5 shrink-0 bg-mail-muted/50" aria-hidden />
+        <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-mail-strong">
           {subject}
         </span>
-        <span className="shrink-0 text-[11px] text-mail-muted">
+        <span className="shrink-0 text-[10px] font-medium uppercase tracking-[0.12em] text-mail-muted tabular-nums">
           {total} {total === 1 ? "message" : "messages"}
         </span>
       </div>
@@ -43,6 +38,6 @@ export function EmailThreadCard({ output }: { output: unknown }) {
           {omitted} earlier {omitted === 1 ? "message" : "messages"} not shown
         </p>
       ) : null}
-    </Card>
+    </MailFrame>
   );
 }

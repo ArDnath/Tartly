@@ -5,7 +5,7 @@ import { isTranslateEnabled } from "@/lib/env";
 import { withMailUser } from "@/lib/mail/route";
 
 /** Translate text (Phase 5). Returns plain text; never sends. */
-export const POST = withMailUser(async (userId, request) => {
+export const POST = withMailUser({ requiresSubscription: true }, async (userId, request) => {
   if (!isTranslateEnabled()) {
     return apiError("disabled", "Translation is disabled.", 403);
   }

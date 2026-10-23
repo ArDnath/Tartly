@@ -11,15 +11,29 @@ const fetchMailbox = vi.fn();
 const fetchMailboxPage = vi.fn();
 const fetchThread = vi.fn();
 
-vi.mock("@/lib/mail/client", () => ({
-  fetchMailbox: (...args: unknown[]) => fetchMailbox(...args),
-  fetchMailboxPage: (...args: unknown[]) => fetchMailboxPage(...args),
-  fetchThread: (...args: unknown[]) => fetchThread(...args),
-  errorMessage: (error: unknown, fallback: string) =>
-    error instanceof Error ? error.message : fallback,
-}));
+vi.mock("@/lib/mail/client", () => {
+  class MailApiError extends Error {
+    code: string;
+    status: number;
+    constructor(code: string, status: number, message: string) {
+      super(message);
+      this.name = "MailApiError";
+      this.code = code;
+      this.status = status;
+    }
+  }
+  return {
+    fetchMailbox: (...args: unknown[]) => fetchMailbox(...args),
+    fetchMailboxPage: (...args: unknown[]) => fetchMailboxPage(...args),
+    fetchThread: (...args: unknown[]) => fetchThread(...args),
+    errorMessage: (error: unknown, fallback: string) =>
+      error instanceof Error ? error.message : fallback,
+    MailApiError,
+  };
+});
 
 import { mailFilterKey, useMailStore } from "@/components/app/mail/mail-store";
+import { MailApiError } from "@/lib/mail/client";
 
 function message(id: string, box: MailMessage["box"] = "inbox"): MailMessage {
   return {
@@ -68,6 +82,7 @@ beforeEach(() => {
     loadingMore: false,
     status: "idle",
     error: null,
+    errorCode: null,
     labels: [],
     account: null,
     filter: { kind: "view", value: "all" },
@@ -238,5 +253,36 @@ describe("load", () => {
       index: 0,
       nextToken: "page-2",
     });
+  });
+
+  it("records the server error code so the list can offer a reconnect", async () => {
+    fetchMailbox.mockRejectedValueOnce(
+      new MailApiError(
+        "gmail_not_connected",
+        403,
+        "Reconnect your Google account to use mail.",
+      ),
+    );
+
+    await useMailStore.getState().load(true);
+
+    const state = useMailStore.getState();
+    expect(state.status).toBe("error");
+    expect(state.errorCode).toBe("gmail_not_connected");
+  });
+
+  it("clears the error code once a load succeeds", async () => {
+    useMailStore.setState({ status: "error", errorCode: "gmail_not_connected" });
+    fetchMailbox.mockResolvedValueOnce({
+      messages: [message("1")],
+      labels: [],
+      account: account(),
+    });
+
+    await useMailStore.getState().load(true);
+
+    const state = useMailStore.getState();
+    expect(state.status).toBe("ready");
+    expect(state.errorCode).toBeNull();
   });
 });

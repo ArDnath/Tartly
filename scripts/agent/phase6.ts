@@ -18,6 +18,7 @@ import {
 } from "../../lib/agent/tools";
 import { createArchiveEmailTool } from "../../lib/agent/tools/archive-email";
 import { createCreateFollowupTool } from "../../lib/agent/tools/create-followup";
+import { createDeleteEmailTool } from "../../lib/agent/tools/delete-email";
 import { createExtractTasksTool } from "../../lib/agent/tools/extract-tasks";
 import { createSearchEmailsTool } from "../../lib/agent/tools/search-emails";
 import { db, pool } from "../../lib/db";
@@ -125,7 +126,9 @@ function stubProvider(detail: EmailDetail = messageDetail()): EmailMailboxProvid
     archiveMessage: async () => {},
     trashMessage: async () => {},
     untrashMessage: async () => {},
+    deleteMessage: async () => {},
     markRead: async () => {},
+    setStarred: async () => {},
     addLabel: async () => {},
     removeLabel: async () => {},
   };
@@ -199,10 +202,49 @@ async function runExtractToolTests(): Promise<void> {
   assert(needsTarget, "extract_tasks requires a message or thread");
 }
 
+async function runDeleteEmailPermanentTests(): Promise<void> {
+  section("delete_email trashes by default and deletes forever when asked");
+
+  const trashed: string[] = [];
+  const deleted: string[] = [];
+  const provider: EmailMailboxProvider = {
+    ...stubProvider(),
+    trashMessage: async ({ messageId }) => {
+      trashed.push(messageId);
+    },
+    deleteMessage: async ({ messageId }) => {
+      deleted.push(messageId);
+    },
+  };
+  const tool = createDeleteEmailTool({ email: new EmailService(provider) });
+
+  const normal = (await tool.execute(testCtx("u1"), { messageId: "m1" })) as {
+    trashed?: boolean;
+    permanent?: boolean;
+  };
+  assert(
+    normal.trashed === true && normal.permanent === false,
+    "delete_email defaults to the recoverable trash",
+  );
+  assert(
+    trashed.includes("m1") && deleted.length === 0,
+    "the default path never permanently deletes",
+  );
+
+  const forever = (await tool.execute(testCtx("u1"), {
+    messageId: "m2",
+    permanent: true,
+  })) as { trashed?: boolean; permanent?: boolean };
+  assert(
+    forever.permanent === true && forever.trashed === false,
+    "permanent: true reports a permanent delete",
+  );
+  assert(deleted.includes("m2"), "the permanent path reaches deleteMessage");
+}
+
 // --------------------------------------------------------------------------
 // Follow-ups
 // --------------------------------------------------------------------------
-
 let seq = 0;
 async function makeUserWithMirror(
   opts: { inboundFrom?: string } = {},
@@ -477,6 +519,7 @@ async function main(): Promise<void> {
   assert(createDefaultToolRegistry().has("extract_tasks"), "the default registry includes extract_tasks");
   runHeuristicTests();
   await runExtractToolTests();
+  await runDeleteEmailPermanentTests();
   await runFollowupTests();
   await runBoundedLoopTests();
   await runContinuationTests();

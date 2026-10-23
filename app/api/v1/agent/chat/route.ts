@@ -28,6 +28,7 @@ import { buildAgentSystemPrompt } from "@/lib/agent/prompts";
 import { createDefaultToolRegistry } from "@/lib/agent/tools";
 import { getModelProvider } from "@/lib/ai/model-provider";
 import { isBudgetDisabled, tryConsumeAiBudget } from "@/lib/ai/budget";
+import { hasCredits } from "@/lib/billing/credits";
 import { recordAiUsage } from "@/lib/ai/usage";
 import { ensureChatThreadTitle, findThreadForUser } from "@/lib/ai/chat-service";
 import { apiError, withUser, type UserRouteHandler } from "@/lib/api/http";
@@ -62,6 +63,8 @@ const bodySchema = z
     resumeActionId: z.string().min(1).max(64).optional(),
     currentThreadId: z.string().max(256).optional(),
     currentEmailId: z.string().max(256).optional(),
+    /** Composer toggle: allow the agent to search the public web this turn. */
+    webSearch: z.boolean().optional(),
   })
   .refine((value) => Boolean(value.resumeActionId || value.text?.trim()), {
     message: "A message or a resumeActionId is required.",
@@ -152,12 +155,24 @@ const handleChat: UserRouteHandler = async (userId, request) => {
   if (!parsed.success) {
     return apiError("validation", "Invalid request.", 400);
   }
-  const { conversationId, text, resumeActionId, currentThreadId, currentEmailId } =
+  const { conversationId, text, resumeActionId, currentThreadId, currentEmailId, webSearch } =
     parsed.data;
 
   const thread = await findThreadForUser(userId, conversationId);
   if (!thread) {
     return apiError("not_found", "Conversation not found.", 404);
+  }
+
+  // Credit gate: a subscriber whose balance is empty must top up. Returning a
+  // 402 with reason "credits" pops the top-up wall instead of a generic error.
+  if (!isBudgetDisabled() && !(await hasCredits(userId))) {
+    return apiError(
+      "payment_required",
+      "Your AI credits are used up. Buy a top-up to keep the operator running.",
+      402,
+      undefined,
+      { reason: "credits" },
+    );
   }
 
   if (!isBudgetDisabled() && !(await tryConsumeAiBudget({ userId }))) {
@@ -231,7 +246,7 @@ const handleChat: UserRouteHandler = async (userId, request) => {
   // render two children with the same React key (and would collide on the
   // persisted primary key). `onEnd` still receives (and persists) the fresh id.
 
-  const registry = createDefaultToolRegistry();
+  const registry = createDefaultToolRegistry({ webSearch });
   const { sink: tracerSink, trace } = createRunTracer();
   const loggingSink = createLoggingEventSink("agent");
   const emit = (event: AgentEvent) => {
@@ -413,7 +428,10 @@ const handleChat: UserRouteHandler = async (userId, request) => {
 };
 
 export const POST = withUser(
-  { rateLimit: { limit: agentRateLimitPerMin(), scope: "agent" } },
+  {
+    rateLimit: { limit: agentRateLimitPerMin(), scope: "agent" },
+    requiresSubscription: true,
+  },
   handleChat,
 );
 

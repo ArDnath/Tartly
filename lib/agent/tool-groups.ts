@@ -40,7 +40,7 @@ export const ACTIVATE_TOOLS_TOOL_NAME = "activate_tools";
 export const TOOL_GROUP_DESCRIPTIONS: Readonly<Record<ToolGroup, string>> = {
   core: "Search and read mail, threads, contacts, sender profiles, and summaries.",
   compose: "Write drafts, reply, send, forward, schedule a send, and extract tasks.",
-  organize: "Label, archive, mark read, delete, unsubscribe, and create follow-ups.",
+  organize: "Label, star, archive, mark read, delete, unsubscribe, and create follow-ups.",
   research: "Search the web and research a person or company.",
   rules: "Create automation rules and search the user's saved knowledge base.",
   assets: "List and add reusable images and files.",
@@ -81,6 +81,7 @@ export const TOOL_GROUP_BY_NAME: Readonly<Record<string, ToolGroup>> = {
   remove_label: "organize",
   archive_email: "organize",
   mark_email_read: "organize",
+  star_email: "organize",
   delete_email: "organize",
   unsubscribe_sender: "organize",
   create_followup: "organize",

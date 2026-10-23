@@ -208,6 +208,7 @@ function toolArtifact(
       return <EmailDraftCard toolName={toolName} output={part.output} />;
     case "archive_email":
     case "mark_email_read":
+    case "star_email":
     case "add_label":
     case "remove_label":
       return <MailboxActionCard toolName={toolName} output={part.output} />;

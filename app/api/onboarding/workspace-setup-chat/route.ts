@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { jsonError } from "@/lib/api/error-envelope";
 import { onboardingWorkspaceSetupBody as bodySchema } from "@/lib/api/contracts/legacy";
 import { enforceUserRateLimit } from "@/lib/api/http";
+import { requireAiAccess } from "@/lib/billing/guard";
 import { startWorkspaceSetupChat } from "@/lib/ai/chat-service";
 import { agentRateLimitPerMin } from "@/lib/env";
 import { getSession } from "@/lib/session";
@@ -18,6 +19,9 @@ export async function POST(request: Request) {
     scope: "ai",
   });
   if (limited) return limited;
+
+  const paywall = await requireAiAccess(session.user.id);
+  if (paywall) return paywall;
 
   const parsed = bodySchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {

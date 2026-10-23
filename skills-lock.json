@@ -7,6 +7,12 @@
       "skillPath": "skills/frontend-design/SKILL.md",
       "computedHash": "89496d5dd00f4810205f351759594fc2742bf8eea85a2f2b2d1de59f4bd91576"
     },
+    "polar-integration": {
+      "source": "polarsource/skills",
+      "sourceType": "github",
+      "skillPath": "skills/polar-integration/SKILL.md",
+      "computedHash": "3688a4eb0477fe11e0ff5fbb5fc805e0767f6066fa49db480501e15985bdab69"
+    },
     "upstash-ratelimit-js": {
       "source": "upstash/skills",
       "sourceType": "github",

@@ -21,6 +21,9 @@ import { parseMailAddress } from "./shared";
  */
 export interface EmailReference {
   id?: string;
+  /** Gmail's conversation id, when the tool supplied it. Lets a click open the
+   * conversation directly instead of resolving the message first. */
+  threadId?: string;
   from?: string;
   to?: string[];
   subject?: string;
@@ -43,17 +46,23 @@ function senderName(from: string | undefined): string | undefined {
  * message opens in place (fetching its body first if the current page never
  * loaded it). Anywhere else — the dedicated `/assistant` page — the same click
  * falls back to the `/mail/[id]` deep link.
+ *
+ * When the tool already supplied a `threadId`, that reads the conversation
+ * straight from Gmail — one request instead of the two a bare message id needs
+ * (resolve the message, then its thread).
  */
-export function useOpenMailMessage(): (id: string) => void {
+export function useOpenMailMessage(): (id: string, threadId?: string) => void {
   const router = useRouter();
 
   return useCallback(
-    (id: string) => {
+    (id: string, threadId?: string) => {
       if (
         typeof window !== "undefined" &&
         window.location.pathname.startsWith("/mail")
       ) {
-        void useMailStore.getState().openById(id);
+        const store = useMailStore.getState();
+        if (threadId) void store.openConversation(threadId);
+        else void store.openById(id);
         // On a phone the panel covers the mail; dismiss it so the reader shows.
         if (window.matchMedia("(max-width: 767px)").matches) {
           window.dispatchEvent(new Event(ASSISTANT_CLOSE_EVENT));
@@ -67,9 +76,23 @@ export function useOpenMailMessage(): (id: string) => void {
 }
 
 /**
+ * Warm the reader's cache for a mail row the pointer or keyboard focus is near,
+ * so the eventual click lands on a thread that is already in memory. Pass the
+ * thread id when the tool supplied one — that skips the extra message→thread
+ * resolve the id-only path needs.
+ */
+export function warmMailMessage(id?: string, threadId?: string): void {
+  const store = useMailStore.getState();
+  if (threadId) store.prefetchThread(threadId);
+  else if (id) store.prefetchMessage(id);
+}
+
+/**
  * A compact, single-line mail row for tool results that reference one message
  * (action receipts, confirmations, mailbox changes). It shows sender, subject,
  * type and date on one line and opens the message in the mail client.
+ *
+ * Geometry is squared and hairline-bordered — a measured line, not a soft pill.
  */
 export function AgentEmailRef({
   email,
@@ -84,6 +107,7 @@ export function AgentEmailRef({
   );
 
   const id = email.id ?? stored?.id;
+  const threadId = email.threadId ?? stored?.threadId;
   const to = email.to?.length
     ? email.to
     : stored?.to?.map((address) => address.name || address.email);
@@ -132,8 +156,10 @@ export function AgentEmailRef({
     </>
   );
 
+  // Squared, hairline frame: the transcript's mail reads as a measured line
+  // rather than a rounded pill.
   const base = cn(
-    "group/email flex w-full items-center gap-2 rounded-md border border-border/60 bg-muted/20 px-2.5 py-1.5 text-left transition-colors",
+    "group/email flex w-full items-center gap-2 border border-mail-line bg-card/40 px-2.5 py-1.5 text-left transition-colors",
     className,
   );
 
@@ -144,11 +170,13 @@ export function AgentEmailRef({
   return (
     <button
       type="button"
-      onClick={() => openMessage(id)}
+      onClick={() => openMessage(id, threadId)}
+      onMouseEnter={() => warmMailMessage(id, threadId)}
+      onFocus={() => warmMailMessage(id, threadId)}
       title="Open in Mail"
       className={cn(
         base,
-        "hover:border-border hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+        "hover:border-foreground/20 hover:bg-mail-row-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
       )}
     >
       {content}

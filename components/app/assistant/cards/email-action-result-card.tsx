@@ -29,8 +29,15 @@ const TITLES: Record<string, string> = {
   schedule_email: "Send scheduled",
 };
 
-function titleFor(toolName: string, deduped: boolean): string {
+function titleFor(
+  toolName: string,
+  deduped: boolean,
+  permanent = false,
+): string {
   if (deduped) return "Already handled — not repeated";
+  if (toolName === "delete_email") {
+    return permanent ? "Permanently deleted" : "Moved to trash";
+  }
   return TITLES[toolName] ?? "Action completed";
 }
 
@@ -63,6 +70,7 @@ export function EmailActionResultCard({
   const args = asRecord(input) ?? {};
 
   const deduped = asBoolean(result.deduped);
+  const permanent = asBoolean(result.permanent);
   const to = asStringList(result.to).length
     ? asStringList(result.to)
     : asStringList(args.to);
@@ -98,7 +106,7 @@ export function EmailActionResultCard({
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-sm">
           {iconFor(toolName)}
-          {titleFor(toolName, deduped)}
+          {titleFor(toolName, deduped, permanent)}
         </CardTitle>
         <div className="space-y-0.5 text-xs text-muted-foreground">
           {to.length ? <p className="truncate">To: {to.join(", ")}</p> : null}

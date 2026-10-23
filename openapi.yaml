@@ -15,6 +15,7 @@ tags:
   - name: assets
   - name: auth
   - name: autopilot
+  - name: billing
   - name: briefing
   - name: campaigns
   - name: commitments
@@ -610,6 +611,513 @@ paths:
           description: SSE reply stream.
           content:
             text/event-stream: {}
+        "400":
+          description: Syntactic validation failure (invalid body/query).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Missing or invalid credentials.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Authenticated but not permitted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Resource not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: State conflict (duplicate/unique violation).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Semantic validation failure (domain rule).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "429":
+          description: Rate limit exceeded; see `Retry-After`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Unhandled server error (redacted).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+      security:
+        - sessionCookie: []
+  /api/billing/checkout:
+    post:
+      operationId: postApiBillingCheckout
+      tags:
+        - billing
+      summary: POST /api/billing/checkout
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: {}
+                required:
+                  - data
+                additionalProperties: false
+        "400":
+          description: Syntactic validation failure (invalid body/query).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Missing or invalid credentials.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Authenticated but not permitted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Resource not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: State conflict (duplicate/unique violation).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Semantic validation failure (domain rule).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "429":
+          description: Rate limit exceeded; see `Retry-After`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Unhandled server error (redacted).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+      security:
+        - sessionCookie: []
+  /api/billing/checkout/simulate:
+    post:
+      operationId: postApiBillingCheckoutSimulate
+      tags:
+        - billing
+      summary: POST /api/billing/checkout/simulate
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: {}
+                required:
+                  - data
+                additionalProperties: false
+        "400":
+          description: Syntactic validation failure (invalid body/query).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Missing or invalid credentials.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Authenticated but not permitted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Resource not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: State conflict (duplicate/unique violation).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Semantic validation failure (domain rule).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "429":
+          description: Rate limit exceeded; see `Retry-After`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Unhandled server error (redacted).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+      security:
+        - sessionCookie: []
+  /api/billing/credits/checkout:
+    post:
+      operationId: postApiBillingCreditsCheckout
+      tags:
+        - billing
+      summary: POST /api/billing/credits/checkout
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: {}
+                required:
+                  - data
+                additionalProperties: false
+        "400":
+          description: Syntactic validation failure (invalid body/query).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Missing or invalid credentials.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Authenticated but not permitted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Resource not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: State conflict (duplicate/unique violation).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Semantic validation failure (domain rule).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "429":
+          description: Rate limit exceeded; see `Retry-After`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Unhandled server error (redacted).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+      security:
+        - sessionCookie: []
+  /api/billing/paywall:
+    post:
+      operationId: postApiBillingPaywall
+      tags:
+        - billing
+      summary: POST /api/billing/paywall
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: {}
+                required:
+                  - data
+                additionalProperties: false
+        "400":
+          description: Syntactic validation failure (invalid body/query).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Missing or invalid credentials.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Authenticated but not permitted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Resource not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: State conflict (duplicate/unique violation).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Semantic validation failure (domain rule).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "429":
+          description: Rate limit exceeded; see `Retry-After`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Unhandled server error (redacted).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+      security:
+        - sessionCookie: []
+  /api/billing/portal:
+    post:
+      operationId: postApiBillingPortal
+      tags:
+        - billing
+      summary: POST /api/billing/portal
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: {}
+                required:
+                  - data
+                additionalProperties: false
+        "400":
+          description: Syntactic validation failure (invalid body/query).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Missing or invalid credentials.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Authenticated but not permitted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Resource not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: State conflict (duplicate/unique violation).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Semantic validation failure (domain rule).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "429":
+          description: Rate limit exceeded; see `Retry-After`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Unhandled server error (redacted).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+      security:
+        - sessionCookie: []
+  /api/billing/return:
+    get:
+      operationId: getApiBillingReturn
+      tags:
+        - billing
+      summary: GET /api/billing/return
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: {}
+                required:
+                  - data
+                additionalProperties: false
+        "500":
+          description: Unhandled server error (redacted).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: Feature disabled or dependency unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+      security: []
+  /api/billing/status:
+    get:
+      operationId: getApiBillingStatus
+      tags:
+        - billing
+      summary: GET /api/billing/status
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: {}
+                required:
+                  - data
+                additionalProperties: false
+        "400":
+          description: Syntactic validation failure (invalid body/query).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Missing or invalid credentials.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Authenticated but not permitted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Resource not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: State conflict (duplicate/unique violation).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Semantic validation failure (domain rule).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "429":
+          description: Rate limit exceeded; see `Retry-After`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Unhandled server error (redacted).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+      security:
+        - sessionCookie: []
+  /api/billing/sync:
+    post:
+      operationId: postApiBillingSync
+      tags:
+        - billing
+      summary: POST /api/billing/sync
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: {}
+                required:
+                  - data
+                additionalProperties: false
         "400":
           description: Syntactic validation failure (invalid body/query).
           content:
@@ -1919,6 +2427,8 @@ paths:
                 currentEmailId:
                   type: string
                   maxLength: 256
+                webSearch:
+                  type: boolean
               required:
                 - conversationId
       responses:
@@ -5587,6 +6097,74 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
       security:
         - sessionCookie: []
+  /api/v1/mail/attachments:
+    get:
+      operationId: getApiV1MailAttachments
+      tags:
+        - mail
+      summary: GET /api/v1/mail/attachments
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: {}
+                required:
+                  - data
+                additionalProperties: false
+        "400":
+          description: Syntactic validation failure (invalid body/query).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Missing or invalid credentials.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Authenticated but not permitted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Resource not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: State conflict (duplicate/unique violation).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Semantic validation failure (domain rule).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "429":
+          description: Rate limit exceeded; see `Retry-After`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Unhandled server error (redacted).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+      security:
+        - sessionCookie: []
   /api/v1/mail/compose:
     post:
       operationId: composeMailWithAgent
@@ -6053,6 +6631,16 @@ paths:
         - mail
       summary: List Gmail messages (page-token paginated)
       parameters:
+        - name: account
+          in: query
+          required: false
+          schema:
+            description: Shared-inbox scope; defaults to `all`.
+            type: string
+            enum:
+              - all
+              - gmail
+              - outlook
         - name: box
           in: query
           required: false
@@ -6176,6 +6764,98 @@ paths:
               required:
                 - ids
                 - archived
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      updated:
+                        type: integer
+                        minimum: -9007199254740991
+                        maximum: 9007199254740991
+                    required:
+                      - updated
+                    additionalProperties: false
+                required:
+                  - data
+                additionalProperties: false
+        "400":
+          description: Syntactic validation failure (invalid body/query).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Missing or invalid credentials.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Authenticated but not permitted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Resource not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: State conflict (duplicate/unique violation).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Semantic validation failure (domain rule).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "429":
+          description: Rate limit exceeded; see `Retry-After`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Unhandled server error (redacted).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+      security:
+        - sessionCookie: []
+  /api/v1/mail/messages/delete:
+    post:
+      operationId: mailMessagesDelete
+      tags:
+        - mail
+      summary: Permanently delete messages
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids:
+                  minItems: 1
+                  type: array
+                  items:
+                    type: string
+                    minLength: 1
+              required:
+                - ids
       responses:
         "200":
           description: Success.
@@ -6927,6 +7607,12 @@ paths:
                   type: array
                   items:
                     type: string
+                account:
+                  type: string
+                  enum:
+                    - all
+                    - gmail
+                    - outlook
               required:
                 - to
       responses:
@@ -7124,6 +7810,83 @@ paths:
                       - text
                       - source
                       - targetLanguage
+                    additionalProperties: false
+                required:
+                  - data
+                additionalProperties: false
+        "400":
+          description: Syntactic validation failure (invalid body/query).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Missing or invalid credentials.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Authenticated but not permitted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Resource not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: State conflict (duplicate/unique violation).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Semantic validation failure (domain rule).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "429":
+          description: Rate limit exceeded; see `Retry-After`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Unhandled server error (redacted).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+      security:
+        - sessionCookie: []
+  /api/v1/mail/trash/empty:
+    post:
+      operationId: emptyMailTrash
+      tags:
+        - mail
+      summary: Permanently delete everything in the trash
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      deleted:
+                        type: integer
+                        minimum: -9007199254740991
+                        maximum: 9007199254740991
+                    required:
+                      - deleted
                     additionalProperties: false
                 required:
                   - data
@@ -8134,6 +8897,74 @@ paths:
           schema:
             type: string
             minLength: 1
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: {}
+                required:
+                  - data
+                additionalProperties: false
+        "400":
+          description: Syntactic validation failure (invalid body/query).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Missing or invalid credentials.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Authenticated but not permitted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Resource not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: State conflict (duplicate/unique violation).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Semantic validation failure (domain rule).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "429":
+          description: Rate limit exceeded; see `Retry-After`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Unhandled server error (redacted).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+      security:
+        - sessionCookie: []
+  /api/v1/settings/accounts:
+    get:
+      operationId: getApiV1SettingsAccounts
+      tags:
+        - settings
+      summary: GET /api/v1/settings/accounts
       responses:
         "200":
           description: Success.
@@ -11137,6 +11968,50 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
       security:
         - sessionCookie: []
+  /api/webhooks/dodo:
+    post:
+      operationId: postApiWebhooksDodo
+      tags:
+        - webhooks
+      summary: POST /api/webhooks/dodo
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: {}
+                required:
+                  - data
+                additionalProperties: false
+        "400":
+          description: Syntactic validation failure (invalid body/query).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Missing or invalid credentials.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Unhandled server error (redacted).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: Feature disabled or dependency unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+      security:
+        - googleOidc: []
   /api/webhooks/gmail:
     post:
       operationId: gmailPubSubWebhook

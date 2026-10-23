@@ -47,6 +47,30 @@ export class GoogleAccountRepository {
       );
     return rows.map((row) => row.scope);
   }
+
+  /**
+   * Every linked provider account for a user. Powers the "connected accounts"
+   * surface, which needs the provider, its granted scopes and the local account
+   * id (for token lookup) in one read.
+   */
+  async listByUser(userId: string): Promise<
+    Array<{
+      id: string;
+      providerId: string;
+      accountId: string;
+      scope: string | null;
+    }>
+  > {
+    return this.database
+      .select({
+        id: account.id,
+        providerId: account.providerId,
+        accountId: account.accountId,
+        scope: account.scope,
+      })
+      .from(account)
+      .where(eq(account.userId, userId));
+  }
 }
 
 export const googleAccountRepository = new GoogleAccountRepository();

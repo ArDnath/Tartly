@@ -9,10 +9,12 @@ import { requireSendPermission } from "./shared";
  * `delete_email` — EXTERNAL_SIDE_EFFECT.
  *
  * Destructive, so it follows the same rule as sending: the model can only
- * *propose* it. `execute` runs solely from the confirmed-action executor, and
- * it trashes rather than deletes. Gmail keeps trashed mail for 30 days and
- * `messages.delete` needs a scope we deliberately do not hold, so "delete"
- * here is always recoverable.
+ * *propose* it. `execute` runs solely from the confirmed-action executor.
+ *
+ * By default it trashes (recoverable for 30 days). With `permanent: true` it
+ * deletes outright, bypassing the trash — that needs the restricted
+ * full-mailbox scope, and it is only ever reached through the same confirmation
+ * the other side effects require.
  */
 
 const inputSchema = z.object({
@@ -21,6 +23,12 @@ const inputSchema = z.object({
     .min(1)
     .max(256)
     .describe("The message id returned by search_emails or get_email."),
+  permanent: z
+    .boolean()
+    .default(false)
+    .describe(
+      "True to permanently delete the message, bypassing the trash. Irreversible — set it only when the user explicitly asks to delete forever. Defaults to false, which moves the message to the trash (recoverable for 30 days).",
+    ),
 });
 
 export type DeleteEmailInput = z.infer<typeof inputSchema>;
@@ -29,13 +37,25 @@ function buildDeleteEmailTool(email: EmailService): AnyToolDefinition {
   return defineTool({
     name: "delete_email",
     description:
-      "Move an email to the trash. Calling this does NOT delete anything: it creates a confirmation card the user must approve. The mail stays recoverable from the trash for 30 days.",
+      "Delete an email. Calling this does NOT delete anything on its own: it creates a confirmation card the user must approve. By default the message is moved to the trash and stays recoverable for 30 days; pass permanent: true only when the user explicitly wants it deleted forever (irreversible).",
     risk: "EXTERNAL_SIDE_EFFECT",
     inputSchema,
     authorize(ctx) {
       requireSendPermission(ctx);
     },
     async execute(ctx, input) {
+      if (input.permanent) {
+        await email.deleteMessageForever({
+          userId: ctx.userId,
+          messageId: input.messageId,
+        });
+        return {
+          messageId: input.messageId,
+          trashed: false,
+          permanent: true,
+          notice: "Permanently deleted. This cannot be undone.",
+        };
+      }
       await email.trashMessage({
         userId: ctx.userId,
         messageId: input.messageId,
@@ -43,6 +63,7 @@ function buildDeleteEmailTool(email: EmailService): AnyToolDefinition {
       return {
         messageId: input.messageId,
         trashed: true,
+        permanent: false,
         notice:
           "Moved to the trash. It is recoverable for 30 days, not permanently deleted.",
       };

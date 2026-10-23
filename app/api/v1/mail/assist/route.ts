@@ -12,7 +12,7 @@ export const maxDuration = 60;
  * inserts it for review. This route never sends and never writes to Gmail — it
  * only produces text.
  */
-export const POST = withMailUser(async (userId, request) => {
+export const POST = withMailUser({ requiresSubscription: true }, async (userId, request) => {
   if (!isComposeAssistEnabled()) {
     return apiError("disabled", "Smart compose is disabled.", 403);
   }

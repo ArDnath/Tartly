@@ -31,6 +31,15 @@ export class UserRepository {
     return rows[0]?.name ?? null;
   }
 
+  async findEmailById(userId: string): Promise<string | null> {
+    const rows = await this.database
+      .select({ email: user.email })
+      .from(user)
+      .where(eq(user.id, userId))
+      .limit(1);
+    return rows[0]?.email ?? null;
+  }
+
   /** Set the display name (onboarding profile step). */
   async updateName(input: {
     userId: string;

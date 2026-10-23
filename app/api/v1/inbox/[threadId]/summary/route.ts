@@ -30,6 +30,7 @@ export const GET = withUser<{ params: Promise<{ threadId: string }> }>(
 );
 
 export const POST = withUser<{ params: Promise<{ threadId: string }> }>(
+  { requiresSubscription: true },
   async (userId, _request, context) => {
     const { threadId } = await context.params;
     if (!isThreadSummaryEnabled()) {

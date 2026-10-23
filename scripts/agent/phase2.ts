@@ -9,11 +9,13 @@ import { READ_TOOLS, WRITE_TOOLS } from "../../lib/agent/tools";
 import { createArchiveEmailTool } from "../../lib/agent/tools/archive-email";
 import { createCreateDraftTool } from "../../lib/agent/tools/create-draft";
 import { createSearchEmailsTool } from "../../lib/agent/tools/search-emails";
+import { createStarEmailTool } from "../../lib/agent/tools/star-email";
 import { createUpdateDraftTool } from "../../lib/agent/tools/update-draft";
 import type { GmailTransport } from "../../lib/gmail/client";
 import { toBase64Url } from "../../lib/gmail/mime";
 import { decodeBase64Url } from "../../lib/gmail/parse";
 import { createGmailEmailProvider } from "../../lib/providers/email/gmail-provider";
+import { emptyTrash as gmailEmptyTrash } from "../../lib/mail/service";
 import { EmailService } from "../../lib/services/email-service";
 import {
   DraftService,
@@ -260,10 +262,19 @@ function createFakeTransport(state: FakeGmail): GmailTransport {
       return new Response(null, { status: 204 });
     }
 
+    if (pathname === "/messages/batchDelete" && method === "POST") {
+      const { ids } = JSON.parse(String(init?.body)) as { ids: string[] };
+      for (const id of ids ?? []) state.messages.delete(id);
+      return new Response(null, { status: 204 });
+    }
+
     if (pathname === "/messages" && method === "GET") {
       const labelIds = params.getAll("labelIds");
-      const messages = [...state.messages.values()].filter((message) =>
-        labelIds.every((label) => message.labelIds.includes(label)),
+      const trashOnly = params.get("q") === "in:trash";
+      const messages = [...state.messages.values()].filter(
+        (message) =>
+          labelIds.every((label) => message.labelIds.includes(label)) &&
+          (!trashOnly || message.labelIds.includes("TRASH")),
       );
       return json({ messages: messages.map((message) => ({ id: message.id })), nextPageToken: null });
     }
@@ -344,7 +355,7 @@ function runRegistryTests(): void {
     "no external-side-effect tool is registered in Phase 6",
   );
 
-  const mutating = ["create_draft", "update_draft", "add_label", "remove_label", "archive_email", "mark_email_read"];
+  const mutating = ["create_draft", "update_draft", "add_label", "remove_label", "archive_email", "mark_email_read", "star_email"];
   assert(
     mutating.every((name) => WRITE_TOOLS.some((tool) => tool.name === name)),
     "all reversible mailbox mutations are registered",
@@ -611,6 +622,15 @@ async function runMailboxMutationTests(): Promise<void> {
   const unreadBody = state.calls.at(-1)!.body as { removeLabelIds: string[] };
   assert(unreadBody.removeLabelIds.includes("UNREAD"), "mark_email_read(true) removes UNREAD");
 
+  await email.starMessage({ userId: user, messageId: "m1", starred: true });
+  const starBody = state.calls.at(-1)!.body as { addLabelIds: string[] };
+  assert(starBody.addLabelIds.includes("STARRED"), "star_email(true) adds STARRED");
+  assert(state.messages.get("m1")!.labelIds.includes("STARRED"), "starring is reflected in mailbox state");
+
+  await email.starMessage({ userId: user, messageId: "m1", starred: false });
+  const unstarBody = state.calls.at(-1)!.body as { removeLabelIds: string[] };
+  assert(unstarBody.removeLabelIds.includes("STARRED"), "star_email(false) removes STARRED");
+
   await email.addLabel({ userId: user, messageId: "m1", label: "Investors" });
   assert(
     state.calls.some((call) => call.path === "/labels" && call.method === "POST"),
@@ -632,6 +652,68 @@ async function runMailboxMutationTests(): Promise<void> {
 
   await email.removeLabel({ userId: user, messageId: "m1", label: "Investors" });
   assert(!state.messages.get("m1")!.labelIds.includes("Label_Investors"), "remove_label removes an existing label");
+}
+
+async function runStarToolTests(): Promise<void> {
+  section("star_email stars a message through the tool layer");
+
+  const user = "phase2-star-tool";
+  const state = createFakeGmail();
+  state.messages.set("m1", fakeMessage());
+  const email = new EmailService(createGmailEmailProvider(createFakeTransport(state)));
+
+  const tools = buildToolSet({
+    ctx: testCtx(user),
+    registry: createToolRegistry([
+      createStarEmailTool({ email }),
+      createSearchEmailsTool({ email }),
+    ]),
+    events: () => {},
+    getStep: () => 1,
+  });
+
+  const starred = (await executable(tools, "star_email").execute(
+    { messageId: "m1" },
+    { toolCallId: "star" },
+  )) as { starred?: boolean; notice?: string };
+  assert(starred.starred === true, "star_email defaults to starring the message");
+  assert(state.messages.get("m1")!.labelIds.includes("STARRED"), "star_email applies the STARRED label");
+
+  const readBack = (await executable(tools, "search_emails").execute(
+    { box: "inbox" },
+    { toolCallId: "read_starred" },
+  )) as { messages: Array<{ starred?: boolean }> };
+  assert(readBack.messages[0]?.starred === true, "the star is observable through search_emails");
+}
+
+async function runDeleteForeverTests(): Promise<void> {
+  section("permanent delete bypasses the trash");
+
+  const user = "phase2-delete-forever";
+  const state = createFakeGmail();
+  state.messages.set("m1", fakeMessage());
+  state.messages.set(
+    "m2",
+    fakeMessage({ id: "m2", threadId: "t2", labelIds: ["TRASH"] }),
+  );
+  state.messages.set(
+    "m3",
+    fakeMessage({ id: "m3", threadId: "t3", labelIds: ["INBOX"] }),
+  );
+  const email = new EmailService(createGmailEmailProvider(createFakeTransport(state)));
+
+  await email.deleteMessageForever({ userId: user, messageId: "m1" });
+  const deleteCall = state.calls.at(-1)!;
+  assert(
+    deleteCall.path === "/messages/batchDelete",
+    "deleteMessageForever uses messages.batchDelete",
+  );
+  assert(!state.messages.has("m1"), "permanent delete removes the message outright");
+
+  const removed = await gmailEmptyTrash(user, createFakeTransport(state));
+  assert(removed === 1, "emptyTrash deletes exactly the trashed messages");
+  assert(!state.messages.has("m2"), "emptyTrash permanently deletes the trash");
+  assert(state.messages.has("m3"), "emptyTrash leaves non-trashed mail alone");
 }
 
 async function runWriteThenReadTests(): Promise<void> {
@@ -722,6 +804,8 @@ async function main(): Promise<void> {
   await runConcurrencyTests();
   await runNotFoundTests();
   await runMailboxMutationTests();
+  await runStarToolTests();
+  await runDeleteForeverTests();
   await runWriteThenReadTests();
   await runDraftToolTests();
 

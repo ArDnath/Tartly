@@ -4,6 +4,7 @@ import { invalidateBriefing } from "@/lib/briefing/service";
 import { approveDraft } from "@/lib/inbox/service";
 
 export const POST = withUser<{ params: Promise<{ id: string }> }>(
+  { requiresSubscription: true },
   async (userId, request, context) => {
     const { id } = await context.params;
     const parsed = bodySchema.safeParse(

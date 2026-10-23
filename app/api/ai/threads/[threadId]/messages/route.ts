@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { jsonError } from "@/lib/api/error-envelope";
 import { aiThreadMessageBody as sendSchema } from "@/lib/api/contracts/legacy";
 import { enforceUserRateLimit } from "@/lib/api/http";
+import { requireAiAccess } from "@/lib/billing/guard";
 import {
   appendMessage,
   ensureChatThreadTitle,
@@ -57,6 +58,9 @@ export async function POST(request: Request, { params }: RouteContext) {
     scope: "ai",
   });
   if (limited) return limited;
+
+  const paywall = await requireAiAccess(session.user.id);
+  if (paywall) return paywall;
 
   const { threadId } = await params;
 

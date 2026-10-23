@@ -161,17 +161,31 @@ export interface EmailWriteProvider {
   }): Promise<EmailDraft>;
   archiveMessage(input: { userId: string; messageId: string }): Promise<void>;
   /**
-   * Move a message to the trash. This is the *only* deletion the agent exposes:
-   * it is reversible (Gmail keeps trashed mail for 30 days and `untrash`
-   * restores it), whereas an irreversible delete needs a scope we don't hold.
+   * Move a message to the trash. Reversible (Gmail keeps trashed mail for 30
+   * days and `untrash` restores it), so it is the safe default for "delete".
    */
   trashMessage(input: { userId: string; messageId: string }): Promise<void>;
   /** Restore a message from the trash. */
   untrashMessage(input: { userId: string; messageId: string }): Promise<void>;
+  /**
+   * Permanently delete a message, bypassing the trash. Irreversible, and it
+   * needs the provider's broadest scope (Gmail's full-mailbox grant). Only ever
+   * reached behind an explicit, confirmed user action.
+   */
+  deleteMessage(input: { userId: string; messageId: string }): Promise<void>;
   markRead(input: {
     userId: string;
     messageId: string;
     read: boolean;
+  }): Promise<void>;
+  /**
+   * Star or unstar a message. A reversible mailbox mutation (Gmail's STARRED
+   * label), so it stays on the safe/no-confirmation side like `markRead`.
+   */
+  setStarred(input: {
+    userId: string;
+    messageId: string;
+    starred: boolean;
   }): Promise<void>;
   addLabel(input: {
     userId: string;
@@ -195,7 +209,9 @@ export type EmailMailboxProvider = EmailProvider &
     | "archiveMessage"
     | "trashMessage"
     | "untrashMessage"
+    | "deleteMessage"
     | "markRead"
+    | "setStarred"
     | "addLabel"
     | "removeLabel"
   >;

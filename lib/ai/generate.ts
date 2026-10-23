@@ -10,6 +10,7 @@ import {
   type ModelCandidate,
 } from "@/lib/ai/model-chain";
 import { circuitBreaker } from "@/lib/ai/circuit-breaker";
+import { hasCredits } from "@/lib/billing/credits";
 import {
   DEFAULT_GLOBAL_AI_DAILY_BUDGET,
   isBudgetDisabled,
@@ -333,6 +334,14 @@ async function runGeneration<T>(
 
 async function withinBudget(options: GenerateOptions): Promise<boolean> {
   if (isBudgetDisabled()) return true;
+
+  // Credit gate: a subscriber with a zero balance must top up before another
+  // model call. Checked before anything else so an exhausted wallet never
+  // burns a model request (and the deterministic fallback still answers).
+  if (options.userId && !(await hasCredits(options.userId))) {
+    console.warn(`[ai/generate] credits exhausted for ${options.userId}`);
+    return false;
+  }
 
   if (options.userId && !(await tryConsumeAiBudget({ userId: options.userId }))) {
     console.warn(`[ai/generate] user budget exhausted for ${options.userId}`);

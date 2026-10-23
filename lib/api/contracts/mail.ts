@@ -65,6 +65,11 @@ export const mailSendBody = z.object({
   inReplyTo: z.string().optional(),
   assetIds: z.array(z.string()).max(20).optional(),
   inlineImageIds: z.array(z.string()).max(20).optional(),
+  /**
+   * Which connected account to send from. Defaults to Gmail; `outlook` (or an
+   * `outlook:` thread id) routes the message through Microsoft Graph.
+   */
+  account: z.enum(["all", "gmail", "outlook"]).optional(),
 });
 
 export const mailLabelBody = z.object({ label: z.string().trim().min(1) });
@@ -75,6 +80,10 @@ export const mailMessagesQuery = z
     search: z.string().optional(),
     limit: z.string().optional().describe("Clamped to 100; default 30."),
     pageToken: z.string().optional(),
+    account: z
+      .enum(["all", "gmail", "outlook"])
+      .optional()
+      .describe("Shared-inbox scope; defaults to `all`."),
   })
   .passthrough();
 
@@ -100,6 +109,8 @@ export const mailReadBody = z.object({ ids: batchIds, read: z.boolean() });
 export const mailSpamBody = z.object({ ids: batchIds, spam: z.boolean() });
 export const mailStarBody = z.object({ ids: batchIds, starred: z.boolean() });
 export const mailTrashBody = z.object({ ids: batchIds, trashed: z.boolean() });
+/** Permanent delete — no `trashed` flag; the ids are gone, not moved. */
+export const mailDeleteBody = z.object({ ids: batchIds });
 
 export const mailLabelMessagesBody = z.object({
   ids: z.array(z.string().min(1)).min(1),
@@ -237,6 +248,18 @@ export const mailOperations = [
   batchOperation("spam", "Mark messages as spam or not", mailSpamBody),
   batchOperation("star", "Star or unstar messages", mailStarBody),
   batchOperation("trash", "Trash or untrash messages", mailTrashBody),
+  batchOperation("delete", "Permanently delete messages", mailDeleteBody),
+  defineOperation({
+    method: "POST",
+    path: "/api/v1/mail/trash/empty",
+    operationId: "emptyMailTrash",
+    tags: ["mail"],
+    summary: "Permanently delete everything in the trash",
+    security: "session",
+    responses: okResponse(
+      dataEnvelope(z.object({ deleted: z.number().int() })),
+    ),
+  }),
   batchOperation(
     "label",
     "Apply a label to messages",

@@ -3,8 +3,9 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 
 import { db } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
-import { env } from "@/lib/env";
+import { env, isMicrosoftConfigured, microsoftTenantId } from "@/lib/env";
 import { redis } from "@/lib/redis";
+import { MICROSOFT_MAIL_SCOPES } from "@/lib/outlook/scopes";
 import { invalidateSessionUserCache } from "@/lib/session-cache";
 
 /**
@@ -108,6 +109,22 @@ export const auth = betterAuth({
       clientId: env.GOOGLE_CLIENT_ID,
       clientSecret: env.GOOGLE_CLIENT_SECRET,
     },
+    // Outlook is optional: registered only when Entra ID credentials exist, so
+    // an unconfigured deployment stays Google-only and the connect option is
+    // hidden rather than broken.
+    ...(isMicrosoftConfigured()
+      ? {
+          microsoft: {
+            clientId: env.MICROSOFT_CLIENT_ID!,
+            clientSecret: env.MICROSOFT_CLIENT_SECRET!,
+            tenantId: microsoftTenantId(),
+            // Ask for mailbox access up front so the connect flow and the
+            // refresh flow request the same scopes.
+            scope: [...MICROSOFT_MAIL_SCOPES],
+            prompt: "select_account",
+          },
+        }
+      : {}),
   },
   session: {
     // Mirror sessions into PostgreSQL so a Redis miss/outage can be

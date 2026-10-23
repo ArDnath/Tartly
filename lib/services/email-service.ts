@@ -112,6 +112,19 @@ export class EmailService {
     await this.provider.untrashMessage({ userId, messageId });
   }
 
+  /**
+   * Permanently delete a message, bypassing the trash. Irreversible, and on
+   * Gmail it needs the full-mailbox scope. Callers must gate this behind an
+   * explicit confirmation.
+   */
+  async deleteMessageForever(input: {
+    userId: string;
+    messageId: string;
+  }): Promise<void> {
+    const { userId, messageId } = this.requireMailboxTarget(input);
+    await this.provider.deleteMessage({ userId, messageId });
+  }
+
   async markRead(input: {
     userId: string;
     messageId: string;
@@ -119,6 +132,23 @@ export class EmailService {
   }): Promise<void> {
     const { userId, messageId } = this.requireMailboxTarget(input);
     await this.provider.markRead({ userId, messageId, read: input.read });
+  }
+
+  /**
+   * Star or unstar a message. Reversible (Gmail's STARRED label), so it runs
+   * without confirmation like the other mailbox mutations here.
+   */
+  async starMessage(input: {
+    userId: string;
+    messageId: string;
+    starred: boolean;
+  }): Promise<void> {
+    const { userId, messageId } = this.requireMailboxTarget(input);
+    await this.provider.setStarred({
+      userId,
+      messageId,
+      starred: input.starred,
+    });
   }
 
   async addLabel(input: {

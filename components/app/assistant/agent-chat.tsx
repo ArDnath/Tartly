@@ -6,7 +6,7 @@ import {
   type ChatStatus,
   type UIMessage,
 } from "ai";
-import { CircleAlertIcon, Clock, Plus, Sparkles } from "lucide-react";
+import { CircleAlertIcon, Clock, Globe, Plus, Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -25,6 +25,10 @@ import {
   PromptInputTools,
 } from "@/components/ai-elements/prompt-input";
 import { AgentMessage } from "@/components/app/assistant/agent-message";
+import {
+  openPaywall,
+  usePaywallStore,
+} from "@/components/app/paywall/paywall-store";
 import {
   AgentChatActionsProvider,
   type AgentChatActions,
@@ -132,6 +136,12 @@ export function AgentChat({
   const router = useRouter();
   const [creating, setCreating] = useState(false);
   const [input, setInput] = useState("");
+  /**
+   * Composer toggle: let the agent search the public web this turn. Off by
+   * default keeps each request small and predictable; on unlocks the research
+   * tools (`search_web`, `open_web_page`, `research_person/company`).
+   */
+  const [webSearch, setWebSearch] = useState(false);
 
   const transport = useMemo(
     () =>
@@ -155,18 +165,44 @@ export function AgentChat({
     id: conversationId,
     messages: initialMessages,
     transport,
+    onError: (chatError) => {
+      // The entitlement may not have loaded when the first turn was sent; if the
+      // server answered `402`, surface the paywall instead of a raw error. A
+      // `credits` reason means a topped-out subscriber, not a free user.
+      const message = String(chatError?.message ?? "");
+      if (message.includes("payment_required")) {
+        openPaywall(message.includes("credits") ? "credits" : "ai");
+      }
+    },
   });
 
   const isBusy: boolean = status === "submitted" || status === "streaming";
+
+  /**
+   * Every entry into the agent is subscriber-only. The server enforces this too
+   * (the route is `requiresSubscription`); this gate makes the wall instant and
+   * keeps free users out of the chat before a request is even made.
+   */
+  const ensureSubscribed = () => {
+    const entitlement = usePaywallStore.getState().entitlement;
+    if (entitlement && !entitlement.isSubscriber) {
+      openPaywall("ai");
+      return false;
+    }
+    return true;
+  };
 
   // Continue the turn after the user decides on a confirmation card. The empty
   // text turn is filtered from rendering; the server keys off `resumeActionId`
   // and feeds the action outcome back as hidden context.
   const resumeAfterAction = useCallback(
     (actionId: string) => {
-      void sendMessage({ text: "" }, { body: { resumeActionId: actionId } });
+      void sendMessage(
+        { text: "" },
+        { body: { resumeActionId: actionId, webSearch } },
+      );
     },
-    [sendMessage],
+    [sendMessage, webSearch],
   );
 
   const agentActions = useMemo<AgentChatActions>(
@@ -230,6 +266,7 @@ export function AgentChat({
   }, [status, onAssistantTurnEnd]);
 
   const startNewChat = async () => {
+    if (!ensureSubscribed()) return;
     try {
       if (onNewChat) {
         await onNewChat();
@@ -368,8 +405,9 @@ export function AgentChat({
                 catchUp={catchUpPlan}
                 disabled={isBusy}
                 onSelect={(option) => {
+                  if (!ensureSubscribed()) return;
                   setInput("");
-                  void sendMessage({ text: option.prompt });
+                  void sendMessage({ text: option.prompt }, { body: { webSearch } });
                 }}
               />
             ) : (
@@ -419,8 +457,9 @@ export function AgentChat({
           onSubmit={({ text }) => {
             const trimmed = text.trim();
             if (!trimmed) return;
+            if (!ensureSubscribed()) return;
             setInput("");
-            void sendMessage({ text: trimmed });
+            void sendMessage({ text: trimmed }, { body: { webSearch } });
           }}
         >
           <PromptInputBody>
@@ -433,6 +472,25 @@ export function AgentChat({
           <PromptInputFooter>
             <PromptInputTools>
               <AutonomySwitch />
+              <button
+                type="button"
+                onClick={() => setWebSearch((value) => !value)}
+                aria-pressed={webSearch}
+                title={
+                  webSearch
+                    ? "Web search is on — the agent can search the public web"
+                    : "Web search is off"
+                }
+                className={cn(
+                  "inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-medium transition-colors",
+                  webSearch
+                    ? "border-transparent bg-foreground text-background hover:bg-foreground/80"
+                    : "border-border text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <Globe className="size-3.5" aria-hidden />
+                Web
+              </button>
             </PromptInputTools>
             <PromptInputSubmit
               status={status as ChatStatus}

@@ -27,7 +27,7 @@ export const metadata: Metadata = {
 export default function Page() {
   return (
     <div className="font-subtext relative isolate min-h-screen overflow-x-clip bg-[#0F0F0F]">
-      <Navbar />
+      <Navbar active="Features" />
       <HomeContent />
     </div>
   );

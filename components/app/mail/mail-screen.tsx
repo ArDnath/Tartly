@@ -34,6 +34,7 @@ const byOldest = (a: MailMessage, b: MailMessage) =>
 export function MailScreen({
   initialOpenId,
   prefetchExpected = false,
+  nonce,
 }: {
   initialOpenId?: string;
   /**
@@ -41,11 +42,14 @@ export function MailScreen({
    * so hold the client load until it settles rather than hitting Gmail twice.
    */
   prefetchExpected?: boolean;
+  /** The host document's CSP nonce, threaded to the reader's mail frame. */
+  nonce?: string;
 }) {
   const messages = useMailStore((state) => state.messages);
   const account = useMailStore((state) => state.account);
   const status = useMailStore((state) => state.status);
   const error = useMailStore((state) => state.error);
+  const errorCode = useMailStore((state) => state.errorCode);
   const filter = useMailStore((state) => state.filter);
   const query = useMailStore((state) => state.query);
   const openThreadId = useMailStore((state) => state.openThreadId);
@@ -194,6 +198,7 @@ export function MailScreen({
               subject={openSubject}
               messages={openMessages}
               loading={threadStatus === "loading" && openMessages.length === 0}
+              nonce={nonce}
             />
           ) : (
             <>
@@ -206,6 +211,7 @@ export function MailScreen({
                   conversations={visible}
                   loading={status !== "ready"}
                   error={error}
+                  errorCode={errorCode}
                   onRetry={() => void load(true)}
                   focusedThreadId={effectiveFocusedThreadId}
                   hasPrev={hasPrev}

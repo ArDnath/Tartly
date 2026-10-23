@@ -21,6 +21,10 @@ import "server-only";
  *    keeps `'unsafe-inline'` because React `style={{…}}` attributes — and the
  *    chart/animation libs that set them at runtime — can never carry a nonce, and
  *    a style *attribute* is a far weaker primitive than a `<style>` element.
+ *    In development `style-src-elem` falls back to `'unsafe-inline'` **without**
+ *    the nonce (see {@link buildCsp}): a nonce makes browsers ignore
+ *    `'unsafe-inline'`, and dev injects styles at runtime (React style hoisting,
+ *    the Next dev overlay, font loaders) with no nonce to attach.
  *  - `'wasm-unsafe-eval'` — Rive (`@rive-app/react-webgl2`) compiles WebAssembly.
  *  - `worker-src blob:` — Rive/worker bundles create object URLs.
  */
@@ -114,15 +118,34 @@ export function buildCsp({
     "default-src 'self'",
     `script-src ${scriptSrc.join(" ")}`,
     // Fallback for browsers without CSP level 3 `style-src-elem`/`-attr`.
-    "style-src 'self'",
+    // Dev needs `'unsafe-inline'` here too, or CSP2 browsers block runtime
+    // styles the `-elem` override never gets to see.
+    `style-src 'self'${isDev ? " 'unsafe-inline'" : ""}`,
     // Inline <style> elements and stylesheet loads must carry the nonce.
-    `style-src-elem 'self' 'nonce-${nonce}'`,
+    //
+    // Dev is the exception: React's style hoisting, the Next dev overlay and
+    // font loaders inject <style> at runtime without a nonce. A nonce in the
+    // same directive makes browsers *ignore* `'unsafe-inline'`, so dropping it
+    // is what lets those styles apply — the approach Next's CSP guide
+    // prescribes for development. Production keeps the nonce; Next stamps its
+    // own inline styles during SSR.
+    isDev
+      ? `style-src-elem 'self' 'unsafe-inline'`
+      : `style-src-elem 'self' 'nonce-${nonce}'`,
     // React style={{…}} attributes cannot carry a nonce.
     "style-src-attr 'unsafe-inline'",
-    `img-src 'self' blob: data: ${[...mediaHosts, ...IMAGE_HOSTS].join(" ")}`,
+    // `https:`/`http:` are for the live mail reader: email HTML rendered in a
+    // sandboxed srcdoc frame *inherits this policy*, so without them every
+    // remote image a message references is blocked and newsletters render with
+    // empty boxes. In production `upgrade-insecure-requests` (below) rewrites
+    // `http:` first; the bare scheme is what keeps local http dev working.
+    `img-src 'self' blob: data: https: http: ${[...mediaHosts, ...IMAGE_HOSTS].join(" ")}`,
     `media-src 'self' blob: ${mediaHosts.join(" ")}`,
     "font-src 'self' data:",
     `connect-src ${connectSrc.join(" ")}`,
+    // Dodo checkout is a top-level redirect to its own hosted page, so no frame
+    // or script origin needs to be allowed here.
+    "frame-src 'self'",
     "worker-src 'self' blob:",
     "object-src 'none'",
     "base-uri 'self'",

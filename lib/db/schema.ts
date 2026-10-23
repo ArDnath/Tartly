@@ -1961,6 +1961,249 @@ export const suppressionList = pgTable(
   ],
 );
 
+/* -------------------------------------------------------------------------- */
+/*  Billing — subscriptions, Dodo linkage, free-tier usage                      */
+/* -------------------------------------------------------------------------- */
+
+/** Lifecycle of a Dodo subscription as we mirror it (plus `none` pre-checkout). */
+export const SUBSCRIPTION_STATUSES = [
+  "none",
+  "pending",
+  "active",
+  "past_due",
+  "on_hold",
+  "paused",
+  "cancelled",
+  "failed",
+  "expired",
+] as const;
+export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[number];
+
+/** Billing interval for a plan. */
+export const BILLING_INTERVALS = ["month", "year"] as const;
+export type BillingInterval = (typeof BILLING_INTERVALS)[number];
+
+/**
+ * One billing row per user. Holds the Dodo customer id (so checkout/portal
+ * reuse the same customer) and the paywall lock: once a free user triggers the
+ * paywall, `paywallLockedAt` is set and the app keeps showing it on every load
+ * until a subscription exists. The lock survives reloads because it is a row,
+ * not client state.
+ */
+export const billingAccounts = pgTable(
+  "billing_accounts",
+  {
+    userId: text("user_id")
+      .primaryKey()
+      .references(() => user.id, { onDelete: "cascade" }),
+    dodoCustomerId: text("dodo_customer_id"),
+    /** Set the first time a free user hits the paywall; cleared on subscribe. */
+    paywallLockedAt: timestamp("paywall_locked_at", { withTimezone: true }),
+    /** Last paywall reason code, for analytics ("ai", "mail_view", "mail_send", "accounts"). */
+    paywallReason: text("paywall_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (t) => [index("billing_accounts_dodo_customer_idx").on(t.dodoCustomerId)],
+);
+
+/**
+ * The user's current subscription. One row per user (`user_id` unique): Dodo
+ * webhooks upsert it, so a user always has a single source of truth for
+ * entitlement. `status` mirrors Dodo verbatim.
+ */
+export const subscriptions = pgTable(
+  "subscriptions",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    dodoCustomerId: text("dodo_customer_id"),
+    dodoSubscriptionId: text("dodo_subscription_id"),
+    dodoProductId: text("dodo_product_id"),
+    status: text("status").$type<SubscriptionStatus>().notNull().default("none"),
+    interval: text("interval").$type<BillingInterval>(),
+    currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
+    cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
+    canceledAt: timestamp("canceled_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("subscriptions_user_unique").on(t.userId),
+    uniqueIndex("subscriptions_dodo_id_unique").on(t.dodoSubscriptionId),
+    index("subscriptions_status_idx").on(t.status),
+  ],
+);
+
+/**
+ * Idempotency ledger for Dodo webhooks. Each delivery carries a unique
+ * `webhook-id`; we insert it once and skip the side effects on a retry, so a
+ * redelivered event can never double-apply. Rows are tiny and the repository
+ * prunes them opportunistically.
+ */
+export const billingWebhookEvents = pgTable(
+  "billing_webhook_events",
+  {
+    id: text("id").primaryKey(),
+    eventType: text("event_type").notNull(),
+    receivedAt: timestamp("received_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [index("billing_webhook_events_received_idx").on(t.receivedAt)],
+);
+
+/**
+ * A distinct Gmail message a free user has opened. The unique
+ * `(user_id, gmail_message_id)` makes the count idempotent: re-opening a message
+ * never consumes a second free view. Subscribers ignore this table entirely.
+ */
+export const mailViewEvents = pgTable(
+  "mail_view_events",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    gmailMessageId: text("gmail_message_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("mail_view_events_user_message_unique").on(
+      t.userId,
+      t.gmailMessageId,
+    ),
+    index("mail_view_events_user_idx").on(t.userId, t.createdAt),
+  ],
+);
+
+/**
+ * One outbound send (new message or reply) by a free user. Append-only: each
+ * row is a real send, so the lifetime count is a `COUNT(*)`.
+ */
+export const mailSendEvents = pgTable(
+  "mail_send_events",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    /** "send" (new compose) | "reply" (in-thread). */
+    kind: text("kind").notNull().default("send"),
+    /** Gmail id assigned to the sent message, when known. */
+    gmailMessageId: text("gmail_message_id"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("mail_send_events_user_idx").on(t.userId, t.createdAt),
+  ],
+);
+
+/* -------------------------------------------------------------------------- */
+/*  Credits — prepaid AI allowance                                             */
+/* -------------------------------------------------------------------------- */
+
+/** Why a credit-ledger row exists. */
+export const CREDIT_LEDGER_REASONS = [
+  "grant_plan",
+  "grant_purchase",
+  "usage",
+  "refund",
+  "adjustment",
+] as const;
+export type CreditLedgerReason = (typeof CREDIT_LEDGER_REASONS)[number];
+
+/**
+ * The materialized credit balance, one row per user. Kept in lock-step with
+ * `credit_ledger` (the ledger is the audit trail; this is the fast read). A
+ * balance is never allowed below zero — a spend floors at 0.
+ */
+export const creditWallets = pgTable("credit_wallets", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  balance: integer("balance").notNull().default(0),
+  lifetimeGranted: integer("lifetime_granted").notNull().default(0),
+  lifetimeSpent: integer("lifetime_spent").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+});
+
+/**
+ * Append-only credit movements. `delta` is signed (+grant, −spend);
+ * `balanceAfter` snapshots the wallet so the ledger reads as a statement.
+ * `idempotencyKey` makes a webhook-driven grant safe to redeliver.
+ */
+export const creditLedger = pgTable(
+  "credit_ledger",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    delta: integer("delta").notNull(),
+    reason: text("reason").$type<CreditLedgerReason>().notNull(),
+    balanceAfter: integer("balance_after").notNull().default(0),
+    /** Unique when present; a redelivered grant with the same key is skipped. */
+    idempotencyKey: text("idempotency_key"),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("credit_ledger_user_created_idx").on(t.userId, t.createdAt),
+    uniqueIndex("credit_ledger_idempotency_unique").on(t.idempotencyKey),
+  ],
+);
+
+/**
+ * One-time credit-pack purchases. Mirrors the Dodo payment so a redelivered
+ * `payment.succeeded` grants exactly once (`dodo_payment_id` unique).
+ */
+export const creditPurchases = pgTable(
+  "credit_purchases",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    dodoPaymentId: text("dodo_payment_id").notNull(),
+    packId: text("pack_id").notNull(),
+    usdCents: integer("usd_cents").notNull(),
+    credits: integer("credits").notNull(),
+    status: text("status").notNull().default("completed"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("credit_purchases_payment_unique").on(t.dodoPaymentId),
+    index("credit_purchases_user_idx").on(t.userId, t.createdAt),
+  ],
+);
+
 export const schema = {
   user,
   session,
@@ -2011,4 +2254,11 @@ export const schema = {
   bulkRecipients,
   campaignEvents,
   suppressionList,
+  billingAccounts,
+  subscriptions,
+  mailViewEvents,
+  mailSendEvents,
+  creditWallets,
+  creditLedger,
+  creditPurchases,
 };

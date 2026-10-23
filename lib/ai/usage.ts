@@ -2,6 +2,7 @@ import "server-only";
 
 import { nanoid } from "nanoid";
 
+import { chargeAiCredits } from "@/lib/billing/credits";
 import { aiUsageRepository } from "@/lib/repositories/ai-usage";
 
 /**
@@ -42,6 +43,9 @@ export const MODEL_PRICING_USD_PER_MILLION: ReadonlyArray<{
   output: number;
   cachedInput?: number;
 }> = [
+  { match: "deepseek-v4-pro", input: 0.28, output: 1.1, cachedInput: 0.07 },
+  { match: "deepseek-v4.1-flash", input: 0.2, output: 0.8, cachedInput: 0.05 },
+  { match: "deepseek", input: 0.14, output: 0.28, cachedInput: 0.014 },
   { match: "gpt-4o-mini", input: 0.15, output: 0.6, cachedInput: 0.075 },
   { match: "gpt-4o", input: 2.5, output: 10, cachedInput: 1.25 },
   { match: "claude-3-5-sonnet", input: 3, output: 15, cachedInput: 0.3 },
@@ -117,6 +121,18 @@ export async function recordAiUsage(input: AiUsageInput): Promise<void> {
       ok: input.ok ?? true,
       errorCode: input.errorCode ?? null,
     });
+
+    // Meter the call against the user's credit balance. Only successful calls
+    // spend; a failed call produced nothing to charge for.
+    if (input.ok !== false) {
+      await chargeAiCredits({
+        userId: input.userId,
+        feature: input.feature,
+        model: input.model,
+        promptTokens,
+        completionTokens,
+      });
+    }
   } catch (error) {
     console.warn("[ai/usage] failed to record usage", error);
   }

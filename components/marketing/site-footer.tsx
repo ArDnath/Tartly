@@ -62,7 +62,7 @@ export function SiteFooter({ className }: { className?: string }) {
             © {new Date().getFullYear()} Tartly. All rights reserved.
           </p>
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-            <span>Gmail + Google Calendar only</span>
+            <span>Gmail + Outlook + Google Calendar</span>
             <a
               href="mailto:support@tartly.app"
               className="rounded-md transition-colors outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"

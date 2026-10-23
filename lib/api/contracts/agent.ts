@@ -27,6 +27,8 @@ export const agentChatBody = z
     resumeActionId: z.string().min(1).max(64).optional(),
     currentThreadId: z.string().max(256).optional(),
     currentEmailId: z.string().max(256).optional(),
+    /** Composer toggle: allow the agent to search the public web this turn. */
+    webSearch: z.boolean().optional(),
   })
   .refine((value) => Boolean(value.resumeActionId || value.text?.trim()), {
     message: "A message or a resumeActionId is required.",

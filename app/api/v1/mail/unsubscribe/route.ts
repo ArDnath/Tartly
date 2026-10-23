@@ -11,7 +11,7 @@ import { performUnsubscribe } from "@/lib/ai/features/unsubscribe";
  * the mailto/link for the user to finish. The attempt is always logged.
  */
 
-export const POST = withUser(async (userId, request) => {
+export const POST = withUser({ requiresSubscription: true }, async (userId, request) => {
   const parsed = bodySchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) return apiError("bad_request", "Invalid request", 400);
 

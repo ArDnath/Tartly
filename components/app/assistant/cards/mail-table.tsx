@@ -1,6 +1,6 @@
 "use client";
 
-import { PaperclipIcon } from "lucide-react";
+import { PaperclipIcon, StarIcon } from "lucide-react";
 import { useMemo } from "react";
 
 import { useMailStore } from "@/components/app/mail/mail-store";
@@ -9,16 +9,19 @@ import { formatMailTime } from "@/lib/mail/format";
 import type { MailTag } from "@/lib/mail/types";
 import { cn } from "@/lib/utils";
 
-import { useOpenMailMessage } from "./email-ref";
+import { useOpenMailMessage, warmMailMessage } from "./email-ref";
 import { parseMailAddress } from "./shared";
 
 /** One compact mail line: who it's from, its title, and when. */
 export interface MailRowData {
   id?: string;
+  /** Gmail's conversation id, when the tool supplied it — enables a one-request open. */
+  threadId?: string;
   from?: string;
   subject?: string;
   date?: string;
   unread?: boolean;
+  starred?: boolean;
   hasAttachments?: boolean;
 }
 
@@ -83,6 +86,12 @@ function MailTableRow({
           >
             {row.subject || "(no subject)"}
           </span>
+          {row.starred ? (
+            <StarIcon
+              className="size-3 shrink-0 fill-warning text-warning"
+              aria-label="Starred"
+            />
+          ) : null}
           {row.hasAttachments ? (
             <PaperclipIcon
               className="size-3 shrink-0 text-mail-muted"
@@ -114,7 +123,9 @@ function MailTableRow({
   return (
     <button
       type="button"
-      onClick={() => row.id && openMessage(row.id)}
+      onClick={() => row.id && openMessage(row.id, row.threadId)}
+      onMouseEnter={() => warmMailMessage(row.id, row.threadId)}
+      onFocus={() => warmMailMessage(row.id, row.threadId)}
       title="Open in Mail"
       className={cn(
         layout,
@@ -208,10 +219,13 @@ export function mailRowFromRecord(record: Record<string, unknown>): MailRowData 
     : [];
   return {
     id: typeof record.id === "string" ? record.id : undefined,
+    threadId:
+      typeof record.threadId === "string" ? record.threadId : undefined,
     from: typeof record.from === "string" ? record.from : undefined,
     subject: typeof record.subject === "string" ? record.subject : undefined,
     date: typeof record.date === "string" ? record.date : undefined,
     unread: record.unread === true,
+    starred: record.starred === true,
     hasAttachments: attachments.length > 0,
   };
 }

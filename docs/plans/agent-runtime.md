@@ -822,7 +822,7 @@ timeout → emit events**. A denial throws and **never executes** `execute`.
 ### 20.1 Result design
 
 Small and structured. Never dump bodies unless asked. `search_emails` returns
-`{ id, threadId, from, subject, snippet, date, direction, unread, hasAttachments }`.
+`{ id, threadId, from, subject, snippet, date, direction, unread, starred, hasAttachments }`.
 Bodies are truncated and stamped `contentTrust: "untrusted-external-content"` plus a
 `contentNotice`. This is the progressive-retrieval contract: compact search first,
 `get_thread` only when detail is needed.
@@ -840,9 +840,10 @@ Bodies are truncated and stamped `contentTrust: "untrusted-external-content"` pl
 | `remove_label` | WRITE | EmailService | ✅ | |
 | `archive_email` | WRITE | EmailService | ✅ | remove `INBOX` (reversible) |
 | `mark_email_read` | WRITE | EmailService | ✅ | add/remove `UNREAD` |
+| `star_email` | WRITE | EmailService | ✅ | add/remove `STARRED` |
 | `search_contacts` | READ | ContactService | ✅ | from correspondents |
 | `get_contact` | READ | ContactService | ✅ | states below |
-| `delete_email` | EXTERNAL_SIDE_EFFECT | EmailService | ✅ | **trash only**, confirmation |
+| `delete_email` | EXTERNAL_SIDE_EFFECT | EmailService | ✅ | trash by default; `permanent` bypasses trash; confirmation |
 | `schedule_email` | EXTERNAL_SIDE_EFFECT | ScheduleService | ✅ | `scheduled_actions` + queue |
 | `send_email` | EXTERNAL_SIDE_EFFECT | SendService | ✅ | `send_ledger` idempotent |
 | `reply_to_email` | EXTERNAL_SIDE_EFFECT | SendService | ✅ | threaded via threadId + In-Reply-To |

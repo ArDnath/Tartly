@@ -112,6 +112,7 @@ export function groupConversations(
       participants,
       senderLine: participantLine(participants) || latest.from.name,
       box: latest.box,
+      ...(latest.provider ? { provider: latest.provider } : {}),
       tag: latest.tag,
       labels: [...new Set(threadMessages.flatMap((message) => message.labels))],
       replied: threadMessages.some((message) => message.replied),

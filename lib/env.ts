@@ -30,6 +30,18 @@ const envSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().min(1, "GOOGLE_CLIENT_ID is required"),
   GOOGLE_CLIENT_SECRET: z.string().min(1, "GOOGLE_CLIENT_SECRET is required"),
 
+  // Microsoft (Outlook / Microsoft 365) OAuth — optional. When blank the
+  // Outlook connect option is hidden and the app runs Google-only, exactly as
+  // before. Register the app in Entra ID and add the redirect URI
+  // `${BETTER_AUTH_URL}/api/auth/callback/microsoft`.
+  MICROSOFT_CLIENT_ID: z.string().min(1).optional(),
+  MICROSOFT_CLIENT_SECRET: z.string().min(1).optional(),
+  // "common" (default) works for both personal and work/school accounts.
+  MICROSOFT_TENANT_ID: z.string().min(1).optional(),
+  // Shown to the browser so the connect UI can offer Outlook. Must be "true"
+  // AND the server credentials set above for the option to be usable.
+  NEXT_PUBLIC_MICROSOFT_CONNECT_ENABLED: z.enum(["true", "false"]).optional(),
+
   // Upstash Redis (HTTP REST) — session secondary storage.
   UPSTASH_REDIS_REST_URL: z
     .string()
@@ -316,6 +328,46 @@ const envSchema = z.object({
   WEBHOOK_DRAIN_BATCH_SIZE: z.coerce.number().int().positive().optional(),
   // How long `autopilot_decisions` audit rows are retained.
   AUTOPILOT_DECISION_RETENTION_DAYS: z.coerce.number().int().positive().optional(),
+
+  /* --- Billing / paywall (Dodo Payments) --- */
+
+  // Dodo Payments API key. Server-only. When unset the billing layer runs in
+  // *simulation mode*: checkout renders an in-app mock that activates a
+  // subscription without contacting Dodo, so the whole paywall flow is testable
+  // before real keys exist.
+  DODO_PAYMENTS_API_KEY: z.string().min(1).optional(),
+  // Signing secret for the Dodo webhook endpoint. Required to verify events;
+  // without it the webhook route fails closed rather than trusting a payload.
+  DODO_PAYMENTS_WEBHOOK_KEY: z.string().min(1).optional(),
+  // Which Dodo environment the API key belongs to. Anything other than the
+  // literal "live_mode" resolves to test_mode, so a missing or misspelled value
+  // can never accidentally reach the live API.
+  DODO_PAYMENTS_ENVIRONMENT: z.enum(["test_mode", "live_mode"]).optional(),
+  // Subscription product ids from the Dodo dashboard (one per interval). When a
+  // product id is missing for the requested interval, checkout falls back to sim
+  // mode for that request rather than failing.
+  DODO_PRODUCT_MONTHLY: z.string().min(1).optional(),
+  DODO_PRODUCT_YEARLY: z.string().min(1).optional(),
+  // One-time credit-pack product ids (Dodo "one-time" products). A pack with no
+  // id is shown but cannot be purchased.
+  DODO_PRODUCT_CREDITS_STARTER: z.string().min(1).optional(),
+  DODO_PRODUCT_CREDITS_PLUS: z.string().min(1).optional(),
+  DODO_PRODUCT_CREDITS_PRO: z.string().min(1).optional(),
+  // Force simulation even when an API key is configured ("true" | "false").
+  BILLING_SIMULATION: z.enum(["true", "false"]).optional(),
+  // Opt-in to live Dodo mode. BOTH this and
+  // `DODO_PAYMENTS_ENVIRONMENT="live_mode"` must be set; otherwise the billing
+  // layer stays on the test host, so no real charge can be created. Set to
+  // "true" only when you are ready to accept production payments.
+  DODO_LIVE_MODE_ENABLED: z.enum(["true", "false"]).optional(),
+  // Lifetime free allowances. Default 5 each, matching the paywall spec.
+  FREE_MAIL_VIEW_LIMIT: z.coerce.number().int().positive().optional(),
+  FREE_MAIL_SEND_LIMIT: z.coerce.number().int().positive().optional(),
+  // Paywall allowlist: a comma-separated list of account emails that are
+  // actually gated. When empty (the default), EVERY account is gated and gets
+  // the free-tier limits. Set a list to gate only those accounts and treat
+  // everyone else as fully entitled (handy while building the product).
+  PAYWALL_GATED_EMAILS: z.string().default(""),
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -353,6 +405,35 @@ export const env = validateEnv();
  */
 export function isEmailOperatorEnabled(): boolean {
   return Boolean(env.GOOGLE_PUBSUB_TOPIC);
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Microsoft (Outlook) connection                                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Whether Microsoft OAuth is configured well enough to register the provider.
+ * Blank credentials leave the app Google-only; nothing degrades.
+ */
+export function isMicrosoftConfigured(): boolean {
+  return Boolean(env.MICROSOFT_CLIENT_ID && env.MICROSOFT_CLIENT_SECRET);
+}
+
+/** Concrete tenant for the Entra ID authority, defaulting to multi-tenant. */
+export function microsoftTenantId(): string {
+  return env.MICROSOFT_TENANT_ID ?? "common";
+}
+
+/**
+ * Whether the UI should offer the Outlook connect option. This is a *display*
+ * gate: the browser can only see the `NEXT_PUBLIC_*` flag, while the server
+ * separately requires real credentials via {@link isMicrosoftConfigured}.
+ */
+export function isMicrosoftConnectEnabled(): boolean {
+  return (
+    env.NEXT_PUBLIC_MICROSOFT_CONNECT_ENABLED === "true" &&
+    isMicrosoftConfigured()
+  );
 }
 
 /** OIDC audience for the Pub/Sub push, defaulting to the webhook URL. */
@@ -765,4 +846,147 @@ export function webhookDrainBatchSize(): number {
   const ceiling =
     Number.isFinite(rawMax) && rawMax > 0 ? rawMax : configured;
   return Math.max(1, Math.min(configured, ceiling));
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Billing / paywall                                                          */
+/* -------------------------------------------------------------------------- */
+
+export const DEFAULT_FREE_MAIL_VIEW_LIMIT = 5;
+export const DEFAULT_FREE_MAIL_SEND_LIMIT = 5;
+
+export function freeMailViewLimit(): number {
+  return env.FREE_MAIL_VIEW_LIMIT ?? DEFAULT_FREE_MAIL_VIEW_LIMIT;
+}
+
+export function freeMailSendLimit(): number {
+  return env.FREE_MAIL_SEND_LIMIT ?? DEFAULT_FREE_MAIL_SEND_LIMIT;
+}
+
+/** Dodo API-key prefixes that denote live mode (defense in depth). */
+const DODO_LIVE_KEY_PREFIX = "dodo_live_";
+
+/**
+ * True when a Dodo secret key is explicitly a live-mode key. The key we are
+ * given may be opaque (no `dodo_test_`/`dodo_live_` prefix), so this is only a
+ * secondary guard — the primary control is {@link dodoEnvironment}, which stays
+ * on the test host unless live mode is deliberately enabled.
+ */
+export function isDodoLiveKey(key: string | null | undefined): boolean {
+  return typeof key === "string" && key.startsWith(DODO_LIVE_KEY_PREFIX);
+}
+
+/** True when a Dodo secret key is an explicit test-mode key (`dodo_test_…`). */
+export function isDodoTestKey(key: string | null | undefined): boolean {
+  return typeof key === "string" && key.startsWith("dodo_test_");
+}
+
+/**
+ * Whether live Dodo mode is explicitly enabled. Both the environment selector
+ * and the explicit opt-in must agree, so neither a stray `live_mode` value nor a
+ * copied production key can silently start charging real cards.
+ */
+export function isDodoLiveModeAllowed(): boolean {
+  return (
+    env.DODO_PAYMENTS_ENVIRONMENT === "live_mode" &&
+    env.DODO_LIVE_MODE_ENABLED === "true"
+  );
+}
+
+/**
+ * The Dodo environment the SDK should target. Defaults to `test_mode`: a missing
+ * or unrecognized `DODO_PAYMENTS_ENVIRONMENT` can never select live.
+ */
+export function dodoEnvironment(): "test_mode" | "live_mode" {
+  return isDodoLiveModeAllowed() ? "live_mode" : "test_mode";
+}
+
+/**
+ * True when the billing layer has everything it needs to talk to Dodo. A
+ * missing product id for the requested interval degrades that request to
+ * simulation instead of failing.
+ *
+ * The paywall is locked to test mode: live mode requires an explicit opt-in
+ * ({@link isDodoLiveModeAllowed}), and a key that self-identifies as live
+ * (`dodo_live_…`) is refused otherwise.
+ */
+export function isDodoConfigured(): boolean {
+  if (env.BILLING_SIMULATION === "true") return false;
+  const key = env.DODO_PAYMENTS_API_KEY;
+  if (!key) return false;
+  if (isDodoLiveKey(key) && !isDodoLiveModeAllowed()) return false;
+  return true;
+}
+
+export function dodoApiKey(): string | undefined {
+  return env.DODO_PAYMENTS_API_KEY;
+}
+
+export function dodoWebhookKey(): string | undefined {
+  return env.DODO_PAYMENTS_WEBHOOK_KEY;
+}
+
+/** Dodo product id for an interval, if configured. */
+export function dodoProductId(interval: "month" | "year"): string | undefined {
+  return interval === "year"
+    ? env.DODO_PRODUCT_YEARLY
+    : env.DODO_PRODUCT_MONTHLY;
+}
+
+/** Dodo one-time product id for a credit pack, if configured. */
+export function dodoCreditProductId(packId: string): string | undefined {
+  switch (packId) {
+    case "starter":
+      return env.DODO_PRODUCT_CREDITS_STARTER;
+    case "plus":
+      return env.DODO_PRODUCT_CREDITS_PLUS;
+    case "pro":
+      return env.DODO_PRODUCT_CREDITS_PRO;
+    default:
+      return undefined;
+  }
+}
+
+/** The normalized paywall allowlist (lowercased, blanks removed). */
+export function paywallGatedEmails(): string[] {
+  return env.PAYWALL_GATED_EMAILS.split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+/**
+ * Whether an account is subject to the paywall. When the allowlist is empty,
+ * everyone is gated (the default before this feature existed); when it is set,
+ * only the listed emails are gated and everyone else is treated as entitled.
+ * An unknown email is gated rather than accidentally exempted.
+ */
+export function isPaywallGatedEmail(
+  email: string | null | undefined,
+): boolean {
+  const gated = paywallGatedEmails();
+  if (gated.length === 0) return true;
+  if (!email) return true;
+  return gated.includes(email.trim().toLowerCase());
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Billing test-mode guard                                                   */
+/* -------------------------------------------------------------------------- */
+
+// Emit a one-time, actionable warning when a key that self-identifies as live
+// is present but the test-mode lock is refusing it. Without this the failure is
+// silent (checkout just runs in simulation) and could be mistaken for a config
+// bug.
+if (
+  env.DODO_PAYMENTS_API_KEY &&
+  isDodoLiveKey(env.DODO_PAYMENTS_API_KEY) &&
+  !isDodoLiveModeAllowed() &&
+  env.BILLING_SIMULATION !== "true"
+) {
+  console.warn(
+    "[billing] A live Dodo key is configured, but the paywall is locked to " +
+      "test mode, so no real charge can be created. Set " +
+      'DODO_PAYMENTS_ENVIRONMENT="live_mode" and DODO_LIVE_MODE_ENABLED="true" ' +
+      "to accept production payments.",
+  );
 }

@@ -16,6 +16,8 @@ coverage
 .env
 .env.*
 !.env.example
+# Deployment config, rendered runtime env and deploy state are host-only.
+deploy
 
 # Local tooling / editor scratch
 .claude

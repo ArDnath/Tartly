@@ -45,23 +45,36 @@ export const ONBOARDING_COMPLETION_PATH = "/mail?welcome=1";
 export const GOOGLE_EMAIL_PROVIDER = "google";
 
 /**
+ * Google's restricted full-mailbox scope. It is the *only* grant that allows
+ * permanently deleting messages/threads, bypassing the trash —
+ * `gmail.modify` explicitly cannot do that. Requested so the app's
+ * "Delete forever" / "Empty trash" actions can work; every other action runs
+ * on the less permissive scopes below.
+ *
+ * https://developers.google.com/workspace/gmail/api/auth/scopes
+ */
+export const GOOGLE_PERMANENT_DELETE_SCOPE = "https://mail.google.com/";
+
+/**
  * Google scopes requested on the "sync your inbox" step.
  *
  * `gmail.modify` lets the operator read and label mail; `gmail.send` lets it
  * send replies that the user approved; `calendar.readonly` reads availability
- * and `calendar.events` writes meetings. These live outside the Better Auth
- * sign-in config so signing in never asks for inbox access — the user grants
- * it explicitly on this step.
+ * and `calendar.events` writes meetings; the full-mailbox scope adds permanent
+ * delete. These live outside the Better Auth sign-in config so signing in never
+ * asks for inbox access — the user grants it explicitly on this step.
  *
- * Note: Gmail scopes are Google *restricted* scopes. Until the OAuth app is
- * verified + CASA-approved it must stay in testing mode with explicit test
- * users; the plan does not depend on approval to be built or run.
+ * Note: Gmail scopes are Google *restricted* scopes, and
+ * {@link GOOGLE_PERMANENT_DELETE_SCOPE} is the most sensitive of them. Until the
+ * OAuth app is verified + CASA-approved it must stay in testing mode with
+ * explicit test users; the plan does not depend on approval to be built or run.
  */
 export const GOOGLE_CONNECT_SCOPES = [
   "https://www.googleapis.com/auth/gmail.modify",
   "https://www.googleapis.com/auth/gmail.send",
   "https://www.googleapis.com/auth/calendar.readonly",
   "https://www.googleapis.com/auth/calendar.events",
+  GOOGLE_PERMANENT_DELETE_SCOPE,
 ] as const;
 
 /**
@@ -100,3 +113,32 @@ export const GOOGLE_CONNECT_CALLBACK_PATH =
 
 /** Where Better Auth sends the user when the Google flow fails or is denied. */
 export const GOOGLE_CONNECT_ERROR_CALLBACK_PATH = "/onboarding?syncEmail=error";
+
+/* -------------------------------------------------------------------------- */
+/*  Connect / reconnect Outlook (Microsoft Graph) + reconnect destinations      */
+/* -------------------------------------------------------------------------- */
+
+/** Provider id persisted on the onboarding row when Outlook is connected. */
+export const MICROSOFT_EMAIL_PROVIDER = "microsoft";
+
+/**
+ * Where Better Auth lands after Outlook grants access during *onboarding*.
+ * Resuming onboarding is enough — the linked `account` row is the record.
+ */
+export const MICROSOFT_CONNECT_CALLBACK_PATH = "/onboarding";
+
+/** Where Better Auth sends the user when the onboarding Outlook flow fails. */
+export const MICROSOFT_CONNECT_ERROR_CALLBACK_PATH =
+  "/onboarding?syncEmail=error";
+
+/** The connected-accounts settings panel. */
+export const SETTINGS_ACCOUNTS_PATH = "/settings/accounts";
+
+/** Where the settings panel returns after connecting either provider. */
+export const SETTINGS_CONNECT_CALLBACK_PATH = SETTINGS_ACCOUNTS_PATH;
+export const SETTINGS_CONNECT_ERROR_CALLBACK_PATH =
+  "/settings/accounts?connect=error";
+
+/** Where a reconnect started from the mail client returns. */
+export const MAIL_RECONNECT_CALLBACK_PATH = "/mail";
+export const MAIL_RECONNECT_ERROR_CALLBACK_PATH = "/mail?connect=error";

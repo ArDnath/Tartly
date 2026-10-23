@@ -27,7 +27,7 @@ import type { ModelCandidate } from "@/lib/ai/model-chain";
 export const AI_BASE_URL =
   process.env.AI_BASE_URL ?? "https://opencode.ai/zen/v1";
 
-export const AI_MODEL_ID = process.env.AI_MODEL_ID ?? "space-bunny-free";
+export const AI_MODEL_ID = process.env.AI_MODEL_ID ?? "deepseek-v4-flash";
 
 /** Cheap model for triage/classification (falls back to AI_MODEL_ID). */
 export const AI_CLASSIFIER_MODEL_ID =

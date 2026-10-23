@@ -24,6 +24,10 @@ import { cn } from "@/lib/utils";
 import { TartlyAgentLogo } from "@/components/shared/brand/tartly-logo";
 import { ClickPowerUp } from "@/components/shared/evil-buttons/click-powerup";
 import { useMailStore } from "@/components/app/mail/mail-store";
+import {
+  openPaywall,
+  usePaywallStore,
+} from "@/components/app/paywall/paywall-store";
 import { mailInitials, parseAddressList } from "@/lib/mail/format";
 import type { MailDraft } from "@/lib/mail/types";
 import type { ComposerDraft } from "@/lib/agent/tools/deliver-composer-draft";
@@ -261,6 +265,12 @@ function ComposeForm({
       setStreamedMessages([]);
     },
     onError: (error) => {
+      if (String(error?.message ?? "").includes("payment_required")) {
+        openPaywall("ai");
+        setAiRunning(false);
+        setStreamedMessages([]);
+        return;
+      }
       setDraftError(readAiError(error));
       setAiRunning(false);
       setStreamedMessages([]);
@@ -321,6 +331,10 @@ function ComposeForm({
     body,
     ...(attachedIds.length ? { assetIds: attachedIds } : {}),
     ...(inlineIds.length ? { inlineImageIds: inlineIds } : {}),
+    // Preserve the reply context seeded when the composer opened, so an
+    // Outlook reply is still sent from Outlook rather than defaulting to Gmail.
+    ...(initial?.account ? { account: initial.account } : {}),
+    ...(initial?.threadId ? { threadId: initial.threadId } : {}),
   });
 
   const canSend = to.length > 0 || parseAddressList(toDraft).length > 0;
@@ -354,6 +368,12 @@ function ComposeForm({
    */
   const runAiWrite = () => {
     if (aiRunning) return;
+    // Writing a draft is an AI action; free users get the wall, not a request.
+    const entitlement = usePaywallStore.getState().entitlement;
+    if (entitlement && !entitlement.isSubscriber) {
+      openPaywall("ai");
+      return;
+    }
     const instruction =
       aiPrompt.trim() || "Write a fitting email for me.";
     const { text: existing, quote } = splitQuoted(body);

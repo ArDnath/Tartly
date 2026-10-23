@@ -2,8 +2,9 @@
 
 import { create } from "zustand";
 
+import { openPaywall, usePaywallStore } from "@/components/app/paywall/paywall-store";
 import * as mailApi from "@/lib/mail/client";
-import { errorMessage } from "@/lib/mail/client";
+import { errorMessage, MailApiError } from "@/lib/mail/client";
 import { conversationKey } from "@/lib/mail/conversations";
 import { parseAddressList } from "@/lib/mail/format";
 import {
@@ -79,6 +80,21 @@ const loadInFlight = new Set<string>();
  * so a manual "load more" never collapses into, or blocks, a concurrent refresh.
  */
 const loadMoreInFlight = new Set<string>();
+
+/**
+ * Conversations fetched ahead of a click — hovering an agent transcript mail row
+ * warms its thread so opening it lands with no round trip. The reader consumes
+ * an entry on open; a small cap keeps this from growing with the mailbox. Kept
+ * out of the store because it must never trigger a render.
+ */
+const warmedThreads = new Map<string, MailThread>();
+const WARMED_THREAD_LIMIT = 8;
+
+/** Threads with a warm fetch already running, so hover storms coalesce. */
+const warmThreadInFlight = new Set<string>();
+
+/** Message ids being resolved to a thread for warming. */
+const warmMessageInFlight = new Set<string>();
 
 /**
  * Fold a freshly fetched page into the union the store keeps.
@@ -177,6 +193,12 @@ interface MailState {
   loadingMore: boolean;
   status: "idle" | "loading" | "ready" | "error";
   error: string | null;
+  /**
+   * The server's error `code` for the last mailbox-load failure. Lets the list
+   * tell a dead Google grant (`gmail_not_connected`) — which a retry cannot
+   * fix — from a transient failure worth a "Try again".
+   */
+  errorCode: string | null;
   labels: string[];
   account: MailAddress | null;
 
@@ -220,6 +242,13 @@ interface MailState {
   openConversation: (threadId: string) => Promise<void>;
   /** Deep-link opener: resolve a message id to its conversation and open it. */
   openById: (id: string) => Promise<void>;
+  /**
+   * Warm a conversation the pointer/focus is near, without opening it. Best
+   * effort: the next `openConversation` for the same thread is instant.
+   */
+  prefetchThread: (threadId: string) => void;
+  /** Warm a conversation from a message id when its thread id is not known. */
+  prefetchMessage: (id: string) => void;
   closeConversation: () => void;
 
   toggleStar: (id: string) => void;
@@ -228,6 +257,10 @@ interface MailState {
   setRead: (ids: string[], read: boolean) => void;
   archive: (ids: string[]) => void;
   remove: (ids: string[]) => void;
+  /** Permanently delete messages (bypassing the trash). Irreversible. */
+  deleteForever: (ids: string[]) => void;
+  /** Permanently delete everything in the trash. */
+  emptyTrash: () => Promise<void>;
   restore: (ids: string[]) => void;
   snooze: (ids: string[], until: Date) => void;
   markSpam: (ids: string[], spam: boolean) => void;
@@ -263,6 +296,8 @@ function toOutgoing(draft: MailDraft): mailApi.OutgoingMail {
     ...(draft.inlineImageIds?.length
       ? { inlineImageIds: draft.inlineImageIds }
       : {}),
+    ...(draft.account ? { account: draft.account } : {}),
+    ...(draft.threadId ? { threadId: draft.threadId } : {}),
   };
 }
 
@@ -341,6 +376,70 @@ export const useMailStore = create<MailState>((set, get) => {
       ),
     }));
 
+  /**
+   * Apply a fetched conversation to the union and, when it is the thread on
+   * screen, to the reader. Reading it clears its unread state on the fetched
+   * copies so the reader and the list agree in the same frame.
+   */
+  const applyThread = (threadId: string, thread: MailThread) => {
+    const unreadIds = thread.messages
+      .filter((message) => message.unread)
+      .map((message) => message.id);
+    const messages = thread.messages.map((message) =>
+      unreadIds.includes(message.id) ? { ...message, unread: false } : message,
+    );
+    const normalized: MailThread = { ...thread, messages };
+
+    set((state) => {
+      const byId = new Map(state.messages.map((m) => [m.id, m]));
+      for (const message of messages) byId.set(message.id, message);
+      return {
+        messages: [...byId.values()],
+        ...(state.openThreadId === threadId
+          ? { thread: normalized, threadStatus: "ready" as const }
+          : {}),
+      };
+    });
+
+    if (unreadIds.length) confirm(() => mailApi.setRead(unreadIds, true));
+  };
+
+  /** Fetch a thread into the warm cache so a later open skips the network. */
+  const warmThread = async (threadId: string) => {
+    if (!threadId) return;
+    if (get().openThreadId === threadId) return; // already on screen
+    if (warmedThreads.has(threadId) || warmThreadInFlight.has(threadId)) return;
+    warmThreadInFlight.add(threadId);
+    try {
+      const thread = await mailApi.fetchThread(threadId);
+      warmedThreads.set(threadId, thread);
+      if (warmedThreads.size > WARMED_THREAD_LIMIT) {
+        const oldest = warmedThreads.keys().next().value;
+        if (oldest !== undefined) warmedThreads.delete(oldest);
+      }
+    } catch {
+      // Warming is an optimization; a failure here changes nothing.
+    } finally {
+      warmThreadInFlight.delete(threadId);
+    }
+  };
+
+  /** Resolve a message id to its thread, then warm that thread. */
+  const warmMessage = async (id: string) => {
+    const known = get().messages.find((message) => message.id === id);
+    if (known) return warmThread(conversationKey(known));
+    if (warmMessageInFlight.has(id)) return;
+    warmMessageInFlight.add(id);
+    try {
+      const full = await mailApi.fetchMessageBody(id);
+      await warmThread(conversationKey(full));
+    } catch {
+      // See `warmThread` — best effort only.
+    } finally {
+      warmMessageInFlight.delete(id);
+    }
+  };
+
   return {
     messages: [],
     pages: {},
@@ -348,6 +447,7 @@ export const useMailStore = create<MailState>((set, get) => {
     loadingMore: false,
     status: "idle",
     error: null,
+    errorCode: null,
     labels: [],
     account: null,
     prefetchSettled: false,
@@ -371,14 +471,14 @@ export const useMailStore = create<MailState>((set, get) => {
 
       // Local-only views have nothing to fetch; they read off the union.
       if (!request || (!force && key in get().pages)) {
-        if (get().status !== "ready") set({ status: "ready", error: null });
+        if (get().status !== "ready") set({ status: "ready", error: null, errorCode: null });
         return;
       }
 
       if (loadInFlight.has(key)) return;
       loadInFlight.add(key);
 
-      set({ status: "loading", error: null });
+      set({ status: "loading", error: null, errorCode: null });
       try {
         const { messages, labels, account, nextPageToken } =
           await mailApi.fetchMailbox(request);
@@ -406,6 +506,7 @@ export const useMailStore = create<MailState>((set, get) => {
         set({
           status: "error",
           error: errorMessage(error, "Couldn't load your mailbox"),
+          errorCode: error instanceof MailApiError ? error.code : null,
         });
       } finally {
         loadInFlight.delete(key);
@@ -466,7 +567,10 @@ export const useMailStore = create<MailState>((set, get) => {
           };
         });
       } catch (error) {
-        set({ error: errorMessage(error, "Couldn't load more mail") });
+        set({
+          error: errorMessage(error, "Couldn't load more mail"),
+          errorCode: error instanceof MailApiError ? error.code : null,
+        });
       } finally {
         loadMoreInFlight.delete(key);
         set({ loadingMore: false });
@@ -576,36 +680,26 @@ export const useMailStore = create<MailState>((set, get) => {
         threadStatus: "loading",
       });
 
+      // A hover-warmed thread skips the round trip entirely; the reader paints
+      // on the click. Consume it so a stale copy is never reused.
+      const warmed = warmedThreads.get(threadId);
+      if (warmed) warmedThreads.delete(threadId);
+
       try {
-        const thread = await mailApi.fetchThread(threadId);
-        // Reading the conversation clears its unread state; do it on the
-        // fetched copies so the reader and the list agree immediately.
-        const unreadIds = thread.messages
-          .filter((message) => message.unread)
-          .map((message) => message.id);
-        const messages = thread.messages.map((message) =>
-          unreadIds.includes(message.id)
-            ? { ...message, unread: false }
-            : message,
-        );
-        const normalized: MailThread = { ...thread, messages };
-
+        const thread = warmed ?? (await mailApi.fetchThread(threadId));
         // The user may have closed the reader or opened a different thread
-        // while this was in flight: still cache the messages, but never let a
-        // stale fetch hijack the screen.
-        set((state) => {
-          const byId = new Map(state.messages.map((m) => [m.id, m]));
-          for (const message of messages) byId.set(message.id, message);
-          return {
-            messages: [...byId.values()],
-            ...(state.openThreadId === threadId
-              ? { thread: normalized, threadStatus: "ready" as const }
-              : {}),
-          };
-        });
-
-        if (unreadIds.length) confirm(() => mailApi.setRead(unreadIds, true));
+        // while a fetch was in flight: `applyThread` still caches the messages
+        // but never lets a stale fetch hijack the screen.
+        applyThread(threadId, thread);
       } catch (error) {
+        // A paywall block is not an error state: surface the wall and leave the
+        // reader closed, rather than a red "couldn't open" banner behind it.
+        if (mailApi.isPaymentRequired(error)) {
+          openPaywall("mail_view");
+          void usePaywallStore.getState().refresh();
+          set({ openThreadId: null, thread: null, threadStatus: "idle" });
+          return;
+        }
         if (get().openThreadId === threadId) {
           set({
             threadStatus: "error",
@@ -636,10 +730,23 @@ export const useMailStore = create<MailState>((set, get) => {
             : [...state.messages, full],
         }));
         await get().openConversation(conversationKey(full));
-      } catch {
+      } catch (error) {
+        if (mailApi.isPaymentRequired(error)) {
+          openPaywall("mail_view");
+          void usePaywallStore.getState().refresh();
+          return;
+        }
         // Not a message id — fall back to treating it as a thread id.
         await get().openConversation(id);
       }
+    },
+
+    prefetchThread: (threadId) => {
+      void warmThread(threadId);
+    },
+
+    prefetchMessage: (id) => {
+      void warmMessage(id);
     },
 
     toggleStar: (id) => {
@@ -680,6 +787,61 @@ export const useMailStore = create<MailState>((set, get) => {
         () => mailApi.setTrashed(ids, true),
         () => mailApi.setTrashed(ids, false),
       ),
+
+    /**
+     * Permanent deletion, bypassing the trash. Irreversible: the rows leave the
+     * union for good and no Undo is offered (there is nothing to put back).
+     */
+    deleteForever: (ids) => {
+      const target = new Set(ids);
+      const { messages } = get();
+      const snapshot = messages.filter((message) => target.has(message.id));
+      if (!snapshot.length) return;
+      const closing = snapshot.some(
+        (message) => conversationKey(message) === get().openThreadId,
+      );
+      set({
+        messages: messages.filter((message) => !target.has(message.id)),
+        selectedIds: [],
+        undo: {
+          label:
+            ids.length > 1
+              ? `${ids.length} conversations deleted forever`
+              : "Conversation deleted forever",
+          // An empty snapshot is what tells the toast there is no Undo.
+          snapshot: [],
+        },
+        ...(closing
+          ? { openThreadId: null, thread: null, threadStatus: "idle" as const }
+          : {}),
+      });
+      confirm(() => mailApi.deleteMessages(ids));
+    },
+
+    /** Permanently delete every trashed message, then drop the trash cache. */
+    emptyTrash: async () => {
+      const { messages } = get();
+      const closing = messages.some(
+        (message) =>
+          message.box === "trash" &&
+          conversationKey(message) === get().openThreadId,
+      );
+      set({
+        messages: messages.filter((message) => message.box !== "trash"),
+        selectedIds: [],
+        undo: { label: "Trash emptied", snapshot: [] },
+        ...(closing
+          ? { openThreadId: null, thread: null, threadStatus: "idle" as const }
+          : {}),
+      });
+      try {
+        await mailApi.emptyTrash();
+        invalidate("view:trash");
+      } catch (error) {
+        set({ error: errorMessage(error, "Couldn't empty the trash") });
+        void get().load(true);
+      }
+    },
 
     restore: (ids) =>
       mutate(
@@ -750,6 +912,18 @@ export const useMailStore = create<MailState>((set, get) => {
      * threading Gmail assigned it rather than a locally invented row.
      */
     send: async (draft) => {
+      // Fail fast when the free send allowance is already spent: keep the
+      // composer open behind the paywall so the draft is not lost.
+      const entitlement = usePaywallStore.getState().entitlement;
+      if (
+        entitlement &&
+        !entitlement.isSubscriber &&
+        entitlement.free.mailSendsRemaining <= 0
+      ) {
+        openPaywall("mail_send");
+        return;
+      }
+
       set({ composeOpen: false, composeInitial: null });
       try {
         await mailApi.sendMail(toOutgoing(draft));
@@ -757,13 +931,28 @@ export const useMailStore = create<MailState>((set, get) => {
         // Sent now holds one more message than the cached page does; drop it so
         // opening Sent fetches rather than showing a stale list.
         invalidate("view:sent", "view:drafts");
+        void usePaywallStore.getState().refresh();
         await get().load(true);
       } catch (error) {
+        if (mailApi.isPaymentRequired(error)) {
+          openPaywall("mail_send");
+          void usePaywallStore.getState().refresh();
+          return;
+        }
         set({ error: errorMessage(error, "Couldn't send that message") });
       }
     },
 
     saveDraft: async (draft) => {
+      // Drafts live in Gmail; an Outlook reply has no Graph draft path here, so
+      // keep the composer open and say so rather than silently filing a Gmail
+      // draft the user never asked for.
+      if (draft.account === "outlook") {
+        set({
+          error: "Saving Outlook drafts isn't supported yet — send the message instead.",
+        });
+        return;
+      }
       set({ composeOpen: false, composeInitial: null });
       try {
         await mailApi.saveDraft(toOutgoing(draft));

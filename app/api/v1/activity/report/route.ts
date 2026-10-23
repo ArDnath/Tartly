@@ -14,7 +14,7 @@ export const GET = withUser(async (userId) => {
   return ok({ report, enabled: isInsightsEnabled() });
 });
 
-export const POST = withUser(async (userId) => {
+export const POST = withUser({ requiresSubscription: true }, async (userId) => {
   if (!isInsightsEnabled()) {
     return apiError("disabled", "Insights are disabled.", 403);
   }

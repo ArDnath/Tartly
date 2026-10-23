@@ -28,7 +28,7 @@ export const metadata: Metadata = {
 export default function PricingPage() {
   return (
     <div className="font-subtext relative isolate min-h-screen overflow-x-clip bg-[#0F0F0F]">
-      <Navbar />
+      <Navbar active="Pricing" />
       <main className="relative flex flex-1 flex-col overflow-x-hidden bg-[#0F0F0F] pt-32 md:pt-40">
         <PricingSection
           className="relative mx-auto w-full max-w-[1250px] px-6"

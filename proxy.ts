@@ -60,7 +60,13 @@ export async function proxy(request: NextRequest) {
   const isPublicPage = isAuthPage || PUBLIC_PATHS.has(pathname);
 
   if (!sessionCookie && !isPublicPage) {
-    return NextResponse.redirect(new URL("/auth", request.url));
+    // Preserve the intended destination (e.g. `/checkout?interval=year`) so the
+    // sign-in flow can return the user to it. `/auth` validates `next` as an
+    // in-app relative path before using it.
+    const next = `${pathname}${request.nextUrl.search}`;
+    return NextResponse.redirect(
+      new URL(`/auth?next=${encodeURIComponent(next)}`, request.url),
+    );
   }
 
   const mode = parseCspMode(process.env.CSP_MODE);

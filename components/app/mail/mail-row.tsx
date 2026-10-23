@@ -15,8 +15,10 @@ import {
 import { cn } from "@/lib/utils";
 import { useMailStore } from "@/components/app/mail/mail-store";
 import { formatMailTime } from "@/lib/mail/format";
+import { isTrashView } from "@/lib/mail/filter";
 import { conversationMessageIds } from "@/lib/mail/conversations";
 import { MailCheckbox } from "@/components/app/mail/mail-checkbox";
+import { MailAccountBadge } from "@/components/app/mail/mail-account-badge";
 import { MailTagBadge } from "@/components/app/mail/mail-tag-badge";
 import type { MailRowMenuHandle } from "@/components/app/mail/mail-row-menu";
 import type { MailAttachment, MailConversation } from "@/lib/mail/types";
@@ -89,7 +91,10 @@ function MailRowComponent({
   const openConversation = useMailStore((state) => state.openConversation);
   const archive = useMailStore((state) => state.archive);
   const remove = useMailStore((state) => state.remove);
+  const deleteForever = useMailStore((state) => state.deleteForever);
   const snooze = useMailStore((state) => state.snooze);
+  const filter = useMailStore((state) => state.filter);
+  const inTrash = isTrashView(filter);
 
   const ids = React.useMemo(
     () => conversationMessageIds(conversation),
@@ -102,6 +107,7 @@ function MailRowComponent({
 
   const sender = conversation.senderLine || "Unknown";
   const unread = conversation.unread;
+  const accountEmail = conversation.messages[0]?.accountEmail;
 
   // `data-popup-open` is set by Base UI only on the trigger that currently
   // owns the shared popover (see MailRowMenu) — never on the others. Reading
@@ -189,6 +195,11 @@ function MailRowComponent({
       </div>
 
       <div className="flex w-[112px] shrink-0 items-center gap-1 lg:w-[140px] xl:w-[168px]">
+        <MailAccountBadge
+          provider={conversation.provider}
+          accountEmail={accountEmail}
+          className="mr-0.5"
+        />
         <span
           className={cn(
             "min-w-0 flex-1 truncate text-[14px]",
@@ -290,9 +301,9 @@ function MailRowComponent({
             onClick={() => snooze(ids, tomorrowMorning())}
           />
           <RowAction
-            label="Delete"
+            label={inTrash ? "Delete forever" : "Delete"}
             icon={Trash2}
-            onClick={() => remove(ids)}
+            onClick={() => (inTrash ? deleteForever(ids) : remove(ids))}
           />
           <PopoverPrimitive.Trigger
             handle={menuHandle}

@@ -14,6 +14,7 @@ import type { UIMessage } from "ai";
 import { AiChatMessageList } from "@/components/app/ai-chat/ai-chat-message-list";
 import { useOptionalAiChat } from "@/components/app/ai-chat/ai-chat-provider";
 import { AgentChat } from "@/components/app/assistant/agent-chat";
+import { CreditMeterStrip } from "@/components/app/paywall/credit-meter";
 import {
   ASSISTANT_CLOSE_EVENT,
   ASSISTANT_OPEN_EVENT,
@@ -591,6 +592,10 @@ export function MailAgentPanel() {
                   <TooltipContent>Collapse assistant</TooltipContent>
                 </Tooltip>
               </div>
+              {/* The credit meter rides at the very top of the transcript — the
+                  agent's own run-rate, in view while it works, rather than in
+                  the app rail. */}
+              <CreditMeterStrip />
               {body}
             </div>
           ) : null}

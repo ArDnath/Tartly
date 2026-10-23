@@ -7,6 +7,16 @@
  * one map here means the two never drift.
  */
 export const SETTINGS_SECTIONS = {
+  billing: {
+    title: "Billing & credits",
+    subtitle:
+      "Your plan, renewal date, AI credits and payment history — all in one place.",
+  },
+  accounts: {
+    title: "Connected accounts",
+    subtitle:
+      "Connect or reconnect Gmail and Outlook — every inbox lands in one shared mail view.",
+  },
   calendar: {
     title: "Calendar",
     subtitle: "When your assistant may book time on your behalf.",

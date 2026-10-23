@@ -28,7 +28,7 @@ export const GET = withUser(async (userId) => {
   });
 });
 
-export const POST = withUser(async (userId, request) => {
+export const POST = withUser({ requiresSubscription: true }, async (userId, request) => {
   const parsed = bodySchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) return apiError("bad_request", "Invalid request", 400);
 

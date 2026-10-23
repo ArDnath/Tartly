@@ -14,7 +14,7 @@ export const GET = withUser(async (userId) => {
   return ok({ digest, enabled: isDigestEnabled() });
 });
 
-export const POST = withUser(async (userId, request) => {
+export const POST = withUser({ requiresSubscription: true }, async (userId, request) => {
   if (!isDigestEnabled()) {
     return apiError("disabled", "Digests are disabled.", 403);
   }

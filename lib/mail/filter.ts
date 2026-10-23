@@ -49,6 +49,11 @@ function matchesFilter(message: MailMessage, filter: MailFilter): boolean {
     : message.labels.includes(filter.value);
 }
 
+/** Whether the active filter is the Trash view — where "delete" is permanent. */
+export function isTrashView(filter: MailFilter): boolean {
+  return filter.kind === "view" && filter.value === "trash";
+}
+
 function matchesQuery(message: MailMessage, query: MailQuery): boolean {
   if (query.unreadOnly && !message.unread) return false;
   if (query.starredOnly && !message.starred) return false;
