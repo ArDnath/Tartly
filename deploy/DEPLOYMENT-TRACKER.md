@@ -257,6 +257,11 @@ Future deploys are `git pull --ff-only && bash deploy/scripts/deploy.sh`. The ho
 **Done:** storage caps at ingest (A8) — `body_text` 64 KiB / `body_html` 128 KiB, deployed `f1ed59a`. `AGENT_MAX_TOKENS_PER_RUN` already has a 200k default; per-user AI budget defaults to 500 calls/day.
 **Still to do:** (1) a 90-day hot window with archive/re-fetch; (2) strip base64 inline images without breaking rendering; (3) per-user stream cap (2–3) and global AI generation cap (50–100) with a queue; (4) founder sets `AI_GLOBAL_DAILY_BUDGET`. Do this as a tested code change, not an env tweak.
 
+### A16 — Rollback drill ✅
+**Owner:** agent · **Done:** 2026-10-23 19:32 UTC. `deploy/scripts/rollback.sh` now updates `.env`'s `TAG`, force-recreates web-1/web-2/worker, waits for both replicas to be healthy, verifies `/api/health/ready`, and **swaps** the current/previous pointers so the operation is reversible.
+**Evidence:** `f1ed59a → 1d44127` (ready 200) → `1d44127 → f1ed59a` (ready 200). Production is back on `f1ed59a`; `.deploy/previous-tag` is `1d44127`.
+**Note:** migrations are forward-only; this drill involved no schema change. A release with a destructive migration must use the pre-deploy dump instead.
+
 ---
 
 ## 5. Decisions log
@@ -362,6 +367,7 @@ Future deploys are `git pull --ff-only && bash deploy/scripts/deploy.sh`. The ho
 | 2026-10-23 19:20 | Edge smoke baseline | 🟡 | off-box autocannon from the workstation; see §7.1. Client uplink-bound at high concurrency; not a capacity proof |
 | 2026-10-23 19:24 | Body-cap change tested | ✅ | `tsc --noEmit` clean; changed-file eslint clean; `vitest` 273/273 (5 new body-cap tests) |
 | 2026-10-23 19:27 | Release `f1ed59a` | ✅ | migrations complete; web-1/web-2 healthy; worker up; Caddy reloaded; public ready 200; `.deploy/previous-tag` = `1d44127` |
+| 2026-10-23 19:32 | Rollback drill | ✅ | `rollback.sh` rewritten (updates `.env` TAG, swaps pointers, waits healthy, verifies ready); `f1ed59a → 1d44127` ready 200, then `1d44127 → f1ed59a` ready 200; production ends on `f1ed59a` |
 
 ### 7.1 Off-box edge smoke (2026-10-23 19:20 UTC)
 
@@ -452,6 +458,7 @@ script, a dedicated test session, and a generator with more upstream capacity.
 - [ ] External uptime monitor + backup heartbeat firing (`HEALTHCHECKS_*` empty)
 - [ ] Dodo test payment → webhook → entitlement verified
 - [x] Working tree committed; clean tag `f1ed59a` deployed
+- [x] Rollback drilled: `f1ed59a → 1d44127 → f1ed59a`, readiness 200 at each hop
 - [ ] Performance baseline recorded (§15)
 - [ ] Capacity model (§2.7) verified: 400 RPS and 2k SSE streams at p95 within SLO
 - [ ] Email-body lifecycle active; projected 90-day disk use < 60%
