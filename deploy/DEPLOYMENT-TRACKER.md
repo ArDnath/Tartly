@@ -172,29 +172,21 @@ Add:
 **Rollback:** `.deploy/previous-tag` = `83ccc5a`; `./scripts/rollback.sh`.
 
 ### A4 — R2 asset storage ⬜
-**Owner:** user provides credentials · **Then configure + verify:**
-
+**Owner:** user provides credentials · **Full procedure:** [`R2-SETUP.md`](./R2-SETUP.md).
+**Summary:** create private `tartly-assets`, CORS for `https://tartly.in` (`PUT,GET,HEAD`, headers `*`, expose `ETag`), token scoped to that bucket. Put `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET=tartly-assets`, `S3_REGION=auto`, `S3_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com` in the root `.env`, then `ASSETS_ENABLED=true`. `render-env.mjs` sets `ASSET_STORAGE_DRIVER=s3` automatically.
 ```bash
-# on server, edit /opt/tartly/deploy/app.env:
-#   ASSET_STORAGE_DRIVER=s3
-#   S3_BUCKET=tartly-assets
-#   S3_REGION=auto
-#   S3_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
-#   S3_ACCESS_KEY_ID=... S3_SECRET_ACCESS_KEY=...
 ssh deploy@201.18.197.194 'cd /opt/tartly/deploy && \
   docker compose --env-file .env up -d --no-deps --force-recreate web-1 web-2 worker'
 ```
-CORS on `tartly-assets`: origins `https://tartly.in`; methods `PUT, GET, HEAD`; headers `*`; expose `ETag`.
-Verify: upload a small attachment in the UI; `S3` object appears under `assets/<userId>/<sha>`.
+Verify: upload a small attachment in the UI; an object appears under `assets/<userId>/<sha>`; `GET /api/v1/assets/<id>/raw` returns it.
 
 ### A5 — Offsite backups + monitoring ⬜
-**Owner:** agent after R2 · **Then:**
-
+**Owner:** agent after R2 · **Full procedure:** [`R2-SETUP.md`](./R2-SETUP.md) §5.
+**Needs:** private `tartly-backups`, a token scoped to it, and **two** Healthchecks checks (readiness 1 min, backup 6 h + 1 h grace). Fill `/etc/tartly/backup.env` (`0600`).
 ```bash
-ssh deploy@201.18.197.194 'sudo nano /etc/tartly/backup.env'   # fill R2 + Healthchecks
 ssh deploy@201.18.197.194 'cd /opt/tartly/deploy && ./scripts/backup-postgres.sh'
 ```
-Verify: `rclone lsf r2:tartly-backups/postgres/` lists today's dump; Healthchecks shows the ping.
+Verify: `rclone lsf r2:tartly-backups/postgres/` lists today's dump; the backup check shows the ping. `HEALTHCHECKS_BACKUP_URL` is separate from `HEALTHCHECKS_URL` on purpose (the per-minute readiness probe would otherwise mask a missed backup). The backup script does not fall back: unset means no heartbeat, with a warning.
 
 ### A6 — Commit the working tree ✅
 **Owner:** agent · Done 2026-10-23 08:53 UTC. Two commits (`4dee51b` app snapshot, `633219b`/`83ccc5a` deploy docs), pushed to `ArDnath/Tartly`, fast-forwarded on the host via a git bundle, clean tag `83ccc5a` deployed. The pre-pull rsynced tree is retained as `stash@{0}` on the host.
@@ -433,6 +425,7 @@ Then future deploys are simply `git pull --ff-only && bash deploy/scripts/deploy
 | `deploy/RUNBOOK.md` | Day-2 commands, scaling notes, quick reference. |
 | `deploy/docker-compose.yml` | The stack. |
 | `deploy/Caddyfile` | Edge config. |
+| `deploy/R2-SETUP.md` | **Cloudflare R2 buckets, CORS, tokens, env and backup heartbeat.** |
 | `deploy/scripts/*` | Executable procedures referenced by the guide. |
 | `docs/SKILL-v2.md` | Backend production-readiness standard the app follows. |
 | `docs/runbooks/*` | App-specific incident runbooks (auto-send storm, poison job, etc.). |

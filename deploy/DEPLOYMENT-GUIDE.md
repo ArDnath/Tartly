@@ -1232,22 +1232,32 @@ Replay safety comes from the unique delivery id; duplicates are discarded.
 
 ### 10.4 Cloudflare R2 (assets + backups)
 
-Create private buckets:
+**Full step-by-step, including the console screens and troubleshooting: [`R2-SETUP.md`](./R2-SETUP.md).**
 
-- `tartly-assets` — attachments/uploads
-- `tartly-backups` — nightly dumps
+Create two **private** buckets:
 
-Create an API token with **Object Read & Write** on both. In `app.env`:
+- `tartly-assets` — attachments/uploads (browser presigned `PUT`)
+- `tartly-backups` — 6-hourly dumps
+
+Create **two least-privilege tokens** (do not reuse one token for both):
+
+| Token | Permission | Scope |
+| --- | --- | --- |
+| `tartly-app-assets` | Object Read & Write | `tartly-assets` |
+| `tartly-backups` | Object Read & Write | `tartly-backups` |
+
+In the repo-root `.env` (then render — do not hand-edit the server):
 
 ```dotenv
-ASSET_STORAGE_DRIVER=s3
 S3_BUCKET=tartly-assets
 S3_REGION=auto
 S3_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
 S3_ACCESS_KEY_ID=…
 S3_SECRET_ACCESS_KEY=…
-ASSET_BLOB_ACCESS=private
+ASSETS_ENABLED=true
 ```
+
+`render-env.mjs` sets `ASSET_STORAGE_DRIVER=s3` automatically when all three S3 values exist, and keeps `ASSET_BLOB_ACCESS=private`.
 
 CORS on `tartly-assets` (browser presigned PUT):
 
@@ -1263,7 +1273,7 @@ CORS on `tartly-assets` (browser presigned PUT):
 ]
 ```
 
-Why presigned: the browser streams bytes straight to R2; the app never buffers a large file and never proxies bandwidth. Keys are content-addressed per user (`assets/<userId>/<sha256>`), so identical uploads dedupe and cross-user guessing is infeasible.
+Why presigned: the browser streams bytes straight to R2; the app never buffers a large file and never proxies bandwidth. Keys are content-addressed per user (`assets/<userId>/<sha256>`), so identical uploads dedupe and cross-user guessing is infeasible. The bucket stays private; reads go through the authenticated app.
 
 For backups, fill `/etc/tartly/backup.env`:
 
@@ -1275,7 +1285,9 @@ RCLONE_CONFIG_R2_PROVIDER=Cloudflare
 RCLONE_CONFIG_R2_ACCESS_KEY_ID=…
 RCLONE_CONFIG_R2_SECRET_ACCESS_KEY=…
 RCLONE_CONFIG_R2_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
-HEALTHCHECKS_URL=https://hc-ping.com/<uuid>
+RCLONE_CONFIG_R2_REGION=auto
+HEALTHCHECKS_URL=https://hc-ping.com/<readiness-uuid>
+HEALTHCHECKS_BACKUP_URL=https://hc-ping.com/<backup-uuid>
 ```
 
 > The file is **sourced by bash**. Never put `<angle-bracket>` placeholders in a sourced value — bash treats `<` as redirection. Use empty values until you have real ones.
@@ -1289,11 +1301,16 @@ ssh deploy@201.18.197.194 'rclone lsf r2:tartly-backups/postgres/ | tail -3'
 
 ### 10.5 Healthchecks.io
 
-1. Create a check with period 1 minute and grace 2 minutes.
-2. Put the ping URL in `/etc/tartly/backup.env` as `HEALTHCHECKS_URL`.
-3. The same check is pinged by `healthcheck.sh` (readiness + disk) and by the nightly backup.
+Create **two** checks:
 
-Add a second, independent uptime monitor pointing at `https://tartly.in/api/health/ready` so a whole-host failure is still detected.
+| Name | Period | Grace | Pinged by |
+| --- | --- | --- | --- |
+| `Tartly readiness` | 1 minute | 2 minutes | `healthcheck.sh` (readiness + disk) |
+| `Tartly Postgres backup` | 6 hours | 1 hour | `backup-postgres.sh` |
+
+Keeping them separate matters: the per-minute readiness probe would otherwise keep the backup check green forever, so a missed dump would never alert. The backup script reads `HEALTHCHECKS_BACKUP_URL` and does **not** fall back: if it is unset, the backup heartbeat is disabled and the script prints a warning.
+
+Add an independent external uptime monitor pointing at `https://tartly.in/api/health/ready` so a whole-host failure is still detected.
 
 ### 10.6 ImageKit
 

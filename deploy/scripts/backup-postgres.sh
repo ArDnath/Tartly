@@ -18,7 +18,14 @@ REMOTE_KEEP_DAYS="${REMOTE_KEEP_DAYS:-30}"
 HC_URL="" RCLONE_REMOTE="" RCLONE_BUCKET=""
 # shellcheck disable=SC1091
 if [[ -f /etc/tartly/backup.env ]]; then . /etc/tartly/backup.env; fi
-HC_URL="${HEALTHCHECKS_URL:-}"
+# The readiness probe pings HEALTHCHECKS_URL every minute. The backup heartbeat
+# MUST be its own check (6 h period + grace): falling back to the readiness URL
+# would make a missed backup invisible, because every minute would look like a
+# ping. No separate URL means no heartbeat, with a loud warning.
+HC_URL="${HEALTHCHECKS_BACKUP_URL:-}"
+if [[ -z "$HC_URL" ]]; then
+  echo "  backup heartbeat disabled (HEALTHCHECKS_BACKUP_URL unset)" >&2
+fi
 RCLONE_REMOTE="${RCLONE_REMOTE:-r2}"
 RCLONE_BUCKET="${RCLONE_BUCKET:-tartly-backups}"
 
