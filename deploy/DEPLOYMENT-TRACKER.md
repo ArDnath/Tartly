@@ -5,7 +5,7 @@
 
 | Field | Value |
 | --- | --- |
-| Last updated | **2026-10-23 09:26 UTC** |
+| Last updated | **2026-10-23 09:55 UTC** |
 | Environment | Production (first node) |
 | Canonical origin | `https://tartly.in` |
 | Host | `srv2076028.hstgr.cloud` · `201.18.197.194` · Mumbai 2 |
@@ -14,7 +14,7 @@
 | Runtime | Docker 29.9.2 · Compose v5.6.1 |
 | Deployed tag | `83ccc5a` (clean tree) |
 | Data | 2 users · 2 connected accounts · 2 mailboxes · 3 threads · 3 messages |
-| Public traffic | **Not live yet** — Caddy intentionally stopped until DNS points here |
+| Public traffic | **LIVE** — apex + www resolve here; Let's Encrypt issued 08:45 UTC; readiness 200 over HTTPS |
 | Deployment guide | [`DEPLOYMENT-GUIDE.md`](./DEPLOYMENT-GUIDE.md) |
 | Ops runbook | [`RUNBOOK.md`](./RUNBOOK.md) |
 
@@ -41,11 +41,12 @@ HARD RULES
   failure-mode section in the guide.
 
 RESUME PROTOCOL: run §3 of the tracker verbatim.
-CURRENT BLOCKER: DNS apex A record for tartly.in still points at Hostinger
-parking (2.57.91.91), not 201.18.197.194.
-NEXT ACTION: after DNS resolves here, start Caddy and verify TLS (see §4, A1).
-OTHER USER GATES: Google OAuth redirect (A2), R2 credentials (A4),
-Dodo webhook key (stage 15), server deploy key (A11).
+CURRENT BLOCKER: none for public HTTPS. DNS apex + www now resolve to
+201.18.197.194 and Caddy is serving a valid Let's Encrypt cert.
+NEXT ACTION: patch the critical runtime advisories (next 16.3.5 RCE,
+dompurify XSS), then rotate BETTER_AUTH_SECRET after founder approval.
+OTHER USER GATES: Google OAuth redirect (A2/C1), R2 credentials (C2/D1),
+Dodo webhook key (C3), AI budget numbers (C5), GitHub deploy key (E1).
 ```
 
 ---
@@ -84,14 +85,14 @@ Dodo webhook key (stage 15), server deploy key (A11).
 | 9 | Data cutover from Neon | ✅ | counts match source (2/2/2/3/3) | — |
 | 10 | Rolling release (2 web replicas) | ✅ | `83ccc5a` 08:53 UTC; both healthy, worker started, counts 2/2/2/3/3 | — |
 | 11 | Backup + restore drill | ✅ | 101 KB dump; restore returned 2/2/3 | — |
-| 12 | DNS → this host | ⛔ | apex still `2.57.91.91` | **user action** |
-| 13 | TLS / Caddy / HTTP-3 | ⛔ | Caddy not started | stage 12 |
+| 12 | DNS → this host | ✅ | apex + www both `201.18.197.194`; verified from workstation + host, 2026-10-23 09:43 UTC | — |
+| 13 | TLS / Caddy / HTTP-3 | ✅ | Caddy up 09:44 UTC; LE certs for apex+www; HTTP/2 200, HTTP/3 OK, www→apex 308 | — |
 | 14 | Google OAuth redirect URIs | ⛔ | not yet added in Google Cloud | **user action** |
 | 15 | Dodo webhook + live/test payment | ⬜ | `DODO_PAYMENTS_WEBHOOK_KEY` empty | keys |
 | 16 | R2 asset storage + CORS | ⬜ | driver currently `vercel-blob`, no token → uploads disabled | **user creds** |
 | 17 | Offsite backups (R2) | ⬜ | local only, `HEALTHCHECKS_URL` empty | R2 |
 | 18 | External monitoring / alerts | ⬜ | health endpoint exists; no external check | user |
-| 19 | Security audit & dependency scan | 🟡 | host hardened; secret weak; no Trivy/npm audit run | — |
+| 19 | Security audit & dependency scan | 🟡 | host hardened (`passwordauthentication no`, UFW 22/80/443, fail2ban active); scans run 09:50 UTC — **1 CRITICAL runtime advisory in `next` 16.3.5 (RCE) + CRITICAL `dompurify` XSS** | patch release before announcing |
 | 20 | Performance baseline (k6) | ⬜ | not measured | — |
 | 21 | CI/CD (GHCR + Actions) | ⬜ | deploys are rsync + on-host build | — |
 | 22 | Scale plan (10k users → 1M RPS) | ✅ | guide §2.7, §6.9, §16.2b; decisions D11–D14 | — |
@@ -136,14 +137,10 @@ node -e "require('dns').promises.resolve4('tartly.in').then(console.log)"
 
 ## 4. Next actions (ordered, critical path first)
 
-### A1 — Start TLS after DNS ⛔ → ✅
-**Owner:** agent · **Precondition:** `dig +short tartly.in` = `201.18.197.194`
-
+### A1 — Start TLS after DNS ✅
+**Owner:** agent · **Done:** 2026-10-23 09:44 UTC. DNS returned `201.18.197.194` for apex and www, Caddy started, ACME issued both certificates on the first attempt.
+**Verified:** HTTP/2 200; ready 200 (`postgres up`, `redis up`); HSTS present; HTTP/3 OK; www → apex **308** (Caddyfile changed from `permanent` (301) to explicit `308` and reloaded).
 ```bash
-ssh deploy@201.18.197.194 'cd /opt/tartly/deploy && docker compose --env-file .env up -d caddy'
-# watch ACME
-ssh deploy@201.18.197.194 'cd /opt/tartly/deploy && docker compose --env-file .env logs -f --tail 50 caddy'
-# verify
 curl -sSI https://tartly.in | head -20
 curl -sS  https://tartly.in/api/health/ready
 curl -sSI https://www.tartly.in | grep -i '^location'
@@ -151,7 +148,7 @@ openssl s_client -connect tartly.in:443 -servername tartly.in </dev/null 2>/dev/
 ```
 **Expected:** `200` ready JSON; `308` www→apex; certificate issued by Let's Encrypt; HSTS present.
 
-### A2 — Google OAuth redirect ⛔ → ✅
+### A2 — Google OAuth redirect ⛔ → verify after founder adds it
 **Owner:** user (Google Cloud Console) · **Then verify:**
 
 ```bash
@@ -164,17 +161,15 @@ Add:
 - Redirect URI `https://tartly.in/api/auth/callback/google`
 - (If enabled) `https://tartly.in/api/auth/callback/microsoft`
 
-### A3 — Rotate `BETTER_AUTH_SECRET` 🔴 decision
-**Owner:** user decision · **Impact:** every stored Gmail/Outlook refresh token becomes undecryptable; users reconnect once. Sessions already need a fresh login after the domain change, so now is the cheapest moment.
+**2026-10-23 09:50 UTC:** callback currently returns `302` (route exists); the console-side allow-list entry still needs the founder. This is the last blocker for a real sign-in test.
 
-```bash
-# only after approval
-ssh deploy@201.18.197.194 'cd /opt/tartly/deploy && \
-  NEW=$(openssl rand -base64 32) && \
-  sed -i "s|^BETTER_AUTH_SECRET=.*|BETTER_AUTH_SECRET=\"$NEW\"|" app.env && \
-  docker compose --env-file .env up -d --no-deps --force-recreate web-1 web-2 worker'
-```
-Verify: no low-entropy warning in logs; sign-in works; Gmail reconnect prompt is expected.
+### A3 — Rotate `BETTER_AUTH_SECRET` 🔴 awaiting founder approval
+**Owner:** user decision · **Impact:** every stored Gmail/Outlook refresh token becomes undecryptable; users reconnect once. Sessions already need a fresh login after the domain change, so now is the cheapest moment.
+**Done by agent when approved:** edit repo-root `.env`, `node deploy/scripts/render-env.mjs https://tartly.in`, copy rendered files, rolling recreate web-1/web-2/worker. Never print the value.
+
+### A3b — Patch critical runtime advisories 🔴 agent, tested build
+**Owner:** agent · **Why:** `npm audit` + Trivy on `83ccc5a` found a CRITICAL unauthenticated RCE advisory in `next@16.3.5` (plus `next/og` RCE, `use cache` RCE, Image Optimizer SSRF) and a CRITICAL `dompurify` XSS advisory. `next@16.4.2` is the patched release in the current line.
+**Procedure:** bump in a branch → `npm ci`/tests/build → new clean tag → rolling deploy with `deploy.sh` → re-scan → rollback target `83ccc5a` if the smoke test fails. Do not auto-upgrade anything else in the same change.
 
 ### A4 — R2 asset storage ⬜
 **Owner:** user provides credentials · **Then configure + verify:**
@@ -302,6 +297,8 @@ Then future deploys are simply `git pull --ff-only && bash deploy/scripts/deploy
 | Unbounded AI/SSE concurrency | OOM, provider 429 storms | medium | per-user 2–3 streams, global 50–100 generations, queue | ⬜ |
 | Gmail/AI provider quotas at 10k | sync/send/draft failures | medium | quota math in guide §16.2b; backoff + fallback chain | ⬜ |
 | Dodo webhook unverified | paid orders not activated | medium | configure before enabling live mode | ⬜ |
+| **Critical runtime advisories (`next` 16.3.5 RCE, `dompurify` XSS)** | remote compromise / stored XSS | **high** while public | patch to `next@16.4.2` + current `dompurify` via tested build (A3b) | 🔴 |
+| No offsite backup / RPO 24 h | host loss = total loss | medium | A5 + A9 | ⬜ |
 
 ---
 
@@ -327,6 +324,14 @@ Then future deploys are simply `git pull --ff-only && bash deploy/scripts/deploy
 | 2026-10-23 08:56 | Host state after deploy | ✅ | disk 22/96 GB (build cache 5.8 GB); all containers healthy/idle |
 | 2026-10-23 09:22 | Env wiring audit | ✅ | PG `postgres:5432/tartly` + Redis `redis-http:80`; passwords/tokens match; client bundle has `tartly.in`, no `localhost` |
 | 2026-10-23 09:24 | Launch defaults applied | ✅ | `AUTOPILOT_ENABLED=false`, `ASSETS_ENABLED=false`; `TAG=83ccc5a`; web-1/web-2 healthy, ready 200 |
+| 2026-10-23 09:43 | Resume protocol | ✅ | host up 2h52m; 6 containers up; ready 200 (pg 10 ms, redis 7 ms); no error/fatal/panic in 30 m; RAM 1.6/7.7 GiB; disk 22/96 GB |
+| 2026-10-23 09:43 | DNS cutover verified | ✅ | `resolve4('tartly.in')` and `www` both `201.18.197.194`; host public IP `201.18.197.194` |
+| 2026-10-23 09:44 | Caddy started + ACME | ✅ | `certificate obtained successfully` for `tartly.in` and `www.tartly.in`; account `acct/3899380782` |
+| 2026-10-23 09:44 | Public edge verification | ✅ | apex HTTP/2 `200`; HSTS `max-age=63072000`; ready `200` pg+redis up; HTTP/3 OK; http→https `308` |
+| 2026-10-23 09:46 | www redirect corrected | ✅ | Caddyfile `permanent` (301) → explicit `308`; reloaded; `HTTP/2 308 location: https://tartly.in/` |
+| 2026-10-23 09:49 | SSH/firewall re-audit | ✅ | UFW active (22/80/443 + 443/udp); fail2ban sshd 0 banned; `passwordauthentication no`, `permitrootlogin prohibit-password`; clock synced |
+| 2026-10-23 09:50 | Dependency audit | 🔴 | `npm audit`: 38 (2 critical, 15 high). Critical: `next` RCE advisories, `dompurify` XSS. Prod-relevant highs: `sharp`, `source-map-js` |
+| 2026-10-23 09:51 | Image scan (`83ccc5a`) | 🔴 | web `57` (56 H, 1 C) / worker `26` (25 H, 1 C); criticals include `next` GHSA-2464 (RCE) and Debian `zlib1g` (will_not_fix). Dev-only noise excluded from decisions |
 
 ---
 

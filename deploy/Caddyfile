@@ -32,5 +32,7 @@
 }
 
 www.{$TARTLY_DOMAIN} {
-	redir https://{$TARTLY_DOMAIN}{uri} permanent
+	# 308 (not Caddy's `permanent` alias, which is 301): method-preserving and
+	# stable for OAuth state cookies, and matches the launch gate.
+	redir https://{$TARTLY_DOMAIN}{uri} 308
 }
