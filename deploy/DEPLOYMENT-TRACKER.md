@@ -5,7 +5,7 @@
 
 | Field | Value |
 | --- | --- |
-| Last updated | **2026-10-23 09:00 UTC** |
+| Last updated | **2026-10-23 09:26 UTC** |
 | Environment | Production (first node) |
 | Canonical origin | `https://tartly.in` |
 | Host | `srv2076028.hstgr.cloud` · `201.18.197.194` · Mumbai 2 |
@@ -77,7 +77,7 @@ Dodo webhook key (stage 15), server deploy key (A11).
 | 2 | Host bootstrap (OS, Docker, swap, sysctl) | ✅ | `bootstrap.sh` exit 0, 2026-10-23 07:38 | — |
 | 3 | SSH hardening (key-only) | ✅ | `sshd -T`: `passwordauthentication no` | — |
 | 4 | Firewall, fail2ban, upgrades, time | ✅ | UFW active; 22/80/443 only; fail2ban 0 banned | — |
-| 5 | Secrets & environment | 🟡 | `app.env` 39 vars, 0600; schema validated at boot | 🔴 secret rotation |
+| 5 | Secrets & environment | 🟡 | `app.env` 41 vars, 0600; schema validates; autopilot/assets explicitly off; **secret still 19 chars** | 🔴 secret rotation + missing launch keys (A12) |
 | 6 | Postgres 18 + Redis + Upstash shim | ✅ | both healthy; ready=200 | — |
 | 7 | Image build (web + worker) | ✅ | tag `83ccc5a`; clean git tree; runner + worker built | — |
 | 8 | Migrations (26) | ✅ | `db:migrate` complete | — |
@@ -235,6 +235,27 @@ ssh deploy@201.18.197.194 'ssh -T git@github.com'
 ```
 Then future deploys are simply `git pull --ff-only && bash deploy/scripts/deploy.sh`.
 
+### A12 — Complete the launch env 🟡
+**Owner:** user (values) + agent (apply) · **Source of truth is the repo-root `.env`**, not the server file. Edit it, run `node deploy/scripts/render-env.mjs https://tartly.in`, copy `deploy/app.env` + `deploy/.env` to the host, then recreate web/worker. Never paste secrets into chat.
+
+**Verified correct (2026-10-23 09:20 UTC):** `DATABASE_URL` → `postgres:5432/tartly` and its password matches `.env`; Redis → `redis-http:80` and its token matches; `BETTER_AUTH_URL`/`PUBLIC_URL` → `https://tartly.in`; the client bundle contains `tartly.in` and zero `localhost:3000`; Dodo is `test_mode` with live disabled; CSP is report-only; contract validation is enforce. `TAG` is now the deployed tag, not `latest`.
+
+| Missing / weak | Where | Needed for | Owner |
+| --- | --- | --- | --- |
+| `BETTER_AUTH_SECRET` is **19 chars** | root `.env` → render | security; rotate to 32+ random bytes | user approval (A3) |
+| `DODO_PAYMENTS_WEBHOOK_KEY` empty | root `.env` | paid orders → entitlements | user (Dodo dashboard) |
+| `S3_*` + `ASSET_STORAGE_DRIVER=s3` + `ASSETS_ENABLED=true` | root `.env` | uploads (currently explicitly disabled) | user (R2) |
+| `GOOGLE_PUBSUB_TOPIC`, `GOOGLE_PUBSUB_AUDIENCE` | root `.env` | real-time Gmail/Outlook sync | user (Google Cloud) |
+| `AI_GLOBAL_DAILY_BUDGET`, `AI_DAILY_BUDGET`, `AGENT_MAX_TOKENS_PER_RUN` | root `.env` | platform cost ceiling | user picks number |
+| `DODO_PRODUCT_CREDITS_STARTER/PLUS/PRO` | root `.env` | credit packs | user (Dodo) |
+| `MICROSOFT_CLIENT_ID/SECRET/TENANT_ID` + `NEXT_PUBLIC_MICROSOFT_CONNECT_ENABLED` | root `.env` + `deploy/.env` (build) | Outlook | user (Entra) |
+| `NEXT_PUBLIC_CAL_BOOKING_LINK`, `NEXT_PUBLIC_BOOKING_URL`, `NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION` | root `.env` | booking / SEO (optional) | user |
+| `CSP_MODE=enforce`, `CSP_REPORT_URI` | root `.env` | security hardening | agent after burn-in |
+| `HEALTHCHECKS_URL`, `RCLONE_*` | `/etc/tartly/backup.env` | offsite backup + heartbeat | user (A5) |
+| Deploy key | GitHub repo settings | `git pull` on the host | user (A11) |
+
+**Deliberately empty and fine:** `DATABASE_REPLICA_URL` (no replica), `BLOB_READ_WRITE_TOKEN` (not using Vercel Blob), `ASSET_EXTRACT_KEY`/`CLAMAV_HOST` (scanning/extraction off), `AI_PROVIDER` (uses `AI_BASE_URL`/`OPENCODE_*`), `CAMPAIGNS_ENABLED`/`SEMANTIC_SEARCH_ENABLED` (ship off).
+
 ---
 
 ## 5. Decisions log
@@ -250,12 +271,14 @@ Then future deploys are simply `git pull --ff-only && bash deploy/scripts/deploy
 | D7 | Cloudflare proxy | DNS-only vs proxied | **DNS-only initially** (free plan 100 s cap truncates SSE) | ✅ |
 | D8 | `BETTER_AUTH_SECRET` | preserve vs rotate | **preserve** until user approves rotation | 🔴 |
 | D9 | Hostinger daily backups | buy vs rely on dumps | rely on nightly dumps + weekly snapshot | 🟡 |
-| D10 | Autopilot at launch | on vs off | env unset (default off); revisit per user | ⚠️ |
+| D10 | Autopilot at launch | on vs off | **`AUTOPILOT_ENABLED=false` explicitly** — unset means allowed at the env level (per-mailbox policies still default off) | ✅ |
 | D11 | Workload target | 10k users vs 10k concurrent RPS | **10k active users**: ~1–2k peak concurrent sessions, ≤400 API RPS. 10k simultaneous requests is Stage C, not this box | ✅ |
 | D12 | Data placement at 10k | local vs managed Postgres/Redis | **local Postgres 18 + local Redis** until a trigger fires (guide §6.9: 2nd app node, DB >20 GB, CPU >60%, RPO <24 h) | ✅ |
 | D13 | Email body storage | PG forever vs trim + archive | **trim HTML at ingest, ~90-day hot window, archive/re-fetch older bodies** — measured ~32 kB/message makes 100 GB the binding constraint | 🟡 |
 | D14 | Backup RPO at 10k | 24 h dumps vs PITR | **24 h now; 6 h dumps or WAL/PITR before 10k users** | 🟡 |
 | D15 | Deploy provenance | dirty rsync vs git tag | **clean tag `83ccc5a`**; git history + host deploy key next (A11) | ✅ |
+| D16 | Launch feature defaults | implicit vs explicit | **`ASSETS_ENABLED=false` until R2 is configured; `AUTOPILOT_ENABLED=false`** | ✅ |
+| D17 | Env source of truth | server `app.env` vs repo-root `.env` | **repo-root `.env` → `render-env.mjs` → copy `app.env` + `.env`**; never hand-edit the server | ✅ |
 
 ---
 
@@ -302,6 +325,8 @@ Then future deploys are simply `git pull --ff-only && bash deploy/scripts/deploy
 | 2026-10-23 08:54 | Post-deploy readiness | ✅ | `200 {"status":"ready","postgres":{"up":34ms},"redis":{"up":23ms}}` |
 | 2026-10-23 08:54 | Data counts | ✅ | 2 users / 2 accounts / 2 mailboxes / 3 threads / 3 messages |
 | 2026-10-23 08:56 | Host state after deploy | ✅ | disk 22/96 GB (build cache 5.8 GB); all containers healthy/idle |
+| 2026-10-23 09:22 | Env wiring audit | ✅ | PG `postgres:5432/tartly` + Redis `redis-http:80`; passwords/tokens match; client bundle has `tartly.in`, no `localhost` |
+| 2026-10-23 09:24 | Launch defaults applied | ✅ | `AUTOPILOT_ENABLED=false`, `ASSETS_ENABLED=false`; `TAG=83ccc5a`; web-1/web-2 healthy, ready 200 |
 
 ---
 

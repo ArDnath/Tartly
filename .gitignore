@@ -35,6 +35,7 @@ yarn-error.log*
 !.env.example
 # rendered production runtime env + deploy state
 /deploy/app.env
+/deploy/app.env.bak*
 /deploy/.deploy/
 /deploy/build.env
 

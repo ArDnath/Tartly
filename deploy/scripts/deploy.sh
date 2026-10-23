@@ -51,6 +51,14 @@ if [[ -f .deploy/current-tag ]]; then
 fi
 echo "$TAG" >.deploy/current-tag
 
+# Keep manual `docker compose` commands on the same image as the release.
+# Without this, .env's TAG=latest could start a stale/nonexistent image.
+if grep -q '^TAG=' .env; then
+  sed -i "s|^TAG=.*|TAG=${TAG}|" .env
+else
+  printf '\nTAG=%s\n' "$TAG" >>.env
+fi
+
 wait_healthy() {
   local service=$1 id status
   id=$("${COMPOSE[@]}" ps -q "$service")
