@@ -43,10 +43,11 @@ HARD RULES
 
 RESUME PROTOCOL: run §3 of the tracker verbatim.
 CURRENT BLOCKER: none for public HTTPS. Site is live on `f1ed59a`.
-NEXT ACTION: founder-gated items only — Google OAuth console allow-list + real
-sign-in smoke test (unblocks CSP enforce), Dodo webhook key + test payment,
-Healthchecks/R2 monitoring URLs, AI daily budgets, Pub/Sub topic if in scope.
-Agent-side work remaining: email-body lifecycle (A8) and AI/SSE concurrency caps.
+NEXT ACTION: founder-gated items only — a real Google sign-in/Gmail-connect smoke
+test (unblocks CSP enforce and the R2 UI finalize), Dodo webhook key + test
+payment, Healthchecks/R2 monitoring URLs, AI daily budgets, Pub/Sub topic if in
+scope. Agent-side work remaining: email-body retention (A8) and AI/SSE
+concurrency caps (A15).
 ```
 
 ---
@@ -87,19 +88,19 @@ Agent-side work remaining: email-body lifecycle (A8) and AI/SSE concurrency caps
 | 11 | Backup + restore drill | ✅ | offsite dump in R2 + SHA-256 match; scratch restore 1 s, counts 3/3/3/4/4 | — |
 | 12 | DNS → this host | ✅ | apex + www `201.18.197.194`, TTL 300; verified 2026-10-23 19:11 UTC | — |
 | 13 | TLS / Caddy / HTTP-3 | ✅ | LE cert notAfter 2027-01-21; HTTP/2 200; www→apex 308; `alt-svc: h3` | — |
-| 14 | Google OAuth redirect URIs | ⛔ | callback 302; sign-in initiation 200 | **user action**: add console allow-list + smoke login |
+| 14 | Google OAuth redirect URIs | 🟡 | Google login page returns 200 for the production client with no `redirect_uri_mismatch`; console allow-list is in place. End-to-end sign-in + consent screen + Gmail connect still need the founder | founder login |
 | 15 | Dodo webhook + live/test payment | ⬜ | `DODO_PAYMENTS_WEBHOOK_KEY` empty (route 400, fails closed) | keys |
-| 16 | R2 asset storage + CORS | 🟡 | driver `s3`; bucket reachable with app creds; CORS preflight 204 for `https://tartly.in` (PUT/GET/HEAD); UI upload pending a signed-in session | founder smoke test |
+| 16 | R2 asset storage + CORS | ✅ | driver `s3`; `npm run verify:r2` passed PUT/HEAD/GET/DELETE + CORS 204 + presigned PUT 200 against `tartly-assets`; authenticated UI upload is an optional founder smoke test | — |
 | 17 | Offsite backups (R2) | 🟡 | 6-hourly cron + manual run verified in `r2:tartly-backups/postgres/`; `HEALTHCHECKS_*` still empty | Healthchecks URLs |
 | 18 | External monitoring / alerts | 🟡 | local `healthcheck.sh` every minute now covers readiness + disk 60/75/85 + RAM 80/90 + cert <30/<14 d; **no external heartbeat or uptime monitor** (`HEALTHCHECKS_*` empty) | user |
-| 19 | Security audit & dependency scan | 🟡 | host hardened; `npm audit` criticals 0 / highs 2 (dev-only linkify via ansi-to-react); web image 1 CRITICAL (`zlib1g` will_not_fix); worker 4 (Go stdlib inside esbuild — dev tool) | accepted / document |
+| 19 | Security audit & dependency scan | 🟡 | host hardened; `npm audit --omit=dev`: 2 high + 8 moderate, all in `linkify-it` via `ansi-to-react` — **not reachable**: the only `<Ansi>` usage omits `linkify`, whose default is `false`; web image 1 CRITICAL (`zlib1g` will_not_fix); worker 4 (Go stdlib inside esbuild — dev tool) | accepted / document |
 | 20 | Performance baseline (k6) | 🟡 | off-box edge smoke recorded (§7.1); authenticated 400 RPS / 2k SSE baseline still needs a dedicated Google test account | test account |
 | 21 | CI/CD (GHCR + Actions) | ⬜ | deploys are rsync + on-host build; host Git deploy key now works | — |
 | 22 | Scale plan (10k users → 1M RPS) | ✅ | guide §2.7, §6.9, §16.2b; decisions D11–D14 | — |
 | 23 | 10k-user capacity + storage lifecycle | 🟡 | `body_text` capped 64 KiB / `body_html` 128 KiB at ingest (5 tests); 90-day archive/re-fetch still not implemented (A8) | retention job |
 | 24 | Clean git baseline / reproducible deploy | ✅ | `f1ed59a` image from clean tree; host HEAD `f1ed59a`; host deploy key authenticates to GitHub | — |
 
-**Launch gate:** stages 12 and 13 are ✅ and the site is already serving. Stages 14 (Google console allow-list + real sign-in) and 16 (R2 presigned upload) must be ✅ — or 16 explicitly waived — before the domain is announced.
+**Launch gate:** stages 12, 13, 14 (console) and 16 are ✅ and the site is already serving. The remaining stage-14 step is the founder's real sign-in + Gmail connect, which also gates CSP enforce.
 
 ---
 
@@ -150,20 +151,12 @@ openssl s_client -connect tartly.in:443 -servername tartly.in </dev/null 2>/dev/
 ```
 **Expected:** `200` ready JSON; `308` www→apex; certificate issued by Let's Encrypt; HSTS present.
 
-### A2 — Google OAuth redirect ⛔ → verify after founder adds it
-**Owner:** user (Google Cloud Console) · **Then verify:**
-
+### A2 — Google OAuth redirect 🟡 → end-to-end verify
+**Owner:** founder login · **Console state (verified 2026-10-23 19:39 UTC):** following `POST /api/auth/sign-in/social` → `accounts.google.com` returns **HTTP 200** with a "Sign in" page and no `redirect_uri_mismatch` / `invalid_client`. The allow-list entry for `https://tartly.in/api/auth/callback/google` is therefore live.
+**Still needed:** a real sign-in and Gmail connect. If the consent screen is still in "Testing", only listed test users can complete it; publish the app or add the founder as a test user. Google verification is also what stops refresh tokens expiring after 7 days.
 ```bash
-curl -sS -o /dev/null -w '%{http_code}\n' 'https://tartly.in/api/auth/callback/google'
+curl -sS -o /dev/null -w '%{http_code}\n' 'https://tartly.in/api/auth/callback/google'   # 302/400, not 404
 ```
-Expected: `302`/`400` from the provider exchange — *not* `404`. Then sign in end-to-end in a browser.
-
-Add:
-- JS origin `https://tartly.in`
-- Redirect URI `https://tartly.in/api/auth/callback/google`
-- (If enabled) `https://tartly.in/api/auth/callback/microsoft`
-
-**2026-10-23 09:50 UTC:** callback currently returns `302` (route exists); the console-side allow-list entry still needs the founder. This is the last blocker for a real sign-in test.
 
 ### A3 — Rotate `BETTER_AUTH_SECRET` ✅
 **Owner:** agent · **Done:** before 2026-10-23 18:57 UTC (observed in the running `1d44127` containers; the 19-char value is gone).
@@ -177,11 +170,14 @@ Add:
 **Evidence:** `tsc --noEmit` clean; 267/267 unit tests pass; web + worker images build; rolling deploy healthy; public ready 200; web-image CRITICALs 3 → 1 (`zlib1g`, Debian `will_not_fix`). Lint still reports one pre-existing error in untouched `components/marketing/landing/home-content.tsx` (`react-hooks/set-state-in-effect`) — recorded, not fixed in the security change.
 **Rollback:** `.deploy/previous-tag` = `1d44127`; `./scripts/rollback.sh`.
 
-### A4 — R2 asset storage 🟡 (bucket + CORS verified; UI upload pending sign-in)
+### A4 — R2 asset storage ✅
 **Owner:** user provides credentials · **Full procedure:** [`R2-SETUP.md`](./R2-SETUP.md).
-**Current state (2026-10-23 19:08 UTC):** `ASSET_STORAGE_DRIVER=s3`, `ASSETS_ENABLED=true`, `ASSET_BLOB_ACCESS=private`, bucket `tartly-assets` reachable with the app credentials. CORS preflight from `Origin: https://tartly.in` returns `204` with `PUT, GET, HEAD`; bucket is empty (no user uploads yet).
-**Still needed:** one signed-in UI upload to prove the presigned path end-to-end (`assets/<userId>/<sha>`), then `GET /api/v1/assets/<id>/raw`.
-**Note:** the app ships its own SigV4 signer (`lib/assets/storage.ts`); no AWS SDK is required in the runner image.
+**Verified 2026-10-23 19:37 UTC:** `ASSET_STORAGE_DRIVER=s3`, `ASSETS_ENABLED=true`, `ASSET_BLOB_ACCESS=private`, bucket `tartly-assets`. `npm run verify:r2` (from the workstation, using the repo-root `.env`) passed:
+- `PUT` 200 → `HEAD` 200 (42 bytes) → `GET` 200 (bytes match) → `DELETE` 204
+- CORS preflight 204 with `access-control-allow-origin: https://tartly.in`
+- presigned `PUT` (signed like the browser, including `content-length`) 200
+**Remaining (optional):** one signed-in upload from `/settings/assets` to confirm the authenticated finalize step; the storage path itself is proven.
+**Note:** the app ships its own SigV4 signer (`lib/assets/storage.ts`); no AWS SDK is required in the runner image. The host has no npm outside the containers, so use rclone for backup verification (R2-SETUP §6).
 
 ### A5 — Offsite backups + monitoring 🟡
 **Owner:** agent after R2 · **Full procedure:** [`R2-SETUP.md`](./R2-SETUP.md) §5.
@@ -296,20 +292,21 @@ Future deploys are `git pull --ff-only && bash deploy/scripts/deploy.sh`. The ho
 | Single node | full outage on host failure | medium | 6-hourly dump + verified offsite copy + restore drill §7; scale plan §16 | ⚠️ |
 | RPO 24 h | up to a day of data loss | — | cron every 6 h; local + R2 verified | ✅ |
 | ~~Offsite backup disabled~~ | host loss = total loss | — | R2 upload + SHA-256 match verified 2026-10-23 19:03 | ✅ |
-| Uploads partially verified | core feature gap | medium | bucket + CORS verified; presigned UI upload pending sign-in | 🟡 |
+|~~Uploads disabled~~ **R2 verified** | core feature gap | — | storage path, CORS and presigned PUT verified; UI finalize optional | ✅ |
 | Uncommitted deploy | rollback ambiguity | — | clean tag `f1ed59a`; previous-tag `1d44127`; host tree clean | ✅ |
 | No external monitoring | silent outage | medium | `healthcheck.sh` runs, but `HEALTHCHECKS_*` empty and no uptime monitor | ⬜ |
 | AI provider outage | drafts/chat fail | medium | fallback chain env + circuit breaker (code) | ⚠️ |
-| Gmail OAuth verification | sign-in blocked for new users | medium | add redirect + verify consent screen | ⛔ |
+| Gmail OAuth verification | sign-in blocked for new users; refresh tokens expire after 7 days in Testing | medium | redirect URI accepted; publish the consent screen / add test users; verify end-to-end | 🟡 |
 | DB connection exhaustion | 5xx under load | low | pools 8/8/4 vs 120 max; PgBouncer later | ✅ |
 | Disk fill (logs/images) | outage | low | Docker log caps; 85/92% alerts | 🟡 |
 | **Email-body growth vs 100 GB disk** | disk full → outage + failed backups | **high** | trim HTML, 90-day hot window, archive to R2; alerts at 60/75/85% (A8/A15) | 🔴 |
 | 14 local dumps on the same disk | backup consumes the disk it protects | medium | R2 is now the backup of record; local retention is 3 days (currently 7 files because manual runs are preserved) | 🟡 |
 | Unbounded AI/SSE concurrency | OOM, provider 429 storms | medium | per-user 2–3 streams, global 50–100 generations, queue (A15) | ⬜ |
 | Gmail/AI provider quotas at 10k | sync/send/draft failures | medium | quota math in guide §16.2b; backoff + fallback chain | ⬜ |
-| Dodo webhook unverified | paid orders not activated | medium | configure before enabling live mode | ⬜ |
+| Dodo webhook unverified | paid orders not activated | medium | configure before enabling live mode; `billing_webhook_events` is empty | ⬜ |
+| Dodo API key may belong to the live environment | test checkout could 401/403, or a live key could be sent to the test host | medium | key is opaque (len 65, no `dodo_*` prefix); founder must confirm it is a **test** key in the dashboard before the payment test | ⬜ |
 | **Critical runtime advisories (`next` 16.3.5 RCE, `dompurify` XSS)** | remote compromise / stored XSS | **high** while public | patched in `8453e0d`; re-scan of `1d44127` shows only Debian `zlib1g` `will_not_fix` + dev-only Go stdlib in esbuild | ✅ |
-| `linkify-it` quadratic DoS via `ansi-to-react` | browser CPU spike on crafted terminal text | low | runtime dependency, but attacker must get text into the AI terminal; fix is a breaking downgrade — accepted for now | ⚠️ |
+| `linkify-it` quadratic DoS via `ansi-to-react` | browser CPU spike on crafted terminal text | low | **not reachable**: `Ansi` defaults `linkify=false` and the only usage omits the prop; no runtime call path | ⚠️ |
 
 ---
 
@@ -368,6 +365,10 @@ Future deploys are `git pull --ff-only && bash deploy/scripts/deploy.sh`. The ho
 | 2026-10-23 19:24 | Body-cap change tested | ✅ | `tsc --noEmit` clean; changed-file eslint clean; `vitest` 273/273 (5 new body-cap tests) |
 | 2026-10-23 19:27 | Release `f1ed59a` | ✅ | migrations complete; web-1/web-2 healthy; worker up; Caddy reloaded; public ready 200; `.deploy/previous-tag` = `1d44127` |
 | 2026-10-23 19:32 | Rollback drill | ✅ | `rollback.sh` rewritten (updates `.env` TAG, swaps pointers, waits healthy, verifies ready); `f1ed59a → 1d44127` ready 200, then `1d44127 → f1ed59a` ready 200; production ends on `f1ed59a` |
+| 2026-10-23 19:34 | Production-only audit | 🟡 | `npm audit --omit=dev`: 2 high + 8 moderate, all `linkify-it` via `ansi-to-react`; `Ansi` defaults `linkify=false` and the sole usage omits it → not reachable |
+| 2026-10-23 19:35 | Billing state probe | 🟡 | Dodo key is opaque (no `dodo_test_`/`dodo_live_` prefix), len 65; `DODO_PAYMENTS_ENVIRONMENT=test_mode`, live disabled, webhook key empty; 1 subscription / 2 billing accounts / 0 webhook events → no verified test payment yet |
+| 2026-10-23 19:37 | R2 full verification | ✅ | `npm run verify:r2`: assets PUT 200 → HEAD 200 → GET 200 (bytes match) → DELETE 204; CORS preflight 204 `https://tartly.in`; presigned PUT 200 |
+| 2026-10-23 19:39 | Google OAuth console probe | ✅ | sign-in start → `accounts.google.com` returns HTTP 200 "Sign in"; no `redirect_uri_mismatch`/`invalid_client`; page references `tartly` |
 
 ### 7.1 Off-box edge smoke (2026-10-23 19:20 UTC)
 
@@ -453,7 +454,7 @@ script, a dedicated test session, and a generator with more upstream capacity.
 - [x] `www` → apex 308 redirect
 - [ ] Google sign-in works end-to-end; Gmail connect + first sync works
 - [x] `BETTER_AUTH_SECRET` rotated to a 32-char high-entropy value; no boot warning
-- [ ] R2 uploads work (bucket + CORS verified; presigned UI upload pending sign-in)
+- [x] R2 uploads work (storage path + presigned PUT verified; signed-in finalize optional)
 - [x] Nightly backup uploaded offsite; restore drill recorded (SHA-256 match, 1 s restore)
 - [ ] External uptime monitor + backup heartbeat firing (`HEALTHCHECKS_*` empty)
 - [ ] Dodo test payment → webhook → entitlement verified

@@ -178,11 +178,19 @@ statuses: `PUT → HEAD → GET → DELETE` on both buckets, the CORS preflight,
 a presigned `PUT` signed exactly like the app (`content-length` included).
 
 ```bash
-npm run verify:r2                 # assets (from .env); backups skipped
-# on the server, add the backup credentials:
-sudo -u deploy bash -lc 'cd /opt/tartly && set -a; . /etc/tartly/backup.env; \
-  set +a; npm run verify:r2'
+# On the workstation: assets bucket (reads repo-root .env)
+npm run verify:r2
+
+# On the host: there is no Node/npm outside the containers, so verify the
+# backups bucket with rclone, which uses the same S3 credentials.
+ssh deploy@201.18.197.194 'set -a; . /etc/tartly/backup.env; set +a; \
+  rclone lsl "$RCLONE_REMOTE:$RCLONE_BUCKET/postgres/" | tail -5'
 ```
+
+The workstation verifier prints `PUT → HEAD → GET → DELETE`, the CORS
+preflight, and a presigned `PUT` signed exactly like the app. The backups
+bucket is proven by a real dump landing offsite and by a SHA-256 re-download
+(tracker §7, 2026-10-23 19:03).
 
 The old manual equivalents:
 
