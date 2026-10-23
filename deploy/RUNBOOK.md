@@ -285,7 +285,7 @@ Host github.com
   IdentityFile ~/.ssh/github
   IdentitiesOnly yes
 EOF
-git clone git@github.com:ArDnath/Lunabox-.git /opt/tartly
+git clone git@github.com:ArDnath/Tartly.git /opt/tartly
 ```
 
 From then on `git pull --ff-only && deploy.sh`. Keep the first rsync for the

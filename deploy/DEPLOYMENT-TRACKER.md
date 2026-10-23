@@ -304,7 +304,7 @@ Verify: `rclone lsf r2:tartly-backups/postgres/` lists today's dump; Healthcheck
 | `deploy/app.env` | server `/opt/tartly/deploy/app.env` | deploy | 0600; 39 vars; **not in git** |
 | `deploy/.env` | server `/opt/tartly/deploy/.env` | deploy | 0600; Postgres/Redis secrets |
 | Backup R2 creds | server `/etc/tartly/backup.env` | deploy | 0600 |
-| Git remote | `git@github.com:ArDnath/Lunabox-.git` | user | private |
+| Git remote | `git@github.com:ArDnath/Tartly.git` | user | private |
 | Hostinger panel | hPanel | user | DNS, snapshots, console |
 | Google Cloud | console | user | OAuth client, Pub/Sub |
 | Dodo dashboard | app.dodopayments.com | user | products, webhooks |
