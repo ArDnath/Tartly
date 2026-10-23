@@ -5,7 +5,7 @@
 
 | Field | Value |
 | --- | --- |
-| Last updated | **2026-10-23 19:42 UTC** |
+| Last updated | **2026-10-23 19:46 UTC** |
 | Environment | Production (first node) |
 | Canonical origin | `https://tartly.in` |
 | Host | `srv2076028.hstgr.cloud` · `201.18.197.194` · Mumbai 2 |
@@ -231,7 +231,7 @@ Future deploys are `git pull --ff-only && bash deploy/scripts/deploy.sh`. The ho
 | `DODO_PAYMENTS_WEBHOOK_KEY` empty | root `.env` | paid orders → entitlements | user (Dodo dashboard) |
 | ~~`S3_*` / `ASSET_STORAGE_DRIVER`~~ **wired** | root `.env` | uploads | ✅ done (UI smoke test pending) |
 | `GOOGLE_PUBSUB_TOPIC`, `GOOGLE_PUBSUB_AUDIENCE` | root `.env` | real-time Gmail/Outlook sync | user (Google Cloud) |
-| `AI_GLOBAL_DAILY_BUDGET`, `AI_DAILY_BUDGET`, `AGENT_MAX_TOKENS_PER_RUN` | root `.env` | platform cost ceiling | user picks number |
+| `AI_GLOBAL_DAILY_BUDGET`, `AI_DAILY_BUDGET`, `AGENT_MAX_TOKENS_PER_RUN` | root `.env` | platform cost ceiling | ✅ global 2,000/day; per-user default 500; 200k tokens/run |
 | `DODO_PRODUCT_CREDITS_STARTER/PLUS/PRO` | root `.env` | credit packs | user (Dodo) |
 | `MICROSOFT_CLIENT_ID/SECRET/TENANT_ID` + `NEXT_PUBLIC_MICROSOFT_CONNECT_ENABLED` | root `.env` + `deploy/.env` (build) | Outlook | user (Entra) |
 | `NEXT_PUBLIC_CAL_BOOKING_LINK`, `NEXT_PUBLIC_BOOKING_URL`, `NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION` | root `.env` | booking / SEO (optional) | user |
@@ -281,7 +281,8 @@ Future deploys are `git pull --ff-only && bash deploy/scripts/deploy.sh`. The ho
 | D15 | Deploy provenance | dirty rsync vs git tag | **clean tag `f1ed59a`**; host HEAD `f1ed59a`; host deploy key authenticates | ✅ |
 | D16 | Launch feature defaults | implicit vs explicit | **`ASSETS_ENABLED=false` until R2 is configured; `AUTOPILOT_ENABLED=false`** | ✅ |
 | D17 | Env source of truth | server `app.env` vs repo-root `.env` | **repo-root `.env` → `render-env.mjs` → copy `app.env` + `.env`**; never hand-edit the server | ✅ |
-| D18 | AI/SSE concurrency at launch | global semaphore now vs after measurement | **ship with the existing guards** — 20 agent runs/min/user, 200k tokens/run, 500 calls/day/user, 5-min SSE lifetime — and add a global generation semaphore only when load/provider 429s show it is the constraint. Founder must still set `AI_GLOBAL_DAILY_BUDGET` | 🟡 |
+| D18 | AI/SSE concurrency at launch | global semaphore now vs after measurement | **ship with the existing guards** — 20 agent runs/min/user, 200k tokens/run, 500 calls/day/user, 5-min SSE lifetime — and add a global generation semaphore only when load/provider 429s show it is the constraint. Global daily ceiling is **2,000 calls** | 🟡 |
+| D19 | Gmail Pub/Sub at launch | include vs defer | **defer** — launch with manual/periodic sync; do not half-configure the webhook. Revisit when the email operator is ready | ✅ |
 
 ---
 
@@ -302,7 +303,7 @@ Future deploys are `git pull --ff-only && bash deploy/scripts/deploy.sh`. The ho
 | Disk fill (logs/images) | outage | low | Docker log caps; 85/92% alerts | 🟡 |
 | **Email-body growth vs 100 GB disk** | disk full → outage + failed backups | **high** | trim HTML, 90-day hot window, archive to R2; alerts at 60/75/85% (A8/A15) | 🔴 |
 | 14 local dumps on the same disk | backup consumes the disk it protects | medium | R2 is now the backup of record; local retention is 3 days (currently 7 files because manual runs are preserved) | 🟡 |
-| Unbounded AI/SSE concurrency | OOM, provider 429 storms | medium | per-user 2–3 streams, global 50–100 generations, queue (A15) | ⬜ |
+| Unbounded AI/SSE concurrency | OOM, provider 429 storms | medium | **AI spend capped**: global 2,000 calls/day + per-user 500 + 200k tokens/run; per-minute agent limit 20; global generation semaphore deferred to measured 429s | 🟡 |
 | Gmail/AI provider quotas at 10k | sync/send/draft failures | medium | quota math in guide §16.2b; backoff + fallback chain | ⬜ |
 | Dodo webhook unverified | paid orders not activated | medium | configure before enabling live mode; `billing_webhook_events` is empty | ⬜ |
 | Dodo API key may belong to the live environment | test checkout could 401/403, or a live key could be sent to the test host | medium | key is opaque (len 65, no `dodo_*` prefix); founder must confirm it is a **test** key in the dashboard before the payment test | ⬜ |
@@ -371,6 +372,7 @@ Future deploys are `git pull --ff-only && bash deploy/scripts/deploy.sh`. The ho
 | 2026-10-23 19:37 | R2 full verification | ✅ | `npm run verify:r2`: assets PUT 200 → HEAD 200 → GET 200 (bytes match) → DELETE 204; CORS preflight 204 `https://tartly.in`; presigned PUT 200 |
 | 2026-10-23 19:39 | Google OAuth console probe | ✅ | sign-in start → `accounts.google.com` returns HTTP 200 "Sign in"; no `redirect_uri_mismatch`/`invalid_client`; page references `tartly` |
 | 2026-10-23 19:42 | Functional edge probes | ✅ | http→https 308; `/privacy`, `/terms`, `/pricing` 200; signed-out `/mail` 307 → `/auth?next=/mail`; unknown path 307 (guard, not 404) — accurate 404 requires a session |
+| 2026-10-23 19:46 | AI spend ceiling applied | ✅ | founder chose 2,000/day; `AI_GLOBAL_DAILY_BUDGET=2000` rendered, copied, web-1→web-2→worker recreated; container sees 2000; ready 200. Pub/Sub deferred (D19) |
 
 ### 7.1 Off-box edge smoke (2026-10-23 19:20 UTC)
 
@@ -466,7 +468,7 @@ script, a dedicated test session, and a generator with more upstream capacity.
 - [ ] Capacity model (§2.7) verified: 400 RPS and 2k SSE streams at p95 within SLO
 - [ ] Email-body lifecycle active; projected 90-day disk use < 60%
 - [x] RPO ≤ 6 h (6-hourly cron + verified R2 offsite copy)
-- [ ] AI/SSE concurrency caps configured
+- [ ] AI/SSE concurrency caps configured (AI spend capped at 2,000/day global + 500/user; global generation semaphore deferred — D18)
 - [ ] Incident contacts + rollback procedure known by the user
 
 ---
