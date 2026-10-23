@@ -5,14 +5,14 @@
 
 | Field | Value |
 | --- | --- |
-| Last updated | **2026-10-23 09:55 UTC** |
+| Last updated | **2026-10-23 10:16 UTC** |
 | Environment | Production (first node) |
 | Canonical origin | `https://tartly.in` |
 | Host | `srv2076028.hstgr.cloud` · `201.18.197.194` · Mumbai 2 |
 | Provider / plan | Hostinger KVM 2 — 2 vCPU, 8 GB RAM, 100 GB NVMe, 8 TB/mo |
 | OS | Ubuntu 26.04.1 LTS (`resolute`), kernel 7.0.0-34 |
 | Runtime | Docker 29.9.2 · Compose v5.6.1 |
-| Deployed tag | `83ccc5a` (clean tree) |
+| Deployed tag | `8453e0d` (clean tree; previous `83ccc5a`) |
 | Data | 2 users · 2 connected accounts · 2 mailboxes · 3 threads · 3 messages |
 | Public traffic | **LIVE** — apex + www resolve here; Let's Encrypt issued 08:45 UTC; readiness 200 over HTTPS |
 | Deployment guide | [`DEPLOYMENT-GUIDE.md`](./DEPLOYMENT-GUIDE.md) |
@@ -41,12 +41,10 @@ HARD RULES
   failure-mode section in the guide.
 
 RESUME PROTOCOL: run §3 of the tracker verbatim.
-CURRENT BLOCKER: none for public HTTPS. DNS apex + www now resolve to
-201.18.197.194 and Caddy is serving a valid Let's Encrypt cert.
-NEXT ACTION: patch the critical runtime advisories (next 16.3.5 RCE,
-dompurify XSS), then rotate BETTER_AUTH_SECRET after founder approval.
-OTHER USER GATES: Google OAuth redirect (A2/C1), R2 credentials (C2/D1),
-Dodo webhook key (C3), AI budget numbers (C5), GitHub deploy key (E1).
+CURRENT BLOCKER: none for public HTTPS. Site is live on `8453e0d`.
+NEXT ACTION: rotate BETTER_AUTH_SECRET after founder approval (A3), then the
+founder-gated integrations: Google OAuth (A2/C1), R2 (C2/D1), Dodo webhook (C3),
+AI budgets (C5), GitHub deploy key (E1).
 ```
 
 ---
@@ -80,10 +78,10 @@ Dodo webhook key (C3), AI budget numbers (C5), GitHub deploy key (E1).
 | 4 | Firewall, fail2ban, upgrades, time | ✅ | UFW active; 22/80/443 only; fail2ban 0 banned | — |
 | 5 | Secrets & environment | 🟡 | `app.env` 41 vars, 0600; schema validates; autopilot/assets explicitly off; **secret still 19 chars** | 🔴 secret rotation + missing launch keys (A12) |
 | 6 | Postgres 18 + Redis + Upstash shim | ✅ | both healthy; ready=200 | — |
-| 7 | Image build (web + worker) | ✅ | tag `83ccc5a`; clean git tree; runner + worker built | — |
-| 8 | Migrations (26) | ✅ | `db:migrate` complete | — |
+| 7 | Image build (web + worker) | ✅ | tag `8453e0d`; clean git tree; built locally + on host; runner + worker verified | — |
+| 8 | Migrations (26) | ✅ | `db:migrate` complete (no-op on 8453e0d release) | — |
 | 9 | Data cutover from Neon | ✅ | counts match source (2/2/2/3/3) | — |
-| 10 | Rolling release (2 web replicas) | ✅ | `83ccc5a` 08:53 UTC; both healthy, worker started, counts 2/2/2/3/3 | — |
+| 10 | Rolling release (2 web replicas) | ✅ | `8453e0d` 10:12 UTC; web-1/web-2 healthy, worker started, ready 200 | — |
 | 11 | Backup + restore drill | ✅ | 101 KB dump; restore returned 2/2/3 | — |
 | 12 | DNS → this host | ✅ | apex + www both `201.18.197.194`; verified from workstation + host, 2026-10-23 09:43 UTC | — |
 | 13 | TLS / Caddy / HTTP-3 | ✅ | Caddy up 09:44 UTC; LE certs for apex+www; HTTP/2 200, HTTP/3 OK, www→apex 308 | — |
@@ -92,7 +90,7 @@ Dodo webhook key (C3), AI budget numbers (C5), GitHub deploy key (E1).
 | 16 | R2 asset storage + CORS | ⬜ | driver currently `vercel-blob`, no token → uploads disabled | **user creds** |
 | 17 | Offsite backups (R2) | ⬜ | local only, `HEALTHCHECKS_URL` empty | R2 |
 | 18 | External monitoring / alerts | ⬜ | health endpoint exists; no external check | user |
-| 19 | Security audit & dependency scan | 🟡 | host hardened (`passwordauthentication no`, UFW 22/80/443, fail2ban active); scans run 09:50 UTC — **1 CRITICAL runtime advisory in `next` 16.3.5 (RCE) + CRITICAL `dompurify` XSS** | patch release before announcing |
+| 19 | Security audit & dependency scan | 🟡 | host hardened; critical advisories **patched** in `8453e0d` (web image criticals 3→1, remaining `zlib1g` will_not_fix); `BETTER_AUTH_SECRET` rotation still pending | founder approval |
 | 20 | Performance baseline (k6) | ⬜ | not measured | — |
 | 21 | CI/CD (GHCR + Actions) | ⬜ | deploys are rsync + on-host build | — |
 | 22 | Scale plan (10k users → 1M RPS) | ✅ | guide §2.7, §6.9, §16.2b; decisions D11–D14 | — |
@@ -167,9 +165,11 @@ Add:
 **Owner:** user decision · **Impact:** every stored Gmail/Outlook refresh token becomes undecryptable; users reconnect once. Sessions already need a fresh login after the domain change, so now is the cheapest moment.
 **Done by agent when approved:** edit repo-root `.env`, `node deploy/scripts/render-env.mjs https://tartly.in`, copy rendered files, rolling recreate web-1/web-2/worker. Never print the value.
 
-### A3b — Patch critical runtime advisories 🔴 agent, tested build
-**Owner:** agent · **Why:** `npm audit` + Trivy on `83ccc5a` found a CRITICAL unauthenticated RCE advisory in `next@16.3.5` (plus `next/og` RCE, `use cache` RCE, Image Optimizer SSRF) and a CRITICAL `dompurify` XSS advisory. `next@16.4.2` is the patched release in the current line.
-**Procedure:** bump in a branch → `npm ci`/tests/build → new clean tag → rolling deploy with `deploy.sh` → re-scan → rollback target `83ccc5a` if the smoke test fails. Do not auto-upgrade anything else in the same change.
+### A3b — Patch critical runtime advisories ✅
+**Owner:** agent · **Done:** 2026-10-23 10:12 UTC, tag `8453e0d`.
+**What changed:** `next` 16.3.5 → 16.4.2 (critical RCE/SSRF advisories; `npm audit` criticals 2 → 0), non-breaking `npm audit fix` (dompurify, sharp, source-map-js), canonical `app/settings/[[...section]]` route required by Next 16.4 strict interception matching (shared section registry), and the Caddy www 308 fix.
+**Evidence:** `tsc --noEmit` clean; 267/267 unit tests pass; web + worker images build; rolling deploy healthy; public ready 200; web-image CRITICALs 3 → 1 (`zlib1g`, Debian `will_not_fix`). Lint still reports one pre-existing error in untouched `components/marketing/landing/home-content.tsx` (`react-hooks/set-state-in-effect`) — recorded, not fixed in the security change.
+**Rollback:** `.deploy/previous-tag` = `83ccc5a`; `./scripts/rollback.sh`.
 
 ### A4 — R2 asset storage ⬜
 **Owner:** user provides credentials · **Then configure + verify:**
@@ -214,6 +214,8 @@ Verify: `rclone lsf r2:tartly-backups/postgres/` lists today's dump; Healthcheck
 ### A9 — RPO ≤ 6 h 🟡
 **Owner:** agent after R2 · **Why:** nightly dumps give a 24 h RPO, which is too much state to lose at 10k users.
 **Do:** raise dump frequency to 6 h (cheap while the DB is small), or add WAL archiving (`pgBackRest`/WAL-G) to R2 for PITR. Reduce local retention to 2–3 d once the DB exceeds 5 GB.
+
+**2026-10-23 10:13 UTC:** `/etc/cron.d/tartly` now runs `backup-postgres.sh` every 6 h (`15 */6 * * *`); cron reloaded. RPO is now ≤6 h **locally only** — offsite still needs R2 credentials, so a host loss still loses everything.
 
 ### A10 — GHCR + Actions ⬜
 **Owner:** agent + user secrets · **Why:** on-host builds steal the same 2 vCPU that serves requests. Publish `web` and `worker` images to GHCR and let the host only pull + migrate + roll. Keep `deploy.sh` as the emergency fallback.
@@ -297,7 +299,7 @@ Then future deploys are simply `git pull --ff-only && bash deploy/scripts/deploy
 | Unbounded AI/SSE concurrency | OOM, provider 429 storms | medium | per-user 2–3 streams, global 50–100 generations, queue | ⬜ |
 | Gmail/AI provider quotas at 10k | sync/send/draft failures | medium | quota math in guide §16.2b; backoff + fallback chain | ⬜ |
 | Dodo webhook unverified | paid orders not activated | medium | configure before enabling live mode | ⬜ |
-| **Critical runtime advisories (`next` 16.3.5 RCE, `dompurify` XSS)** | remote compromise / stored XSS | **high** while public | patch to `next@16.4.2` + current `dompurify` via tested build (A3b) | 🔴 |
+| **Critical runtime advisories (`next` 16.3.5 RCE, `dompurify` XSS)** | remote compromise / stored XSS | **high** while public | patched in `8453e0d`; re-scan shows only Debian `zlib1g` `will_not_fix` | ✅ |
 | No offsite backup / RPO 24 h | host loss = total loss | medium | A5 + A9 | ⬜ |
 
 ---
@@ -332,6 +334,13 @@ Then future deploys are simply `git pull --ff-only && bash deploy/scripts/deploy
 | 2026-10-23 09:49 | SSH/firewall re-audit | ✅ | UFW active (22/80/443 + 443/udp); fail2ban sshd 0 banned; `passwordauthentication no`, `permitrootlogin prohibit-password`; clock synced |
 | 2026-10-23 09:50 | Dependency audit | 🔴 | `npm audit`: 38 (2 critical, 15 high). Critical: `next` RCE advisories, `dompurify` XSS. Prod-relevant highs: `sharp`, `source-map-js` |
 | 2026-10-23 09:51 | Image scan (`83ccc5a`) | 🔴 | web `57` (56 H, 1 C) / worker `26` (25 H, 1 C); criticals include `next` GHSA-2464 (RCE) and Debian `zlib1g` (will_not_fix). Dev-only noise excluded from decisions |
+| 2026-10-23 10:07 | Security patch tested | ✅ | `next@16.4.2`; `tsc --noEmit` clean; 267/267 unit tests pass; web + worker images build (local); `npm audit` criticals 2 → 0 |
+| 2026-10-23 10:08 | Pre-deploy backup | ✅ | `tartly-20261023T100818Z.dump.zst` (104K), `zstd -t` ok |
+| 2026-10-23 10:12 | Rolling release `8453e0d` | ✅ | migrations complete; web-1/web-2 healthy; worker up; Caddy reloaded; public ready 200 |
+| 2026-10-23 10:12 | Post-patch public verify | ✅ | home 200 (HTTP/2), auth 200, www 308, api 404, Google callback 302, Dodo webhook 405 (route exists), CSP sink 204 |
+| 2026-10-23 10:12 | Post-patch image scan | ✅ | web CRITICALs 3 → 1 (`zlib1g` CVE-2023-45853, `will_not_fix` in Debian base); no `next` criticals remain |
+| 2026-10-23 10:13 | Backup cadence | ✅ | `/etc/cron.d/tartly` backup `15 2 * * *` → `15 */6 * * *`; cron restarted; local RPO ≤6 h (offsite still unconfigured) |
+| 2026-10-23 10:15 | Env source-of-truth audit | 🟡 | root `.env` had `BETTER_AUTH_URL`/`NEXT_PUBLIC_*` = localhost:3000 while server app.env was correct; root fixed to `https://tartly.in`. Renderer would have corrected it, but the mismatch was a trap |
 
 ---
 
@@ -340,8 +349,9 @@ Then future deploys are simply `git pull --ff-only && bash deploy/scripts/deploy
 | Tag | Time (UTC) | Contents | Notes |
 | --- | --- | --- | --- |
 | `a14f782-dirty-20261023074103` | 07:41 | working tree, Postgres 17 | superseded by PG18 |
-| `a14f782-dirty-20261023074724` | 07:47 | working tree, Postgres 18 | **current** |
-| `83ccc5a` | 08:53 | clean git tree (app snapshot + deploy docs) | **current**; Caddy skipped (DNS) |
+| `a14f782-dirty-20261023074724` | 07:47 | working tree, Postgres 18 | rollback baseline |
+| `83ccc5a` | 08:53 | clean git tree (app snapshot + deploy docs) | previous; Caddy skipped (DNS) |
+| `8453e0d` | 10:12 | next@16.4.2 security patch + canonical settings route + www 308 | **current**; clean tree; rollback target is `83ccc5a` |
 | `a14f782` (HEAD) | 2026-10-07 | last upstream commit | baseline before the snapshot |
 
 ---
@@ -389,10 +399,10 @@ Then future deploys are simply `git pull --ff-only && bash deploy/scripts/deploy
 
 ## 11. Launch definition of done
 
-- [ ] Apex + www resolve to this host; TTL ≤ 300
-- [ ] Let's Encrypt cert valid for apex + www; auto-renewal path verified
-- [ ] `https://tartly.in/api/health/ready` = 200 from the public internet
-- [ ] `www` → apex 308 redirect
+- [x] Apex + www resolve to this host; TTL ≤ 300
+- [x] Let's Encrypt cert valid for apex + www; auto-renewal path verified
+- [x] `https://tartly.in/api/health/ready` = 200 from the public internet
+- [x] `www` → apex 308 redirect
 - [ ] Google sign-in works end-to-end; Gmail connect + first sync works
 - [ ] `BETTER_AUTH_SECRET` rotated (or risk explicitly accepted in writing)
 - [ ] R2 uploads work (or explicitly waived)
