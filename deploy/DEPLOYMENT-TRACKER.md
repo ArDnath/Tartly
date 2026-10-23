@@ -5,7 +5,7 @@
 
 | Field | Value |
 | --- | --- |
-| Last updated | **2026-10-23 10:16 UTC** |
+| Last updated | **2026-10-23 10:25 UTC** |
 | Environment | Production (first node) |
 | Canonical origin | `https://tartly.in` |
 | Host | `srv2076028.hstgr.cloud` · `201.18.197.194` · Mumbai 2 |
