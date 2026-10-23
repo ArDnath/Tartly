@@ -341,6 +341,8 @@ Then future deploys are simply `git pull --ff-only && bash deploy/scripts/deploy
 | 2026-10-23 10:12 | Post-patch image scan | ✅ | web CRITICALs 3 → 1 (`zlib1g` CVE-2023-45853, `will_not_fix` in Debian base); no `next` criticals remain |
 | 2026-10-23 10:13 | Backup cadence | ✅ | `/etc/cron.d/tartly` backup `15 2 * * *` → `15 */6 * * *`; cron restarted; local RPO ≤6 h (offsite still unconfigured) |
 | 2026-10-23 10:15 | Env source-of-truth audit | 🟡 | root `.env` had `BETTER_AUTH_URL`/`NEXT_PUBLIC_*` = localhost:3000 while server app.env was correct; root fixed to `https://tartly.in`. Renderer would have corrected it, but the mismatch was a trap |
+| 2026-10-23 10:18 | Secret file permissions | ✅ | root `.env` and `.env.local` were `0644` → `0600`; `git check-ignore` confirms all env files ignored; `.dockerignore` excludes `.env*` and `deploy/` |
+| 2026-10-23 10:20 | OAuth wiring probe | ✅ | `POST /api/auth/sign-in/social` returns a Google URL with `redirect_uri=https://tartly.in/api/auth/callback/google`, client_id and state present — only the console allow-list entry remains |
 
 ---
 
@@ -362,6 +364,7 @@ Then future deploys are simply `git pull --ff-only && bash deploy/scripts/deploy
 | --- | --- | --- | --- |
 | SSH key | `~/.ssh/id_ed25519` on this workstation | user | key-only; root + `deploy` |
 | `deploy/app.env` | server `/opt/tartly/deploy/app.env` | deploy | 0600; 39 vars; **not in git** |
+| Root `.env` (source of truth) | workstation repo root | user | 0600; gitignored; never commit |
 | `deploy/.env` | server `/opt/tartly/deploy/.env` | deploy | 0600; Postgres/Redis secrets |
 | Backup R2 creds | server `/etc/tartly/backup.env` | deploy | 0600 |
 | Git remote | `git@github.com:ArDnath/Tartly.git` | user | private |
