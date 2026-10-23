@@ -63,9 +63,15 @@ echo "  dump ok (${SIZE})"
 
 find "$BACKUP_DIR" -name 'tartly-*.dump.zst' -type f -mtime +"$LOCAL_KEEP_DAYS" -delete
 
+# `rclone listremotes` only reads rclone.conf; the R2 backend here is configured
+# entirely through RCLONE_CONFIG_R2_* env vars, so accept an explicit endpoint
+# as proof the remote exists. Requiring both key and secret avoids a half-filled
+# config silently falling through to "offsite disabled".
 if command -v rclone >/dev/null 2>&1 \
-   && rclone listremotes 2>/dev/null | grep -qx "${RCLONE_REMOTE}:" \
-   && [[ -n "${RCLONE_CONFIG_R2_ACCESS_KEY_ID:-}" ]]; then
+   && [[ -n "${RCLONE_CONFIG_R2_ACCESS_KEY_ID:-}" ]] \
+   && [[ -n "${RCLONE_CONFIG_R2_SECRET_ACCESS_KEY:-}" ]] \
+   && { rclone listremotes 2>/dev/null | grep -qx "${RCLONE_REMOTE}:" \
+        || [[ -n "${RCLONE_CONFIG_R2_ENDPOINT:-}" ]]; }; then
   echo "  uploading to ${RCLONE_REMOTE}:${RCLONE_BUCKET}/postgres/"
   rclone copy "$TARGET" "${RCLONE_REMOTE}:${RCLONE_BUCKET}/postgres/" --s3-no-check-bucket
   rclone delete "${RCLONE_REMOTE}:${RCLONE_BUCKET}/postgres/" --min-age "${REMOTE_KEEP_DAYS}d"
