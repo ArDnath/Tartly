@@ -91,6 +91,25 @@ describe("buildCsp", () => {
     expect(custom["connect-src"]).toContain("https://media.tartly.app");
   });
 
+  it("allows the browser's direct object-store upload origin in connect-src", () => {
+    const csp = directives(
+      buildCsp({
+        nonce: NONCE,
+        isDev: false,
+        assetStorageOrigin: "https://account.r2.cloudflarestorage.com",
+      }),
+    );
+    expect(csp["connect-src"]).toContain("https://account.r2.cloudflarestorage.com");
+    // Reads are proxied by the app; the bucket must not be an image/media source.
+    expect(csp["img-src"]).not.toContain("https://account.r2.cloudflarestorage.com");
+    expect(csp["media-src"]).not.toContain("https://account.r2.cloudflarestorage.com");
+
+    // Blob-only / unconfigured deployments keep the narrower policy.
+    expect(directives(buildCsp({ nonce: NONCE, isDev: false }))["connect-src"]).not.toContain(
+      "cloudflarestorage.com",
+    );
+  });
+
   it("relaxes eval and the HMR socket only in development", () => {
     const prod = directives(buildCsp({ nonce: NONCE, isDev: false }));
     const dev = directives(buildCsp({ nonce: NONCE, isDev: true }));

@@ -86,6 +86,13 @@ export type BuildCspOptions = {
    * `NEXT_PUBLIC_IMAGEKIT_URL_ENDPOINT`.
    */
   imagekitOrigin?: string;
+  /**
+   * S3-compatible object-store origin (Cloudflare R2, AWS, MinIO) allowed in
+   * `connect-src`. The browser `PUT`s uploads straight to a presigned URL, so
+   * an enforcing policy must name the bucket endpoint or every upload is
+   * blocked. Not added to `img-src`/`media-src`: reads are proxied by the app.
+   */
+  assetStorageOrigin?: string;
 };
 
 /** Build the full policy string for one request. */
@@ -94,6 +101,7 @@ export function buildCsp({
   isDev,
   reportUri,
   imagekitOrigin,
+  assetStorageOrigin,
 }: BuildCspOptions): string {
   const scriptSrc = [
     "'self'",
@@ -109,6 +117,7 @@ export function buildCsp({
     : [...BLOB_HOSTS, ...IMAGEKIT_HOSTS];
 
   const connectSrc = ["'self'", ...mediaHosts];
+  if (assetStorageOrigin) connectSrc.push(assetStorageOrigin);
   if (isDev) {
     // Next's HMR channel is a websocket on the dev origin.
     connectSrc.push("ws:", "wss:");

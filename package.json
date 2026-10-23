@@ -32,6 +32,7 @@
     "openapi:generate": "tsx scripts/openapi/generate.ts",
     "openapi:check": "tsx scripts/openapi/generate.ts --check",
     "openapi:breaking": "tsx scripts/openapi/breaking-check.ts",
+    "verify:r2": "node --env-file=.env scripts/verify-r2.mjs",
     "test": "npm run test:onboarding && npm run test:ai-chat && npm run test:email-operator && npm run test:agent && npm run test:agent:phase2 && npm run test:agent:phase3 && npm run test:agent:phase4 && npm run test:agent:phase5 && npm run test:agent:phase6 && npm run test:agent:phase7 && npm run test:agent:evals"
   },
   "dependencies": {

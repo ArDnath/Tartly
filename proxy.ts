@@ -53,6 +53,26 @@ function imagekitCspOrigin(): string | undefined {
   }
 }
 
+/**
+ * Origin the browser uploads to when the S3/R2 driver is active. Reads the raw
+ * env because the proxy cannot import the server-only env module: the client
+ * streams bytes straight to a presigned URL, so `connect-src` must allow it.
+ * Falls back to the AWS regional endpoint when no explicit endpoint is set.
+ */
+function assetStorageCspOrigin(): string | undefined {
+  if (process.env.ASSET_STORAGE_DRIVER !== "s3") return undefined;
+  const raw = process.env.S3_ENDPOINT;
+  if (raw) {
+    try {
+      return new URL(raw).origin;
+    } catch {
+      return undefined;
+    }
+  }
+  const region = process.env.S3_REGION;
+  return region ? `https://s3.${region}.amazonaws.com` : undefined;
+}
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const sessionCookie = getSessionCookie(request);
@@ -83,6 +103,8 @@ export async function proxy(request: NextRequest) {
     reportUri: process.env.CSP_REPORT_URI || "/api/csp-report",
     // Allow a custom ImageKit domain for images, video and HLS manifests.
     imagekitOrigin: imagekitCspOrigin(),
+    // Allow the browser's direct (presigned) upload to the object store.
+    assetStorageOrigin: assetStorageCspOrigin(),
   });
 
   const requestHeaders = new Headers(request.headers);

@@ -85,17 +85,23 @@ S3_SECRET_ACCESS_KEY=<tartly-app-assets Secret Access Key>
 S3_BUCKET=tartly-assets
 S3_REGION=auto
 S3_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+ASSET_STORAGE_DRIVER=s3
+ASSET_BLOB_ACCESS=private
 ASSETS_ENABLED=true
 ```
 
 Rules:
 
 - `S3_ENDPOINT` has **no** trailing slash and **no** bucket path.
-- Do **not** set `ASSET_STORAGE_DRIVER` by hand. `render-env.mjs` sets it to
-  `s3` automatically when all three S3 values are present, and removes the
-  unused Vercel Blob token.
-- Keep `ASSET_BLOB_ACCESS=private` (the default).
+- Set `ASSET_STORAGE_DRIVER=s3` in the root `.env` so local dev uses the same
+  backend. `render-env.mjs` force-sets it to `s3` in production whenever all
+  three S3 values are present, so the deployed value cannot drift.
+- Keep `ASSET_BLOB_ACCESS=private` (the default). R2 has no ACLs.
 - Set `ASSETS_ENABLED=true` only once the credentials are in place.
+- The browser `PUT`s straight to the bucket, so the proxy adds the
+  `S3_ENDPOINT` origin to `connect-src` automatically. CORS can be perfect and
+  uploads still fail under an enforcing CSP if that origin is missing — the
+  wiring lives in `lib/security/csp.ts` and `proxy.ts`.
 
 Then tell the operator (me) that R2 is ready. The application side is applied
 with the normal workflow — never by hand-editing the server:
@@ -166,7 +172,19 @@ Do **not** add an expiry rule to `tartly-assets` — user assets are permanent.
 
 ## 6. What the operator verifies
 
-After the values are in place:
+After the values are in place, run the repeatable smoke test from the repo
+root. It signs real requests with the configured credentials and prints only
+statuses: `PUT → HEAD → GET → DELETE` on both buckets, the CORS preflight, and
+a presigned `PUT` signed exactly like the app (`content-length` included).
+
+```bash
+npm run verify:r2                 # assets (from .env); backups skipped
+# on the server, add the backup credentials:
+sudo -u deploy bash -lc 'cd /opt/tartly && set -a; . /etc/tartly/backup.env; \
+  set +a; npm run verify:r2'
+```
+
+The old manual equivalents:
 
 ```bash
 # backups: credentials + bucket write/read/list, no secret output
