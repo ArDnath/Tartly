@@ -16,8 +16,14 @@ LOCAL_KEEP_DAYS="${LOCAL_KEEP_DAYS:-3}"
 REMOTE_KEEP_DAYS="${REMOTE_KEEP_DAYS:-30}"
 
 HC_URL="" RCLONE_REMOTE="" RCLONE_BUCKET=""
-# shellcheck disable=SC1091
-if [[ -f /etc/tartly/backup.env ]]; then . /etc/tartly/backup.env; fi
+if [[ -f /etc/tartly/backup.env ]]; then
+  # rclone's env backend reads the *process* environment, so the sourced
+  # RCLONE_CONFIG_* values must be exported, not just shell variables.
+  set -a
+  # shellcheck disable=SC1091
+  . /etc/tartly/backup.env
+  set +a
+fi
 # The readiness probe pings HEALTHCHECKS_URL every minute. The backup heartbeat
 # MUST be its own check (6 h period + grace): falling back to the readiness URL
 # would make a missed backup invisible, because every minute would look like a
