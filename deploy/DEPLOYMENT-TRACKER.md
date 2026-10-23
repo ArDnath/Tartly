@@ -5,7 +5,7 @@
 
 | Field | Value |
 | --- | --- |
-| Last updated | **2026-10-23 19:27 UTC** |
+| Last updated | **2026-10-23 19:42 UTC** |
 | Environment | Production (first node) |
 | Canonical origin | `https://tartly.in` |
 | Host | `srv2076028.hstgr.cloud` · `201.18.197.194` · Mumbai 2 |
@@ -281,6 +281,7 @@ Future deploys are `git pull --ff-only && bash deploy/scripts/deploy.sh`. The ho
 | D15 | Deploy provenance | dirty rsync vs git tag | **clean tag `f1ed59a`**; host HEAD `f1ed59a`; host deploy key authenticates | ✅ |
 | D16 | Launch feature defaults | implicit vs explicit | **`ASSETS_ENABLED=false` until R2 is configured; `AUTOPILOT_ENABLED=false`** | ✅ |
 | D17 | Env source of truth | server `app.env` vs repo-root `.env` | **repo-root `.env` → `render-env.mjs` → copy `app.env` + `.env`**; never hand-edit the server | ✅ |
+| D18 | AI/SSE concurrency at launch | global semaphore now vs after measurement | **ship with the existing guards** — 20 agent runs/min/user, 200k tokens/run, 500 calls/day/user, 5-min SSE lifetime — and add a global generation semaphore only when load/provider 429s show it is the constraint. Founder must still set `AI_GLOBAL_DAILY_BUDGET` | 🟡 |
 
 ---
 
@@ -369,6 +370,7 @@ Future deploys are `git pull --ff-only && bash deploy/scripts/deploy.sh`. The ho
 | 2026-10-23 19:35 | Billing state probe | 🟡 | Dodo key is opaque (no `dodo_test_`/`dodo_live_` prefix), len 65; `DODO_PAYMENTS_ENVIRONMENT=test_mode`, live disabled, webhook key empty; 1 subscription / 2 billing accounts / 0 webhook events → no verified test payment yet |
 | 2026-10-23 19:37 | R2 full verification | ✅ | `npm run verify:r2`: assets PUT 200 → HEAD 200 → GET 200 (bytes match) → DELETE 204; CORS preflight 204 `https://tartly.in`; presigned PUT 200 |
 | 2026-10-23 19:39 | Google OAuth console probe | ✅ | sign-in start → `accounts.google.com` returns HTTP 200 "Sign in"; no `redirect_uri_mismatch`/`invalid_client`; page references `tartly` |
+| 2026-10-23 19:42 | Functional edge probes | ✅ | http→https 308; `/privacy`, `/terms`, `/pricing` 200; signed-out `/mail` 307 → `/auth?next=/mail`; unknown path 307 (guard, not 404) — accurate 404 requires a session |
 
 ### 7.1 Off-box edge smoke (2026-10-23 19:20 UTC)
 
