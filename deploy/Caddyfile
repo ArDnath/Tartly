@@ -1,0 +1,36 @@
+# Tartly edge — automatic TLS (Let's Encrypt), HTTP/2 + HTTP/3, compression.
+#
+# Caddy is the only public listener. Next.js never sees the internet directly.
+# Both web replicas are upstreams with active health checks, so a restart or a
+# failed deploy drains cleanly instead of serving 502s.
+{
+	email {$ACME_EMAIL}
+	# Admin API stays bound to localhost inside the container (default).
+}
+
+{$TARTLY_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		-Server
+	}
+
+	reverse_proxy web-1:3000 web-2:3000 {
+		lb_policy least_conn
+		health_uri /api/health/live
+		health_interval 10s
+		health_timeout 3s
+		health_status 2xx
+		# Never buffer: assistant replies stream token-by-token (SSE).
+		flush_interval -1
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}
+
+www.{$TARTLY_DOMAIN} {
+	redir https://{$TARTLY_DOMAIN}{uri} permanent
+}

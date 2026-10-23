@@ -1,0 +1,223 @@
+# Tartly — production stack for a single Docker host.
+#
+#   cd deploy
+#   docker compose --env-file .env build web-1 worker
+#   docker compose --env-file .env up -d
+#
+# `.env` (this directory) holds infrastructure values used for interpolation:
+# POSTGRES_PASSWORD, REDIS_REST_TOKEN, TAG, PUBLIC_URL and the NEXT_PUBLIC_*
+# build-time values. `app.env` holds the full application environment and is
+# injected into web/worker at runtime. It is deliberately NOT interpolated by
+# Compose so secrets containing `$` survive untouched.
+#
+# Traffic path: Caddy :80/:443 -> web-1/web-2 :3000, with active health checks.
+# The worker is a separate long-lived process claiming from the Postgres queue.
+
+name: tartly
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+x-web: &web
+  image: tartly-web:${TAG:-latest}
+  env_file:
+    - app.env
+  environment:
+    NODE_ENV: production
+    PORT: "3000"
+    HOSTNAME: 0.0.0.0
+  restart: unless-stopped
+  logging: *default-logging
+  security_opt:
+    - no-new-privileges:true
+  mem_limit: 900m
+  stop_grace_period: 30s
+  healthcheck:
+    test:
+      - CMD
+      - node
+      - -e
+      - fetch('http://127.0.0.1:3000/api/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))
+    interval: 15s
+    timeout: 5s
+    retries: 3
+    start_period: 40s
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: tartly
+      POSTGRES_DB: tartly
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      # Keep the cluster in a subdirectory so the volume root can hold config.
+      PGDATA: /var/lib/postgresql/data/pgdata
+    command:
+      - postgres
+      # Tuned for an 8 GB / 2 vCPU node. Revisit if the box is resized.
+      - -c
+      - max_connections=120
+      - -c
+      - shared_buffers=2GB
+      - -c
+      - effective_cache_size=5GB
+      - -c
+      - work_mem=16MB
+      - -c
+      - maintenance_work_mem=256MB
+      - -c
+      - wal_compression=on
+      - -c
+      - max_wal_size=2GB
+      - -c
+      - min_wal_size=512MB
+      - -c
+      - checkpoint_completion_target=0.9
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - effective_io_concurrency=200
+      - -c
+      - log_min_duration_statement=1000
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    shm_size: 1gb
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 3g
+    stop_grace_period: 60s
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tartly -d tartly"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  redis:
+    image: redis:7-alpine
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --maxmemory
+      - 512mb
+      # Sessions live here; never evict them silently.
+      - --maxmemory-policy
+      - noeviction
+      - --save
+      - "900 1"
+    volumes:
+      - redisdata:/data
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 640m
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # Upstash-compatible REST facade over the local Redis. The application talks
+  # to @upstash/redis over HTTP; this keeps that contract without a SaaS
+  # dependency. Point UPSTASH_REDIS_REST_URL at http://redis-http:80.
+  redis-http:
+    image: hiett/serverless-redis-http:latest
+    environment:
+      SRH_MODE: env
+      SRH_TOKEN: ${REDIS_REST_TOKEN:?REDIS_REST_TOKEN is required}
+      SRH_CONNECTION_STRING: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 128m
+
+  web-1:
+    <<: *web
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: runner
+      args:
+        NEXT_PUBLIC_BETTER_AUTH_URL: ${PUBLIC_URL:?PUBLIC_URL is required}
+        NEXT_PUBLIC_IMAGEKIT_URL_ENDPOINT: ${NEXT_PUBLIC_IMAGEKIT_URL_ENDPOINT:-}
+        NEXT_PUBLIC_CAL_BOOKING_LINK: ${NEXT_PUBLIC_CAL_BOOKING_LINK:-}
+        NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION: ${NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION:-}
+        NEXT_PUBLIC_MICROSOFT_CONNECT_ENABLED: ${NEXT_PUBLIC_MICROSOFT_CONNECT_ENABLED:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      redis-http:
+        condition: service_started
+
+  web-2:
+    <<: *web
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      redis-http:
+        condition: service_started
+
+  worker:
+    image: tartly-worker:${TAG:-latest}
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: worker
+    env_file:
+      - app.env
+    environment:
+      NODE_ENV: production
+      # The worker is a single process; a small pool is enough.
+      DB_POOL_MAX: "4"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 1g
+    # Must exceed WORKER_SHUTDOWN_TIMEOUT_MS (30s) so the drain can finish.
+    stop_grace_period: 45s
+
+  caddy:
+    image: caddy:2-alpine
+    environment:
+      TARTLY_DOMAIN: ${TARTLY_DOMAIN:-tartly.in}
+      ACME_EMAIL: ${ACME_EMAIL:-admin@tartly.in}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web-1
+      - web-2
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 256m
+
+volumes:
+  pgdata:
+  redisdata:
+  caddy_data:
+  caddy_config:
