@@ -240,7 +240,7 @@ At every stage, **only one constraint is active**. Measure before changing. The 
 | --- | --- |
 | Host CPU / RAM | 2 vCPU / 7.7 GiB |
 | Idle app memory | ~400 MB total (web 62–74 MB each, worker 98 MB, PG 98 MB, Redis 3 MB, SRH 61 MB) |
-| Disk used | 16 GB of 96 GB (17%) after images |
+| Disk used | 22 GB of 96 GB (22%) after a clean rebuild — includes 5.8 GB build cache |
 | Ready latency | 17–33 ms (local) |
 | DB size | ~13 MB source; dozens of tables, 26 migrations |
 
@@ -296,7 +296,7 @@ dumps. See §13.5.1 and A8 in the tracker.
 | AI provider | API key + base URL + model IDs | `OPENCODE_*`, `AI_*` | ✅ |
 | Search provider | Tavily key | `SEARCH_API_KEY` | ✅ |
 | Healthchecks.io | 1 check + ping URL | `/etc/tartly/backup.env` | ⬜ |
-| GitHub | repo access / deploy key | deploy source | 🟡 dirty tree |
+| GitHub | repo access / deploy key | deploy source | ✅ clean tag `83ccc5a`; host deploy key pending (A11) |
 | ImageKit | URL endpoint (public build-time) | `NEXT_PUBLIC_IMAGEKIT_URL_ENDPOINT` | ✅ |
 
 ### 3.2 DNS records (the only required change)
@@ -831,7 +831,7 @@ The builder stage also injects non-secret placeholders (`DATABASE_URL`, `BETTER_
 - dirty tree → `a14f782-dirty-YYYYMMDDHHMMSS`
 - no `.git` → timestamp
 
-Why: a deploy of uncommitted code must never masquerade as a clean release, and rollback must target an unambiguous image. The current production tag is `a14f782-dirty-20261023074724` because 84 files are uncommitted.
+Why: a deploy of uncommitted code must never masquerade as a clean release, and rollback must target an unambiguous image. The current production tag is `83ccc5a` from a clean tree. The previous rsynced tag was `a14f782-dirty-20261023074724`.
 
 ### 7.5 Release sequence
 

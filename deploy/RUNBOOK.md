@@ -361,6 +361,7 @@ df -h /
 du -sh /var/lib/docker /var/backups/tartly
 ./scripts/capacity-report.sh
 docker image ls --format '{{.Repository}}:{{.Tag}}\t{{.Size}}' | head
+docker builder prune -f --filter until=168h   # ~6 GB after one build
 ```
 
 Rules:

@@ -119,6 +119,8 @@ fi
 
 log "Cleaning up old images"
 docker image prune -f --filter "until=168h" >/dev/null || true
+# Build cache is the other disk grower on a 100 GB node (~6 GB after one build).
+docker builder prune -f --filter "until=168h" >/dev/null 2>&1 || true
 
 log "Deployed ${TAG}"
 "${COMPOSE[@]}" ps

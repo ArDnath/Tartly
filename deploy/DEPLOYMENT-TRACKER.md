@@ -5,14 +5,14 @@
 
 | Field | Value |
 | --- | --- |
-| Last updated | **2026-10-23 08:46 UTC** |
+| Last updated | **2026-10-23 08:57 UTC** |
 | Environment | Production (first node) |
 | Canonical origin | `https://tartly.in` |
 | Host | `srv2076028.hstgr.cloud` · `201.18.197.194` · Mumbai 2 |
 | Provider / plan | Hostinger KVM 2 — 2 vCPU, 8 GB RAM, 100 GB NVMe, 8 TB/mo |
 | OS | Ubuntu 26.04.1 LTS (`resolute`), kernel 7.0.0-34 |
 | Runtime | Docker 29.9.2 · Compose v5.6.1 |
-| Deployed tag | `a14f782-dirty-20261023074724` |
+| Deployed tag | `83ccc5a` (clean tree) |
 | Data | 2 users · 2 connected accounts · 2 mailboxes · 3 threads · 3 messages |
 | Public traffic | **Not live yet** — Caddy intentionally stopped until DNS points here |
 | Deployment guide | [`DEPLOYMENT-GUIDE.md`](./DEPLOYMENT-GUIDE.md) |
@@ -77,10 +77,10 @@ NEXT ACTION: after DNS resolves here, start Caddy and verify TLS (see §4, A1).
 | 4 | Firewall, fail2ban, upgrades, time | ✅ | UFW active; 22/80/443 only; fail2ban 0 banned | — |
 | 5 | Secrets & environment | 🟡 | `app.env` 39 vars, 0600; schema validated at boot | 🔴 secret rotation |
 | 6 | Postgres 18 + Redis + Upstash shim | ✅ | both healthy; ready=200 | — |
-| 7 | Image build (web + worker) | ✅ | tag `a14f782-dirty-…`; runner + worker built | — |
+| 7 | Image build (web + worker) | ✅ | tag `83ccc5a`; clean git tree; runner + worker built | — |
 | 8 | Migrations (26) | ✅ | `db:migrate` complete | — |
 | 9 | Data cutover from Neon | ✅ | counts match source (2/2/2/3/3) | — |
-| 10 | Rolling release (2 web replicas) | ✅ | both healthy, worker started | — |
+| 10 | Rolling release (2 web replicas) | ✅ | `83ccc5a` 08:53 UTC; both healthy, worker started, counts 2/2/2/3/3 | — |
 | 11 | Backup + restore drill | ✅ | 101 KB dump; restore returned 2/2/3 | — |
 | 12 | DNS → this host | ⛔ | apex still `2.57.91.91` | **user action** |
 | 13 | TLS / Caddy / HTTP-3 | ⛔ | Caddy not started | stage 12 |
@@ -94,7 +94,7 @@ NEXT ACTION: after DNS resolves here, start Caddy and verify TLS (see §4, A1).
 | 21 | CI/CD (GHCR + Actions) | ⬜ | deploys are rsync + on-host build | — |
 | 22 | Scale plan (10k users → 1M RPS) | ✅ | guide §2.7, §6.9, §16.2b; decisions D11–D14 | — |
 | 23 | 10k-user capacity + storage lifecycle | 🟡 | model documented; body trim/retention not implemented (A8) | code change |
-| 24 | Clean git baseline / reproducible deploy | 🟡 | snapshot to be committed + pushed; GHCR still pending (A6/A10) | — |
+| 24 | Clean git baseline / reproducible deploy | ✅ | `83ccc5a`; bundle fast-forward; host tree clean; bundle stash retained | GitHub deploy key (A11) |
 
 **Launch gate:** stages 12, 13, 14 and 16 must be ✅ (16 may be explicitly waived) before the domain is announced.
 
@@ -199,8 +199,8 @@ ssh deploy@201.18.197.194 'cd /opt/tartly/deploy && ./scripts/backup-postgres.sh
 ```
 Verify: `rclone lsf r2:tartly-backups/postgres/` lists today's dump; Healthchecks shows the ping.
 
-### A6 — Commit the working tree 🟡
-**Owner:** agent · 161 modified/untracked files are deployed as `a14f782-dirty-…`. Commit + push, then `git pull` on the host (guide §7.6). This restores clean provenance and makes rollback meaningful. Track it as in progress until the clean tag is verified.
+### A6 — Commit the working tree ✅
+**Owner:** agent · Done 2026-10-23 08:53 UTC. Two commits (`4dee51b` app snapshot, `633219b`/`83ccc5a` deploy docs), pushed to `ArDnath/Tartly`, fast-forwarded on the host via a git bundle, clean tag `83ccc5a` deployed. The pre-pull rsynced tree is retained as `stash@{0}` on the host.
 
 ### A7 — Performance baseline ⬜
 **Owner:** agent · See guide §15. Record results here. No tuning before measurement.
@@ -220,6 +220,18 @@ Verify: `rclone lsf r2:tartly-backups/postgres/` lists today's dump; Healthcheck
 
 ### A10 — GHCR + Actions ⬜
 **Owner:** agent + user secrets · **Why:** on-host builds steal the same 2 vCPU that serves requests. Publish `web` and `worker` images to GHCR and let the host only pull + migrate + roll. Keep `deploy.sh` as the emergency fallback.
+
+### A11 — Add the server deploy key ⬜
+**Owner:** user (GitHub) · The host has no GitHub credentials, so `git pull` still needs a bundle. A key exists at `deploy@…:~/.ssh/id_ed25519_github`:
+```
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHjR0mIw3/UpTGZe+c6mZewRhJZjnLS0eItqQ49jBuXw tartly-vps-deploy
+```
+Add it at GitHub → `ArDnath/Tartly` → Settings → Deploy keys (read-only). Verify:
+```bash
+ssh deploy@201.18.197.194 'ssh -T git@github.com'
+# expected: "Hi ArDnath/Tartly! You've successfully authenticated..."
+```
+Then future deploys are simply `git pull --ff-only && bash deploy/scripts/deploy.sh`.
 
 ---
 
@@ -241,7 +253,7 @@ Verify: `rclone lsf r2:tartly-backups/postgres/` lists today's dump; Healthcheck
 | D12 | Data placement at 10k | local vs managed Postgres/Redis | **local Postgres 18 + local Redis** until a trigger fires (guide §6.9: 2nd app node, DB >20 GB, CPU >60%, RPO <24 h) | ✅ |
 | D13 | Email body storage | PG forever vs trim + archive | **trim HTML at ingest, ~90-day hot window, archive/re-fetch older bodies** — measured ~32 kB/message makes 100 GB the binding constraint | 🟡 |
 | D14 | Backup RPO at 10k | 24 h dumps vs PITR | **24 h now; 6 h dumps or WAL/PITR before 10k users** | 🟡 |
-| D15 | Deploy provenance | dirty rsync vs git tag | **commit the deployed tree, push, pull on host; GHCR next** | 🟡 |
+| D15 | Deploy provenance | dirty rsync vs git tag | **clean tag `83ccc5a`**; git history + host deploy key next (A11) | ✅ |
 
 ---
 
@@ -254,7 +266,7 @@ Verify: `rclone lsf r2:tartly-backups/postgres/` lists today's dump; Healthcheck
 | RPO 24 h | up to a day of data loss | medium | add R2 offsite now; later WAL/pgBackRest | ⚠️ |
 | Offsite backup disabled | host loss = total loss | low | A5 | ⬜ |
 | Uploads disabled | core feature gap | high | A4 | ⬜ |
-| Uncommitted deploy | rollback ambiguity | high | A6 | ⬜ |
+| Uncommitted deploy | rollback ambiguity | high | clean tag `83ccc5a` + full git history; server stash retained | ✅ |
 | No external monitoring | silent outage | medium | A5 + uptime monitor | ⬜ |
 | AI provider outage | drafts/chat fail | medium | fallback chain env + circuit breaker (code) | ⚠️ |
 | Gmail OAuth verification | sign-in blocked for new users | medium | add redirect + verify consent screen | ⛔ |
@@ -283,6 +295,11 @@ Verify: `rclone lsf r2:tartly-backups/postgres/` lists today's dump; Healthcheck
 | — | TLS | ⛔ | DNS apex `2.57.91.91` |
 | — | Public HTTP | ⛔ | Caddy stopped by design |
 | 2026-10-23 08:46 | Capacity audit | ✅ | RAM 1.3 GiB used / 6.4 GiB available; disk 16/96 GB; DB 13 MB; messages 96 kB for 3 rows (~32 kB/msg); all containers 0% CPU |
+| 2026-10-23 08:53 | Pre-deploy backup | ✅ | 101 KB dump `tartly-20261023T085308Z.dump.zst` |
+| 2026-10-23 08:53 | Clean rebuild + rolling release | ✅ | tag `83ccc5a`; web-1/web-2 healthy; worker started; Caddy skipped (DNS) |
+| 2026-10-23 08:54 | Post-deploy readiness | ✅ | `200 {"status":"ready","postgres":{"up":34ms},"redis":{"up":23ms}}` |
+| 2026-10-23 08:54 | Data counts | ✅ | 2 users / 2 accounts / 2 mailboxes / 3 threads / 3 messages |
+| 2026-10-23 08:56 | Host state after deploy | ✅ | disk 22/96 GB (build cache 5.8 GB); all containers healthy/idle |
 
 ---
 
@@ -292,7 +309,8 @@ Verify: `rclone lsf r2:tartly-backups/postgres/` lists today's dump; Healthcheck
 | --- | --- | --- | --- |
 | `a14f782-dirty-20261023074103` | 07:41 | working tree, Postgres 17 | superseded by PG18 |
 | `a14f782-dirty-20261023074724` | 07:47 | working tree, Postgres 18 | **current** |
-| `a14f782` (HEAD) | 2026-10-07 | last commit | 84 files behind the deployed tree |
+| `83ccc5a` | 08:53 | clean git tree (app snapshot + deploy docs) | **current**; Caddy skipped (DNS) |
+| `a14f782` (HEAD) | 2026-10-07 | last upstream commit | baseline before the snapshot |
 
 ---
 
@@ -305,6 +323,7 @@ Verify: `rclone lsf r2:tartly-backups/postgres/` lists today's dump; Healthcheck
 | `deploy/.env` | server `/opt/tartly/deploy/.env` | deploy | 0600; Postgres/Redis secrets |
 | Backup R2 creds | server `/etc/tartly/backup.env` | deploy | 0600 |
 | Git remote | `git@github.com:ArDnath/Tartly.git` | user | private |
+| GitHub deploy key (host) | `deploy@…:~/.ssh/id_ed25519_github` | user | public half → repo deploy key (A11) |
 | Hostinger panel | hPanel | user | DNS, snapshots, console |
 | Google Cloud | console | user | OAuth client, Pub/Sub |
 | Dodo dashboard | app.dodopayments.com | user | products, webhooks |
@@ -332,6 +351,7 @@ Verify: `rclone lsf r2:tartly-backups/postgres/` lists today's dump; Healthcheck
 14. **Never** let `body_html` grow unbounded; no bodies older than the hot window without an archive.
 15. **Never** keep more than 3 local dumps once the database exceeds 5 GB.
 16. **Never** claim "10k concurrent" without a load test — 10k active users ≠ 10k RPS.
+17. **Never** let Docker build cache grow unbounded — it was 5.8 GB after one rebuild; prune >7 d.
 
 ---
 
