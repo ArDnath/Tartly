@@ -5,15 +5,15 @@
 
 | Field | Value |
 | --- | --- |
-| Last updated | **2026-10-23 19:15 UTC** |
+| Last updated | **2026-10-23 19:27 UTC** |
 | Environment | Production (first node) |
 | Canonical origin | `https://tartly.in` |
 | Host | `srv2076028.hstgr.cloud` · `201.18.197.194` · Mumbai 2 |
 | Provider / plan | Hostinger KVM 2 — 2 vCPU, 8 GB RAM, 100 GB NVMe, 8 TB/mo |
 | OS | Ubuntu 26.04.1 LTS (`resolute`), kernel 7.0.0-34 |
 | Runtime | Docker 29.9.2 · Compose v5.6.1 · Caddy 2.11.7 |
-| Deployed tag | `1d44127` (clean tree; previous `8453e0d`) |
-| Host git HEAD | `597885c` (backup-script fixes after the image build; no rebuild needed) |
+| Deployed tag | `f1ed59a` (clean tree; previous `1d44127`) |
+| Host git HEAD | `f1ed59a` (clean; matches the image) |
 | Data | 3 users · 3 connected accounts · 3 mailboxes · 4 threads · 4 messages |
 | Public traffic | **LIVE** — apex + www resolve here (TTL 300); Let's Encrypt valid to 2027-01-21; readiness 200 over HTTPS |
 | Deployment guide | [`DEPLOYMENT-GUIDE.md`](./DEPLOYMENT-GUIDE.md) |
@@ -42,7 +42,7 @@ HARD RULES
   failure-mode section in the guide.
 
 RESUME PROTOCOL: run §3 of the tracker verbatim.
-CURRENT BLOCKER: none for public HTTPS. Site is live on `1d44127`.
+CURRENT BLOCKER: none for public HTTPS. Site is live on `f1ed59a`.
 NEXT ACTION: founder-gated items only — Google OAuth console allow-list + real
 sign-in smoke test (unblocks CSP enforce), Dodo webhook key + test payment,
 Healthchecks/R2 monitoring URLs, AI daily budgets, Pub/Sub topic if in scope.
@@ -80,10 +80,10 @@ Agent-side work remaining: email-body lifecycle (A8) and AI/SSE concurrency caps
 | 4 | Firewall, fail2ban, upgrades, time | ✅ | UFW active; 22/80/443 only; fail2ban 0 banned | — |
 | 5 | Secrets & environment | ✅ | `app.env` 46 vars, 0600; rendered file hash matches the server byte-for-byte; `BETTER_AUTH_SECRET` now 32 chars (high-entropy, no boot warning); autopilot/assets flags explicit | remaining launch keys are feature-gated (see A12) |
 | 6 | Postgres 18 + Redis + Upstash shim | ✅ | both healthy; ready=200 | — |
-| 7 | Image build (web + worker) | ✅ | tag `1d44127`; clean tree; web-1/web-2 healthy | — |
-| 8 | Migrations (26) | ✅ | `db:migrate` complete (no-op on 1d44127 release) | — |
+| 7 | Image build (web + worker) | ✅ | tag `f1ed59a`; clean tree; web-1/web-2 healthy | — |
+| 8 | Migrations (26) | ✅ | `db:migrate` complete (no-op on f1ed59a release) | — |
 | 9 | Data cutover from Neon | ✅ | counts match source (3/3/3/4/4) | — |
-| 10 | Rolling release (2 web replicas) | ✅ | `1d44127`; web-1/web-2 healthy, worker started, ready 200 | — |
+| 10 | Rolling release (2 web replicas) | ✅ | `f1ed59a` 19:27 UTC; web-1/web-2 healthy, worker started, ready 200 | — |
 | 11 | Backup + restore drill | ✅ | offsite dump in R2 + SHA-256 match; scratch restore 1 s, counts 3/3/3/4/4 | — |
 | 12 | DNS → this host | ✅ | apex + www `201.18.197.194`, TTL 300; verified 2026-10-23 19:11 UTC | — |
 | 13 | TLS / Caddy / HTTP-3 | ✅ | LE cert notAfter 2027-01-21; HTTP/2 200; www→apex 308; `alt-svc: h3` | — |
@@ -91,13 +91,13 @@ Agent-side work remaining: email-body lifecycle (A8) and AI/SSE concurrency caps
 | 15 | Dodo webhook + live/test payment | ⬜ | `DODO_PAYMENTS_WEBHOOK_KEY` empty (route 400, fails closed) | keys |
 | 16 | R2 asset storage + CORS | 🟡 | driver `s3`; bucket reachable with app creds; CORS preflight 204 for `https://tartly.in` (PUT/GET/HEAD); UI upload pending a signed-in session | founder smoke test |
 | 17 | Offsite backups (R2) | 🟡 | 6-hourly cron + manual run verified in `r2:tartly-backups/postgres/`; `HEALTHCHECKS_*` still empty | Healthchecks URLs |
-| 18 | External monitoring / alerts | ⬜ | `healthcheck.sh` runs every minute but has no ping URL; no external uptime monitor | user |
+| 18 | External monitoring / alerts | 🟡 | local `healthcheck.sh` every minute now covers readiness + disk 60/75/85 + RAM 80/90 + cert <30/<14 d; **no external heartbeat or uptime monitor** (`HEALTHCHECKS_*` empty) | user |
 | 19 | Security audit & dependency scan | 🟡 | host hardened; `npm audit` criticals 0 / highs 2 (dev-only linkify via ansi-to-react); web image 1 CRITICAL (`zlib1g` will_not_fix); worker 4 (Go stdlib inside esbuild — dev tool) | accepted / document |
-| 20 | Performance baseline (k6) | ⬜ | not measured (needs a dedicated test session) | test account |
+| 20 | Performance baseline (k6) | 🟡 | off-box edge smoke recorded (§7.1); authenticated 400 RPS / 2k SSE baseline still needs a dedicated Google test account | test account |
 | 21 | CI/CD (GHCR + Actions) | ⬜ | deploys are rsync + on-host build; host Git deploy key now works | — |
 | 22 | Scale plan (10k users → 1M RPS) | ✅ | guide §2.7, §6.9, §16.2b; decisions D11–D14 | — |
-| 23 | 10k-user capacity + storage lifecycle | 🟡 | model documented; body trim/retention not implemented (A8) | code change |
-| 24 | Clean git baseline / reproducible deploy | ✅ | `1d44127` image from clean tree; host HEAD `597885c`; host deploy key authenticates to GitHub | — |
+| 23 | 10k-user capacity + storage lifecycle | 🟡 | `body_text` capped 64 KiB / `body_html` 128 KiB at ingest (5 tests); 90-day archive/re-fetch still not implemented (A8) | retention job |
+| 24 | Clean git baseline / reproducible deploy | ✅ | `f1ed59a` image from clean tree; host HEAD `f1ed59a`; host deploy key authenticates to GitHub | — |
 
 **Launch gate:** stages 12 and 13 are ✅ and the site is already serving. Stages 14 (Google console allow-list + real sign-in) and 16 (R2 presigned upload) must be ✅ — or 16 explicitly waived — before the domain is announced.
 
@@ -175,7 +175,7 @@ Add:
 **Owner:** agent · **Done:** 2026-10-23 10:12 UTC, tag `8453e0d`.
 **What changed:** `next` 16.3.5 → 16.4.2 (critical RCE/SSRF advisories; `npm audit` criticals 2 → 0), non-breaking `npm audit fix` (dompurify, sharp, source-map-js), canonical `app/settings/[[...section]]` route required by Next 16.4 strict interception matching (shared section registry), and the Caddy www 308 fix.
 **Evidence:** `tsc --noEmit` clean; 267/267 unit tests pass; web + worker images build; rolling deploy healthy; public ready 200; web-image CRITICALs 3 → 1 (`zlib1g`, Debian `will_not_fix`). Lint still reports one pre-existing error in untouched `components/marketing/landing/home-content.tsx` (`react-hooks/set-state-in-effect`) — recorded, not fixed in the security change.
-**Rollback:** `.deploy/previous-tag` = `8453e0d`; `./scripts/rollback.sh`.
+**Rollback:** `.deploy/previous-tag` = `1d44127`; `./scripts/rollback.sh`.
 
 ### A4 — R2 asset storage 🟡 (bucket + CORS verified; UI upload pending sign-in)
 **Owner:** user provides credentials · **Full procedure:** [`R2-SETUP.md`](./R2-SETUP.md).
@@ -196,12 +196,13 @@ Add:
 **Owner:** agent · See guide §15. Record results here. No tuning before measurement.
 
 ### A8 — Email-body lifecycle 🟡
-**Owner:** agent + user decision · **Why:** the schema stores full `bodyText` + `bodyHtml` per message (`lib/db/schema.ts:536–537`). Measured ~32 kB/message; at 10k users × 10–30 messages/day that is 3–10 GB/day, which fills 100 GB in weeks.
-**Implement before ~5k active users:**
-1. Measure: `./scripts/capacity-report.sh` (DB size, per-row bytes, top tables).
-2. Strip base64 inline images/tracking pixels at ingest; cap `bodyHtml` (~64–128 kB).
+**Owner:** agent + user decision · **Why:** the schema stores full `bodyText` + `bodyHtml` per message (`lib/db/schema.ts:536–537`). Measured ~24–32 kB/message; at 10k users × 10–30 messages/day that is 3–10 GB/day, which fills 100 GB in weeks.
+**Done 2026-10-23 19:24 UTC:** hard storage ceilings at ingest — `body_text` 64 KiB, `body_html` 128 KiB, cut on a line/tag boundary with a visible marker (`lib/gmail/body.ts`, wired in `lib/gmail/sync.ts`). 5 new unit tests; full suite 273/273; deployed as `f1ed59a`. This bounds the pathological multi-MB newsletter case, not the average.
+**Still to implement before ~5k active users:**
+1. Measure: `./scripts/capacity-report.sh` (DB size, per-row bytes, top tables) — done 2026-10-23 19:03 (13 MB DB, 24 kB/message).
+2. Strip base64 inline images/tracking pixels at ingest (not done: stripping without R2 extraction would break inline images).
 3. Keep a hot window (~90 days) in Postgres; archive older bodies to R2 or re-fetch from Gmail on thread open.
-4. Alert at 60/75/85% disk and on DB size.
+4. Alert at 60/75/85% disk and on DB size (healthcheck now logs 60/75/85; remote alert needs Healthchecks).
 **Gate:** projected 90-day disk use < 60%.
 
 ### A9 — RPO ≤ 6 h 🟡
@@ -219,14 +220,14 @@ Add:
 ssh deploy@201.18.197.194 'ssh -T git@github.com'
 # Hi ArDnath/Tartly! You've successfully authenticated, but GitHub does not provide shell access.
 ```
-Future deploys are `git pull --ff-only && bash deploy/scripts/deploy.sh`. The host HEAD is `597885c`; the deployed image is still `1d44127` because the last two commits only touch `deploy/scripts/backup-postgres.sh`.
+Future deploys are `git pull --ff-only && bash deploy/scripts/deploy.sh`. The host HEAD is `f1ed59a` and the deployed image is `f1ed59a`; the deploy key is now the primary path.
 
 ### A12 — Complete the launch env 🟡
 **Owner:** user (values) + agent (apply) · **Source of truth is the repo-root `.env`**, not the server file. Edit it, run `node deploy/scripts/render-env.mjs https://tartly.in`, copy `deploy/app.env` + `deploy/.env` to the host, then recreate web/worker. Never paste secrets into chat.
 
 **Verified correct (2026-10-23 09:20 UTC):** `DATABASE_URL` → `postgres:5432/tartly` and its password matches `.env`; Redis → `redis-http:80` and its token matches; `BETTER_AUTH_URL`/`PUBLIC_URL` → `https://tartly.in`; the client bundle contains `tartly.in` and zero `localhost:3000`; Dodo is `test_mode` with live disabled; CSP is report-only; contract validation is enforce. `TAG` is now the deployed tag, not `latest`.
 
-> **TAG trap (found 2026-10-23 10:22 UTC):** `render-env.mjs` preserves `TAG` from the local `deploy/.env`. After every deploy, update the local `TAG` to the live tag *before* re-rendering, or copying the rendered `deploy/.env` to the host will silently point Compose at the previous image. Local and server `deploy/.env` now match (`TAG=1d44127`). Root `.env` origins were also corrected from `localhost:3000` to `https://tartly.in`; the renderer overrides them, but the stale values were a trap.
+> **TAG trap (found 2026-10-23 10:22 UTC):** `render-env.mjs` preserves `TAG` from the local `deploy/.env`. After every deploy, update the local `TAG` to the live tag *before* re-rendering, or copying the rendered `deploy/.env` to the host will silently point Compose at the previous image. Local and server `deploy/.env` now match (`TAG=f1ed59a`). Root `.env` origins were also corrected from `localhost:3000` to `https://tartly.in`; the renderer overrides them, but the stale values were a trap.
 
 | Missing / weak | Where | Needed for | Owner |
 | --- | --- | --- | --- |
@@ -251,9 +252,10 @@ Future deploys are `git pull --ff-only && bash deploy/scripts/deploy.sh`. The ho
 **Owner:** agent after A2 · **Why wait:** the policy is currently `report`; the public marketing pages are intentionally skipped (static render cannot carry a nonce), so `/` will never show the header. The authenticated app pages (`/auth`, `/mail`, `/assistant`, `/settings`, `/billing`) do.
 **Do:** with the founder signed in, open those pages and confirm zero `csp.violation` log lines for real flows, then set `CSP_MODE=enforce` in the root `.env`, re-render, copy, and recreate web/worker. Evidence: response header changes from `content-security-policy-report-only` to `content-security-policy`, and the flows still work.
 
-### A15 — Email-body lifecycle + AI/SSE caps ⬜
-**Owner:** agent · **Why:** the two remaining §16.2b preconditions. `messages.body_text`/`body_html` are stored unbounded (~24–32 kB/message measured), and there is no global AI/SSE concurrency cap (only per-minute rate limits: 300 API / 20 agent / 30 asset).
-**Scope:** (1) cap `bodyHtml` at ingest and strip base64 inline images; (2) add a 90-day hot window with archive/re-fetch; (3) add per-user stream cap (2–3) and global AI generation cap (50–100) with a queue. Do this as a tested code change, not an env tweak.
+### A15 — Email-body lifecycle + AI/SSE caps 🟡
+**Owner:** agent · **Why:** two §16.2b preconditions. `messages.body_text`/`body_html` were stored unbounded; there is no global AI/SSE concurrency cap (only per-minute rate limits: 300 API / 20 agent / 30 asset).
+**Done:** storage caps at ingest (A8) — `body_text` 64 KiB / `body_html` 128 KiB, deployed `f1ed59a`. `AGENT_MAX_TOKENS_PER_RUN` already has a 200k default; per-user AI budget defaults to 500 calls/day.
+**Still to do:** (1) a 90-day hot window with archive/re-fetch; (2) strip base64 inline images without breaking rendering; (3) per-user stream cap (2–3) and global AI generation cap (50–100) with a queue; (4) founder sets `AI_GLOBAL_DAILY_BUDGET`. Do this as a tested code change, not an env tweak.
 
 ---
 
@@ -275,7 +277,7 @@ Future deploys are `git pull --ff-only && bash deploy/scripts/deploy.sh`. The ho
 | D12 | Data placement at 10k | local vs managed Postgres/Redis | **local Postgres 18 + local Redis** until a trigger fires (guide §6.9: 2nd app node, DB >20 GB, CPU >60%, RPO <24 h) | ✅ |
 | D13 | Email body storage | PG forever vs trim + archive | **trim HTML at ingest, ~90-day hot window, archive/re-fetch older bodies** — measured ~32 kB/message makes 100 GB the binding constraint | 🟡 |
 | D14 | Backup RPO at 10k | 24 h dumps vs PITR | **24 h now; 6 h dumps or WAL/PITR before 10k users** | 🟡 |
-| D15 | Deploy provenance | dirty rsync vs git tag | **clean tag `1d44127`**; host HEAD `597885c`; host deploy key authenticates | ✅ |
+| D15 | Deploy provenance | dirty rsync vs git tag | **clean tag `f1ed59a`**; host HEAD `f1ed59a`; host deploy key authenticates | ✅ |
 | D16 | Launch feature defaults | implicit vs explicit | **`ASSETS_ENABLED=false` until R2 is configured; `AUTOPILOT_ENABLED=false`** | ✅ |
 | D17 | Env source of truth | server `app.env` vs repo-root `.env` | **repo-root `.env` → `render-env.mjs` → copy `app.env` + `.env`**; never hand-edit the server | ✅ |
 
@@ -290,7 +292,7 @@ Future deploys are `git pull --ff-only && bash deploy/scripts/deploy.sh`. The ho
 | RPO 24 h | up to a day of data loss | — | cron every 6 h; local + R2 verified | ✅ |
 | ~~Offsite backup disabled~~ | host loss = total loss | — | R2 upload + SHA-256 match verified 2026-10-23 19:03 | ✅ |
 | Uploads partially verified | core feature gap | medium | bucket + CORS verified; presigned UI upload pending sign-in | 🟡 |
-| Uncommitted deploy | rollback ambiguity | — | clean tag `1d44127`; previous-tag `8453e0d`; host tree clean | ✅ |
+| Uncommitted deploy | rollback ambiguity | — | clean tag `f1ed59a`; previous-tag `1d44127`; host tree clean | ✅ |
 | No external monitoring | silent outage | medium | `healthcheck.sh` runs, but `HEALTHCHECKS_*` empty and no uptime monitor | ⬜ |
 | AI provider outage | drafts/chat fail | medium | fallback chain env + circuit breaker (code) | ⚠️ |
 | Gmail OAuth verification | sign-in blocked for new users | medium | add redirect + verify consent screen | ⛔ |
@@ -356,6 +358,28 @@ Future deploys are `git pull --ff-only && bash deploy/scripts/deploy.sh`. The ho
 | 2026-10-23 19:10 | Image scan `1d44127` | 🟡 | web 1 CRITICAL (`zlib1g` will_not_fix), 67 HIGH; worker 4 CRITICAL (1 zlib + 3 Go stdlib in esbuild), 124 HIGH; fixable highs are dev tooling |
 | 2026-10-23 19:11 | Public edge verification | ✅ | apex DNS + www `201.18.197.194`, TTL 300; HTTP/2 200; ready 200; www 308; cert notAfter 2027-01-21; auth callback 302; cron/metrics 401; Dodo webhook 400 (fails closed) |
 | 2026-10-23 19:15 | Env parity check | ✅ | `render-env.mjs` output SHA-256 `bc2b30df…` equals the server `app.env`; 46 vars; `BETTER_AUTH_SECRET` 32 chars; no low-entropy boot warning in 24 h |
+| 2026-10-23 19:18 | Healthcheck hardening | ✅ | `healthcheck.sh` now covers readiness, disk 60/75/85, memory 80/90, TLS <30/<14 d; `bash -n` clean; live run exit 0 (disk 38%, mem 25%, cert 89 d) |
+| 2026-10-23 19:20 | Edge smoke baseline | 🟡 | off-box autocannon from the workstation; see §7.1. Client uplink-bound at high concurrency; not a capacity proof |
+| 2026-10-23 19:24 | Body-cap change tested | ✅ | `tsc --noEmit` clean; changed-file eslint clean; `vitest` 273/273 (5 new body-cap tests) |
+| 2026-10-23 19:27 | Release `f1ed59a` | ✅ | migrations complete; web-1/web-2 healthy; worker up; Caddy reloaded; public ready 200; `.deploy/previous-tag` = `1d44127` |
+
+### 7.1 Off-box edge smoke (2026-10-23 19:20 UTC)
+
+Workstation → `https://tartly.in` over the public internet. Autocannon, 15 s per
+run, no session. This measures the edge + public paths from one client, **not**
+the §15 authenticated workload.
+
+| Path | Concurrency | RPS | p50 | p97.5 | p99 | Errors |
+| --- | --- | --- | --- | --- | --- | --- |
+| `/api/health/live` | 5 | 54 | 89 ms | 118 ms | 131 ms | 0 |
+| `/` (landing) | 5 | 32 | 147 ms | 178 ms | 596 ms | 0 |
+| `/api/health/live` | 50 | 485 | 1009 ms | 1652 ms | 2225 ms | 0 |
+| `/` (landing) | 50 | 113 | 3968 ms | 7245 ms | 7674 ms | 0 |
+
+The 50-connection runs are **client-uplink-bound**: health (no DB, no render)
+already showed ~1 s p50, so the latency is the test path, not the server. The
+c=5 numbers are the useful public-edge floor. A real baseline needs the §15 k6
+script, a dedicated test session, and a generator with more upstream capacity.
 
 ---
 
@@ -367,7 +391,8 @@ Future deploys are `git pull --ff-only && bash deploy/scripts/deploy.sh`. The ho
 | `a14f782-dirty-20261023074724` | 07:47 | working tree, Postgres 18 | rollback baseline |
 | `83ccc5a` | 08:53 | clean git tree (app snapshot + deploy docs) | previous; Caddy skipped (DNS) |
 | `8453e0d` | 10:12 | next@16.4.2 security patch + canonical settings route + www 308 | previous; rollback target |
-| `1d44127` | 18:57 | R2 asset wiring (S3 driver + CSP `connect-src`), R2 setup docs, split backup heartbeat from readiness ping | **current**; clean tree; rollback target is `8453e0d` |
+| `1d44127` | 18:57 | R2 asset wiring (S3 driver + CSP `connect-src`), R2 setup docs, split backup heartbeat from readiness ping | previous |
+| `f1ed59a` | 19:27 | 64 KiB text / 128 KiB HTML body caps at ingest + 5 tests | **current**; clean tree; rollback target is `1d44127` |
 | `a14f782` (HEAD) | 2026-10-07 | last upstream commit | baseline before the snapshot |
 
 ---
@@ -379,7 +404,7 @@ Future deploys are `git pull --ff-only && bash deploy/scripts/deploy.sh`. The ho
 | SSH key | `~/.ssh/id_ed25519` on this workstation | user | key-only; root + `deploy` |
 | `deploy/app.env` | server `/opt/tartly/deploy/app.env` | deploy | 0600; 46 vars; **not in git**; hash matches the workstation render |
 | Root `.env` (source of truth) | workstation repo root | user | 0600; gitignored; never commit |
-| `deploy/.env` | server `/opt/tartly/deploy/.env` | deploy | 0600; Postgres/Redis secrets; `TAG=1d44127` |
+| `deploy/.env` | server `/opt/tartly/deploy/.env` | deploy | 0600; Postgres/Redis secrets; `TAG=f1ed59a` |
 | Backup R2 creds | server `/etc/tartly/backup.env` | deploy | 0600; R2 wired; Healthchecks URLs still empty |
 | Git remote | `git@github.com:ArDnath/Tartly.git` | user | private |
 | GitHub deploy key (host) | `deploy@…:~/.ssh/id_ed25519_github` | user | **active**; read-only deploy key; `ssh -T` verified |
@@ -426,7 +451,7 @@ Future deploys are `git pull --ff-only && bash deploy/scripts/deploy.sh`. The ho
 - [x] Nightly backup uploaded offsite; restore drill recorded (SHA-256 match, 1 s restore)
 - [ ] External uptime monitor + backup heartbeat firing (`HEALTHCHECKS_*` empty)
 - [ ] Dodo test payment → webhook → entitlement verified
-- [x] Working tree committed; clean tag `1d44127` deployed
+- [x] Working tree committed; clean tag `f1ed59a` deployed
 - [ ] Performance baseline recorded (§15)
 - [ ] Capacity model (§2.7) verified: 400 RPS and 2k SSE streams at p95 within SLO
 - [ ] Email-body lifecycle active; projected 90-day disk use < 60%
