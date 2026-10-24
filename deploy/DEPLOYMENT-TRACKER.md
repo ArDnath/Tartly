@@ -5,16 +5,16 @@
 
 | Field | Value |
 | --- | --- |
-| Last updated | **2026-10-23 19:46 UTC** |
+| Last updated | **2026-10-24 09:10 UTC** |
 | Environment | Production (first node) |
 | Canonical origin | `https://tartly.in` |
 | Host | `srv2076028.hstgr.cloud` · `201.18.197.194` · Mumbai 2 |
 | Provider / plan | Hostinger KVM 2 — 2 vCPU, 8 GB RAM, 100 GB NVMe, 8 TB/mo |
 | OS | Ubuntu 26.04.1 LTS (`resolute`), kernel 7.0.0-34 |
 | Runtime | Docker 29.9.2 · Compose v5.6.1 · Caddy 2.11.7 |
-| Deployed tag | `f1ed59a` (clean tree; previous `1d44127`) |
-| Host git HEAD | `f1ed59a` (clean; matches the image) |
-| Data | 3 users · 3 connected accounts · 3 mailboxes · 4 threads · 4 messages |
+| Deployed tag | `9e1f951` (clean tree; previous `d95dbb5`) |
+| Host git HEAD | `9e1f951` (clean; matches the image) |
+| Data | 4 users · 4 connected accounts · 4 mailboxes · 59 threads · 133 messages |
 | Public traffic | **LIVE** — apex + www resolve here (TTL 300); Let's Encrypt valid to 2027-01-21; readiness 200 over HTTPS |
 | Deployment guide | [`DEPLOYMENT-GUIDE.md`](./DEPLOYMENT-GUIDE.md) |
 | Ops runbook | [`RUNBOOK.md`](./RUNBOOK.md) |
@@ -42,11 +42,15 @@ HARD RULES
   failure-mode section in the guide.
 
 RESUME PROTOCOL: run §3 of the tracker verbatim.
-CURRENT BLOCKER: none for public HTTPS. Site is live on `f1ed59a`.
-NEXT ACTION: founder-gated items only — a real Google sign-in/Gmail-connect smoke
-test (unblocks CSP enforce and the R2 UI finalize), Dodo webhook key + test
-payment, Healthchecks/R2 monitoring URLs, AI daily budgets, Pub/Sub topic if in
-scope. Agent-side work remaining: email-body retention (A8) and AI/SSE
+CURRENT BLOCKER: none for public HTTPS. Site is live on `9e1f951`.
+LAST FIX: onboarding Gmail-connect redirected to `https://0.0.0.0:3000`
+because routes used `request.nextUrl.origin`. Now uses
+`lib/http/public-origin.ts` (`BETTER_AUTH_URL`). Verified 2026-10-24 09:01 UTC.
+NEXT ACTION: founder completes Google sign-in → Gmail connect → onboarding on
+`https://tartly.in` (reload `/onboarding` if the old tab is stuck). That unblocks
+CSP enforce and the R2 UI smoke test. Then founder-gated items: Dodo webhook key
++ test payment, Healthchecks/R2 monitoring URLs, Pub/Sub topic if in scope.
+Agent-side work remaining: email-body retention (A8) and AI/SSE
 concurrency caps (A15).
 ```
 
@@ -81,24 +85,24 @@ concurrency caps (A15).
 | 4 | Firewall, fail2ban, upgrades, time | ✅ | UFW active; 22/80/443 only; fail2ban 0 banned | — |
 | 5 | Secrets & environment | ✅ | `app.env` 46 vars, 0600; rendered file hash matches the server byte-for-byte; `BETTER_AUTH_SECRET` now 32 chars (high-entropy, no boot warning); autopilot/assets flags explicit | remaining launch keys are feature-gated (see A12) |
 | 6 | Postgres 18 + Redis + Upstash shim | ✅ | both healthy; ready=200 | — |
-| 7 | Image build (web + worker) | ✅ | tag `f1ed59a`; clean tree; web-1/web-2 healthy | — |
-| 8 | Migrations (26) | ✅ | `db:migrate` complete (no-op on f1ed59a release) | — |
-| 9 | Data cutover from Neon | ✅ | counts match source (3/3/3/4/4) | — |
-| 10 | Rolling release (2 web replicas) | ✅ | `f1ed59a` 19:27 UTC; web-1/web-2 healthy, worker started, ready 200 | — |
+| 7 | Image build (web + worker) | ✅ | tag `9e1f951`; clean tree; web-1/web-2 healthy | — |
+| 8 | Migrations (26) | ✅ | `db:migrate` complete (no-op on `9e1f951` release) | — |
+| 9 | Data cutover from Neon | ✅ | counts match source (3/3/3/4/4); live data now 4/4/4/59/133 | — |
+| 10 | Rolling release (2 web replicas) | ✅ | `9e1f951` 09:09 UTC; web-1/web-2 healthy, worker started, ready 200 | — |
 | 11 | Backup + restore drill | ✅ | offsite dump in R2 + SHA-256 match; scratch restore 1 s, counts 3/3/3/4/4 | — |
 | 12 | DNS → this host | ✅ | apex + www `201.18.197.194`, TTL 300; verified 2026-10-23 19:11 UTC | — |
 | 13 | TLS / Caddy / HTTP-3 | ✅ | LE cert notAfter 2027-01-21; HTTP/2 200; www→apex 308; `alt-svc: h3` | — |
-| 14 | Google OAuth redirect URIs | 🟡 | Google login page returns 200 for the production client with no `redirect_uri_mismatch`; console allow-list is in place. End-to-end sign-in + consent screen + Gmail connect still need the founder | founder login |
+| 14 | Google OAuth redirect URIs | 🟡 | Google login page returns 200 for the production client with no `redirect_uri_mismatch`; console allow-list is in place. **Onboarding return bug fixed in `d95dbb5`** (was redirecting to `https://0.0.0.0:3000/onboarding`). End-to-end sign-in + consent screen + Gmail connect still need the founder | founder login |
 | 15 | Dodo webhook + live/test payment | ⬜ | `DODO_PAYMENTS_WEBHOOK_KEY` empty (route 400, fails closed) | keys |
 | 16 | R2 asset storage + CORS | ✅ | driver `s3`; `npm run verify:r2` passed PUT/HEAD/GET/DELETE + CORS 204 + presigned PUT 200 against `tartly-assets`; authenticated UI upload is an optional founder smoke test | — |
 | 17 | Offsite backups (R2) | 🟡 | 6-hourly cron + manual run verified in `r2:tartly-backups/postgres/`; `HEALTHCHECKS_*` still empty | Healthchecks URLs |
 | 18 | External monitoring / alerts | 🟡 | local `healthcheck.sh` every minute now covers readiness + disk 60/75/85 + RAM 80/90 + cert <30/<14 d; **no external heartbeat or uptime monitor** (`HEALTHCHECKS_*` empty) | user |
-| 19 | Security audit & dependency scan | 🟡 | host hardened; `npm audit --omit=dev`: 2 high + 8 moderate, all in `linkify-it` via `ansi-to-react` — **not reachable**: the only `<Ansi>` usage omits `linkify`, whose default is `false`; web image 1 CRITICAL (`zlib1g` will_not_fix); worker 4 (Go stdlib inside esbuild — dev tool) | accepted / document |
+| 19 | Security audit & dependency scan | 🟡 | host hardened; `npm audit --omit=dev` re-run 2026-10-24: 23 (7 high). Direct `zod` HIGH patched in `9e1f951`; `linkify-it` not reachable; `undici`/`@vercel/blob` chains accepted (trusted upstream, blob driver unused); web image 1 CRITICAL (`zlib1g` will_not_fix); worker 4 (Go stdlib inside esbuild — dev tool) | accepted / document |
 | 20 | Performance baseline (k6) | 🟡 | off-box edge smoke recorded (§7.1); authenticated 400 RPS / 2k SSE baseline still needs a dedicated Google test account | test account |
 | 21 | CI/CD (GHCR + Actions) | ⬜ | deploys are rsync + on-host build; host Git deploy key now works | — |
 | 22 | Scale plan (10k users → 1M RPS) | ✅ | guide §2.7, §6.9, §16.2b; decisions D11–D14 | — |
 | 23 | 10k-user capacity + storage lifecycle | 🟡 | `body_text` capped 64 KiB / `body_html` 128 KiB at ingest (5 tests); 90-day archive/re-fetch still not implemented (A8) | retention job |
-| 24 | Clean git baseline / reproducible deploy | ✅ | `f1ed59a` image from clean tree; host HEAD `f1ed59a`; host deploy key authenticates to GitHub | — |
+| 24 | Clean git baseline / reproducible deploy | ✅ | `9e1f951` image from clean tree; host HEAD `9e1f951`; host deploy key authenticates to GitHub | — |
 
 **Launch gate:** stages 12, 13, 14 (console) and 16 are ✅ and the site is already serving. The remaining stage-14 step is the founder's real sign-in + Gmail connect, which also gates CSP enforce.
 
@@ -154,6 +158,10 @@ openssl s_client -connect tartly.in:443 -servername tartly.in </dev/null 2>/dev/
 ### A2 — Google OAuth redirect 🟡 → end-to-end verify
 **Owner:** founder login · **Console state (verified 2026-10-23 19:39 UTC):** following `POST /api/auth/sign-in/social` → `accounts.google.com` returns **HTTP 200** with a "Sign in" page and no `redirect_uri_mismatch` / `invalid_client`. The allow-list entry for `https://tartly.in/api/auth/callback/google` is therefore live.
 **Still needed:** a real sign-in and Gmail connect. If the consent screen is still in "Testing", only listed test users can complete it; publish the app or add the founder as a test user. Google verification is also what stops refresh tokens expiring after 7 days.
+**Fixed 2026-10-24:** the Gmail-connect landing used to send the browser to
+`https://0.0.0.0:3000/onboarding` after OAuth (the standalone bind address). It
+now returns to `https://tartly.in`. Users parked mid-flow should reload
+`https://tartly.in/onboarding` to continue.
 ```bash
 curl -sS -o /dev/null -w '%{http_code}\n' 'https://tartly.in/api/auth/callback/google'   # 302/400, not 404
 ```
@@ -258,6 +266,46 @@ Future deploys are `git pull --ff-only && bash deploy/scripts/deploy.sh`. The ho
 **Evidence:** `f1ed59a → 1d44127` (ready 200) → `1d44127 → f1ed59a` (ready 200). Production is back on `f1ed59a`; `.deploy/previous-tag` is `1d44127`.
 **Note:** migrations are forward-only; this drill involved no schema change. A release with a destructive migration must use the pre-deploy dump instead.
 
+### A17 — Onboarding redirect to `0.0.0.0:3000` ✅
+**Owner:** agent · **Done:** 2026-10-24 08:59 UTC, tag `d95dbb5`.
+**Symptom:** after Google sign-in → Gmail connect on `/onboarding`, the browser
+landed on `https://0.0.0.0:3000/onboarding` and Firefox showed
+`connectionFailure`. Reproduced from the Caddy access log:
+`GET /api/onboarding/sync-email/complete` → `307 Location: https://0.0.0.0:3000/onboarding`
+(2026-10-24 08:52:49 UTC).
+**Root cause:** `const origin = request.nextUrl.origin` in the onboarding
+completion route. The Next.js standalone server binds to `0.0.0.0:3000`, so
+behind Caddy the framework-visible origin is the bind address, not the public
+host. The same pattern was feeding Dodo checkout/portal return URLs.
+**Fix:** `lib/http/public-origin.ts` derives the origin from `BETTER_AUTH_URL`
+and is used by the onboarding completion route and all billing origin/return
+paths. Unit test added.
+**Verified:** `tsc --noEmit` clean; 276/276 unit tests; deployed clean tag
+`d95dbb5`; `/api/onboarding/sync-email/complete` now → `307 https://tartly.in/auth`;
+`/api/billing/return` → `307 https://tartly.in/mail?billing=…`; ready 200;
+web-1/web-2 healthy.
+**Rollback:** `./scripts/rollback.sh` → `f1ed59a` (reintroduces the bug).
+**Still needed:** one real logged-in Gmail connect to confirm the browser stays
+on `tartly.in` through the whole flow.
+
+### A18 — Dependency re-audit (2026-10-24) 🟡
+**Owner:** agent · **Why:** the advisory database changed since the 19:34 UTC run
+on 2026-10-23, so the previous "2 high" number is stale.
+**Result:** `npm audit --omit=dev` → **23 vulnerabilities (7 high, 9 moderate, 7 low)**.
+- **Fixed now:** `zod` 4.6.5 → **4.6.7** — direct dependency, HIGH
+  `GHSA-mrhx-c7xc-m3w5` (memory exhaustion on oversized constrained
+  collections), reachable through request validation. Deployed in `9e1f951`
+  with `tsc` + 276/276 tests + npm 10.9.9 lockfile check.
+- **Accepted:** `linkify-it` via `ansi-to-react` (`linkify` stays off);
+  `undici` 7.29.1 / 6.29.0 (only trusted HTTPS upstreams; no user-controlled
+  response bodies); `@vercel/blob` → `@vercel/oidc` → nested `zod` (blob driver
+  is unused in production — `ASSET_STORAGE_DRIVER=s3` / R2).
+- **Dev-only:** `esbuild`, `drizzle-kit`, `vitest` (not in the runner image).
+**Rule:** no `npm audit fix --force` on production; one tested bump per release.
+**Cheap future win:** removing the unused `@vercel/blob` dependency would drop
+the `@vercel/oidc`/`undici@6`/nested-`zod` chain. Do it as its own tested
+release, not during an incident.
+
 ---
 
 ## 5. Decisions log
@@ -283,6 +331,7 @@ Future deploys are `git pull --ff-only && bash deploy/scripts/deploy.sh`. The ho
 | D17 | Env source of truth | server `app.env` vs repo-root `.env` | **repo-root `.env` → `render-env.mjs` → copy `app.env` + `.env`**; never hand-edit the server | ✅ |
 | D18 | AI/SSE concurrency at launch | global semaphore now vs after measurement | **ship with the existing guards** — 20 agent runs/min/user, 200k tokens/run, 500 calls/day/user, 5-min SSE lifetime — and add a global generation semaphore only when load/provider 429s show it is the constraint. Global daily ceiling is **2,000 calls** | 🟡 |
 | D19 | Gmail Pub/Sub at launch | include vs defer | **defer** — launch with manual/periodic sync; do not half-configure the webhook. Revisit when the email operator is ready | ✅ |
+| D20 | Absolute URL origin | `request.nextUrl.origin` vs env canonical origin | **`BETTER_AUTH_URL` via `lib/http/public-origin.ts`** — the standalone server's request origin is its bind address (`0.0.0.0:3000`), which broke onboarding and would break billing returns | ✅ |
 
 ---
 
@@ -296,6 +345,7 @@ Future deploys are `git pull --ff-only && bash deploy/scripts/deploy.sh`. The ho
 | ~~Offsite backup disabled~~ | host loss = total loss | — | R2 upload + SHA-256 match verified 2026-10-23 19:03 | ✅ |
 |~~Uploads disabled~~ **R2 verified** | core feature gap | — | storage path, CORS and presigned PUT verified; UI finalize optional | ✅ |
 | Uncommitted deploy | rollback ambiguity | — | clean tag `f1ed59a`; previous-tag `1d44127`; host tree clean | ✅ |
+| ~~Absolute redirects from bind address~~ | OAuth onboarding dead-ends at `https://0.0.0.0:3000`; checkout returns broken | — | fixed in `d95dbb5`: `lib/http/public-origin.ts` from `BETTER_AUTH_URL`; verified on the redirect boundary | ✅ |
 | No external monitoring | silent outage | medium | `healthcheck.sh` runs, but `HEALTHCHECKS_*` empty and no uptime monitor | ⬜ |
 | AI provider outage | drafts/chat fail | medium | fallback chain env + circuit breaker (code) | ⚠️ |
 | Gmail OAuth verification | sign-in blocked for new users; refresh tokens expire after 7 days in Testing | medium | redirect URI accepted; publish the consent screen / add test users; verify end-to-end | 🟡 |
@@ -309,6 +359,9 @@ Future deploys are `git pull --ff-only && bash deploy/scripts/deploy.sh`. The ho
 | Dodo API key may belong to the live environment | test checkout could 401/403, or a live key could be sent to the test host | medium | key is opaque (len 65, no `dodo_*` prefix); founder must confirm it is a **test** key in the dashboard before the payment test | ⬜ |
 | **Critical runtime advisories (`next` 16.3.5 RCE, `dompurify` XSS)** | remote compromise / stored XSS | **high** while public | patched in `8453e0d`; re-scan of `1d44127` shows only Debian `zlib1g` `will_not_fix` + dev-only Go stdlib in esbuild | ✅ |
 | `linkify-it` quadratic DoS via `ansi-to-react` | browser CPU spike on crafted terminal text | low | **not reachable**: `Ansi` defaults `linkify=false` and the only usage omits the prop; no runtime call path | ⚠️ |
+| `zod` memory exhaustion (GHSA-mrhx-c7xc-m3w5) | DoS via oversized constrained collections in request validation | medium | **fixed** in `9e1f951`: direct `zod` 4.6.5 → 4.6.7; tsc + 276 tests | ✅ |
+| `undici` DoS / SRI advisories (transitive) | upstream-response DoS; only on calls to configured AI/base URLs | low | comes via `ai`/`@ai-sdk` and `@vercel/blob`; endpoints are trusted HTTPS, blob driver unused (`ASSET_STORAGE_DRIVER=s3`); revisit in the next dependency refresh | ⚠️ |
+| `@vercel/blob` → `@vercel/oidc` / CLI-config `zod` | tooling-only chain; blob driver unused in production | low | dynamic import only when `ASSET_STORAGE_DRIVER=blob`; R2/S3 is the live driver | ⚠️ |
 
 ---
 
@@ -373,6 +426,14 @@ Future deploys are `git pull --ff-only && bash deploy/scripts/deploy.sh`. The ho
 | 2026-10-23 19:39 | Google OAuth console probe | ✅ | sign-in start → `accounts.google.com` returns HTTP 200 "Sign in"; no `redirect_uri_mismatch`/`invalid_client`; page references `tartly` |
 | 2026-10-23 19:42 | Functional edge probes | ✅ | http→https 308; `/privacy`, `/terms`, `/pricing` 200; signed-out `/mail` 307 → `/auth?next=/mail`; unknown path 307 (guard, not 404) — accurate 404 requires a session |
 | 2026-10-23 19:46 | AI spend ceiling applied | ✅ | founder chose 2,000/day; `AI_GLOBAL_DAILY_BUDGET=2000` rendered, copied, web-1→web-2→worker recreated; container sees 2000; ready 200. Pub/Sub deferred (D19) |
+| 2026-10-24 08:55 | Resume protocol | ✅ | host up 1 d 2 h; 6 containers up; ready 200 (pg 2 ms, redis 5 ms); no error/fatal/panic in 30 m; RAM 2.1/7.7 GiB; disk 37/96 GB (39%) |
+| 2026-10-24 08:56 | Capacity report | ✅ | DB 15 MB; 133 messages at 8.7 kB avg; 12/120 connections; cache hit 99.93%; Redis 1.26 MB; 12 local dumps (warn: keep ≤3) |
+| 2026-10-24 08:57 | Onboarding redirect reproduced | 🔴 | Caddy log: `GET /api/onboarding/sync-email/complete` → `307 Location: https://0.0.0.0:3000/onboarding` (08:52:49 UTC); root cause `request.nextUrl.origin` |
+| 2026-10-24 08:58 | Pre-deploy backup | ✅ | `tartly-20261024T085820Z.dump.zst`; R2 attempt 1 returned 501, attempt 2 succeeded (known transient) |
+| 2026-10-24 09:01 | Release `d95dbb5` (canonical-origin fix) | ✅ | `tsc --noEmit` clean; 276/276 unit tests; web-1/web-2 healthy; worker up; ready 200; onboarding redirect → `https://tartly.in/auth`; billing return → `https://tartly.in/mail?billing=…` |
+| 2026-10-24 09:00 | Gmail quota observation | 🟡 | `[cron/daily] backfill failed … GmailApiError 403 rateLimitExceeded` for 2 accounts; sync continues, no 5xx. Watch after the founder reconnects; if it persists, confirm per-project Gmail quota |
+| 2026-10-24 09:06 | Production dependency re-audit | 🟡 | `npm audit --omit=dev`: 23 (7 high). New vs 19:34: `zod` 4.6.5 (direct, HIGH), `undici` 7.29.1 / 6.29.0 (transitive, HIGH), `@vercel/blob` chain. Direct zod patched below; rest recorded |
+| 2026-10-24 09:09 | Release `9e1f951` (zod 4.6.7) | ✅ | `tsc --noEmit` clean; 276/276 unit tests; lockfile regenerated with npm 10.9.9 + `ci --dry-run` clean; web-1/web-2 healthy; worker up; ready 200 |
 
 ### 7.1 Off-box edge smoke (2026-10-23 19:20 UTC)
 
@@ -403,7 +464,9 @@ script, a dedicated test session, and a generator with more upstream capacity.
 | `83ccc5a` | 08:53 | clean git tree (app snapshot + deploy docs) | previous; Caddy skipped (DNS) |
 | `8453e0d` | 10:12 | next@16.4.2 security patch + canonical settings route + www 308 | previous; rollback target |
 | `1d44127` | 18:57 | R2 asset wiring (S3 driver + CSP `connect-src`), R2 setup docs, split backup heartbeat from readiness ping | previous |
-| `f1ed59a` | 19:27 | 64 KiB text / 128 KiB HTML body caps at ingest + 5 tests | **current**; clean tree; rollback target is `1d44127` |
+| `f1ed59a` | 19:27 | 64 KiB text / 128 KiB HTML body caps at ingest + 5 tests | previous; clean tree; rollback target is `1d44127` |
+| `d95dbb5` | 2026-10-24 08:59 | canonical public origin for onboarding + billing redirects (`lib/http/public-origin.ts`) + unit test | previous; clean tree; rollback target is `f1ed59a` |
+| `9e1f951` | 2026-10-24 09:09 | zod 4.6.5 → 4.6.7 (HIGH GHSA-mrhx-c7xc-m3w5) | **current**; clean tree; rollback target is `d95dbb5` |
 | `a14f782` (HEAD) | 2026-10-07 | last upstream commit | baseline before the snapshot |
 
 ---
@@ -456,7 +519,7 @@ script, a dedicated test session, and a generator with more upstream capacity.
 - [x] Let's Encrypt cert valid for apex + www; auto-renewal path verified
 - [x] `https://tartly.in/api/health/ready` = 200 from the public internet
 - [x] `www` → apex 308 redirect
-- [ ] Google sign-in works end-to-end; Gmail connect + first sync works
+- [ ] Google sign-in works end-to-end; Gmail connect + first sync works (redirect bug fixed in `d95dbb5`; awaiting one founder run)
 - [x] `BETTER_AUTH_SECRET` rotated to a 32-char high-entropy value; no boot warning
 - [x] R2 uploads work (storage path + presigned PUT verified; signed-in finalize optional)
 - [x] Nightly backup uploaded offsite; restore drill recorded (SHA-256 match, 1 s restore)
