@@ -5,7 +5,7 @@
 
 | Field | Value |
 | --- | --- |
-| Last updated | **2026-10-24 09:10 UTC** |
+| Last updated | **2026-10-24 09:12 UTC** |
 | Environment | Production (first node) |
 | Canonical origin | `https://tartly.in` |
 | Host | `srv2076028.hstgr.cloud` · `201.18.197.194` · Mumbai 2 |
@@ -434,6 +434,7 @@ release, not during an incident.
 | 2026-10-24 09:00 | Gmail quota observation | 🟡 | `[cron/daily] backfill failed … GmailApiError 403 rateLimitExceeded` for 2 accounts; sync continues, no 5xx. Watch after the founder reconnects; if it persists, confirm per-project Gmail quota |
 | 2026-10-24 09:06 | Production dependency re-audit | 🟡 | `npm audit --omit=dev`: 23 (7 high). New vs 19:34: `zod` 4.6.5 (direct, HIGH), `undici` 7.29.1 / 6.29.0 (transitive, HIGH), `@vercel/blob` chain. Direct zod patched below; rest recorded |
 | 2026-10-24 09:09 | Release `9e1f951` (zod 4.6.7) | ✅ | `tsc --noEmit` clean; 276/276 unit tests; lockfile regenerated with npm 10.9.9 + `ci --dry-run` clean; web-1/web-2 healthy; worker up; ready 200 |
+| 2026-10-24 09:12 | Post-release verification | ✅ | ready 200; onboarding callback `307 → https://tartly.in/auth` (no `0.0.0.0`); www `308`; cert valid to 2027-01-21; `BETTER_AUTH_URL` inside web-1 = `https://tartly.in`; zero error/fatal/panic in 10 m; disk 45/96 GB (47% after two builds) |
 
 ### 7.1 Off-box edge smoke (2026-10-23 19:20 UTC)
 
