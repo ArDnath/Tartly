@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { apiError, ok, withUser } from "@/lib/api/http";
 import { findCreditPack } from "@/lib/billing/credit-config";
 import { createCreditCheckoutSession } from "@/lib/billing/dodo";
+import { publicOrigin } from "@/lib/http/public-origin";
 import { billingRepository } from "@/lib/repositories/billing";
 import { userRepository } from "@/lib/repositories/users";
 
@@ -36,7 +37,7 @@ export const POST = withUser(async (userId, request: NextRequest) => {
     email,
     name,
     pack,
-    origin: request.nextUrl.origin,
+    origin: publicOrigin(),
     existingCustomerId: account.dodoCustomerId ?? null,
   });
 

@@ -6,6 +6,7 @@ import { JOB_KIND_MAILBOX_SYNC } from "@/lib/email-operator/job-kinds";
 import { ensureMailbox } from "@/lib/email-operator/mailbox";
 import { env } from "@/lib/env";
 import { getGmailProfile } from "@/lib/gmail/sync";
+import { publicOrigin } from "@/lib/http/public-origin";
 import { registerMailboxWatch } from "@/lib/gmail/watch";
 import {
   GOOGLE_CALENDAR_SCOPES,
@@ -29,8 +30,10 @@ import { getSession } from "@/lib/session";
  * this handler verifies the inbox scopes were actually granted, records the
  * connection on the onboarding row, and forwards the user to the next step.
  */
-export async function GET(request: NextRequest) {
-  const origin = request.nextUrl.origin;
+export async function GET(_request: NextRequest) {
+  // The standalone server sees its bind address (0.0.0.0:3000) as the origin;
+  // the user must be sent back to the canonical public origin instead.
+  const origin = publicOrigin();
   const session = await getSession();
 
   if (!session?.user) {

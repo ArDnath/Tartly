@@ -6,6 +6,7 @@ import {
   isSimulatedInterval,
 } from "@/lib/billing/dodo";
 import { isBillingInterval } from "@/lib/billing/plans";
+import { publicOrigin } from "@/lib/http/public-origin";
 import { billingRepository } from "@/lib/repositories/billing";
 import { userRepository } from "@/lib/repositories/users";
 
@@ -52,7 +53,7 @@ export const POST = withUser(async (userId, request: NextRequest) => {
     email,
     name,
     interval: body.interval,
-    origin: request.nextUrl.origin,
+    origin: publicOrigin(),
     existingCustomerId: account.dodoCustomerId ?? null,
   });
 

@@ -5,6 +5,7 @@ import { isDodoConfigured } from "@/lib/env";
 import { getEntitlement } from "@/lib/billing/entitlements";
 import { cancelSimulatedSubscription } from "@/lib/billing/service";
 import { createPortalSession } from "@/lib/billing/dodo";
+import { publicOrigin } from "@/lib/http/public-origin";
 import { billingRepository } from "@/lib/repositories/billing";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +19,7 @@ export const dynamic = "force-dynamic";
  * The customer id is resolved server-side from the signed-in user's billing
  * account; it is never accepted from the client.
  */
-export const POST = withUser(async (userId, request: NextRequest) => {
+export const POST = withUser(async (userId, _request: NextRequest) => {
   if (isDodoConfigured()) {
     const account = await billingRepository.getAccount(userId);
     if (!account?.dodoCustomerId) {
@@ -30,7 +31,7 @@ export const POST = withUser(async (userId, request: NextRequest) => {
     }
     const url = await createPortalSession({
       customerId: account.dodoCustomerId,
-      origin: request.nextUrl.origin,
+      origin: publicOrigin(),
     });
     if (!url) {
       return apiError(

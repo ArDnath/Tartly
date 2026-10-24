@@ -5,6 +5,7 @@ import {
   syncDodoPayment,
   syncDodoSubscription,
 } from "@/lib/billing/dodo";
+import { publicUrl } from "@/lib/http/public-origin";
 import { getSession } from "@/lib/session";
 
 export const runtime = "nodejs";
@@ -26,7 +27,7 @@ export async function GET(request: NextRequest): Promise<Response> {
   const paymentId = params.get("payment_id");
 
   const target = (flag: "success" | "cancelled" | "pending") => {
-    const url = new URL("/mail", request.nextUrl.origin);
+    const url = publicUrl("/mail");
     url.searchParams.set("billing", flag);
     return NextResponse.redirect(url);
   };
