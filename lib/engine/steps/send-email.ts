@@ -12,9 +12,10 @@ import { messageRepository } from "@/lib/repositories/messages";
 import { requireThreadId } from "./helpers";
 
 /**
- * The only step that calls `gmail.send`. Guarded by `sendLedger` idempotency so
- * a retried drain cannot double-send. Only reached when `egress` decided
- * `send`; the guard is repeated here defensively.
+ * The only step that calls the Gmail send endpoint (authorized by the
+ * `gmail.modify` grant). Guarded by `sendLedger` idempotency so a retried drain
+ * cannot double-send. Only reached when `egress` decided `send`; the guard is
+ * repeated here defensively.
  */
 export const sendEmailStep = defineStep({
   type: "send-email",

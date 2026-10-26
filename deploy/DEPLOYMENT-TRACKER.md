@@ -5,17 +5,19 @@
 
 | Field | Value |
 | --- | --- |
-| Last updated | **2026-10-24 09:12 UTC** |
+| Last updated | **2026-10-26 18:15 UTC** |
 | Environment | Production (first node) |
 | Canonical origin | `https://tartly.in` |
 | Host | `srv2076028.hstgr.cloud` · `201.18.197.194` · Mumbai 2 |
 | Provider / plan | Hostinger KVM 2 — 2 vCPU, 8 GB RAM, 100 GB NVMe, 8 TB/mo |
 | OS | Ubuntu 26.04.1 LTS (`resolute`), kernel 7.0.0-34 |
 | Runtime | Docker 29.9.2 · Compose v5.6.1 · Caddy 2.11.7 |
-| Deployed tag | `9e1f951` (clean tree; previous `d95dbb5`) |
-| Host git HEAD | `9e1f951` (clean; matches the image) |
-| Data | 4 users · 4 connected accounts · 4 mailboxes · 59 threads · 133 messages |
+| Deployed tag | `9e1f951` (clean tree; next release carries go-live readiness) |
+| Host git HEAD | `3f610d0` (docs-only ahead of the running image) |
+| Data | 5 users · 5 connected accounts · 5 mailboxes · 90 threads · 164 messages |
 | Public traffic | **LIVE** — apex + www resolve here (TTL 300); Let's Encrypt valid to 2027-01-21; readiness 200 over HTTPS |
+| Payments | **TEST MODE** — Dodo test key, webhook key empty, no live product IDs; not accepting real money |
+| Go-live checklist | [`GO-LIVE-CHECKLIST.md`](./GO-LIVE-CHECKLIST.md) |
 | Deployment guide | [`DEPLOYMENT-GUIDE.md`](./DEPLOYMENT-GUIDE.md) |
 | Ops runbook | [`RUNBOOK.md`](./RUNBOOK.md) |
 
@@ -42,16 +44,16 @@ HARD RULES
   failure-mode section in the guide.
 
 RESUME PROTOCOL: run §3 of the tracker verbatim.
-CURRENT BLOCKER: none for public HTTPS. Site is live on `9e1f951`.
-LAST FIX: onboarding Gmail-connect redirected to `https://0.0.0.0:3000`
-because routes used `request.nextUrl.origin`. Now uses
-`lib/http/public-origin.ts` (`BETTER_AUTH_URL`). Verified 2026-10-24 09:01 UTC.
-NEXT ACTION: founder completes Google sign-in → Gmail connect → onboarding on
-`https://tartly.in` (reload `/onboarding` if the old tab is stuck). That unblocks
-CSP enforce and the R2 UI smoke test. Then founder-gated items: Dodo webhook key
-+ test payment, Healthchecks/R2 monitoring URLs, Pub/Sub topic if in scope.
-Agent-side work remaining: email-body retention (A8) and AI/SSE
-concurrency caps (A15).
+CURRENT BLOCKER: revenue is not live. Dodo is in test_mode, the webhook signing
+key is empty, credit-pack products do not exist, and live product IDs are not
+configured. Google consent-screen publishing, Search Console domain ownership
+and restricted-scope verification/CASA must also be confirmed.
+NEXT ACTION: follow deploy/GO-LIVE-CHECKLIST.md. Configure Dodo live mode +
+products + webhook, set the live env in the repo-root .env, deploy the go-live
+tag, then run one real live payment and refund it. Then: external monitoring
+(Healthchecks + uptime), Google verification, Pub/Sub if real-time is required.
+Agent-side work remaining (not purchase blockers): email-body 90-day lifecycle,
+AI/SSE concurrency caps, CSP enforce, CI/GHCR.
 ```
 
 ---
@@ -92,19 +94,25 @@ concurrency caps (A15).
 | 11 | Backup + restore drill | ✅ | offsite dump in R2 + SHA-256 match; scratch restore 1 s, counts 3/3/3/4/4 | — |
 | 12 | DNS → this host | ✅ | apex + www `201.18.197.194`, TTL 300; verified 2026-10-23 19:11 UTC | — |
 | 13 | TLS / Caddy / HTTP-3 | ✅ | LE cert notAfter 2027-01-21; HTTP/2 200; www→apex 308; `alt-svc: h3` | — |
-| 14 | Google OAuth redirect URIs | 🟡 | Google login page returns 200 for the production client with no `redirect_uri_mismatch`; console allow-list is in place. **Onboarding return bug fixed in `d95dbb5`** (was redirecting to `https://0.0.0.0:3000/onboarding`). End-to-end sign-in + consent screen + Gmail connect still need the founder | founder login |
-| 15 | Dodo webhook + live/test payment | ⬜ | `DODO_PAYMENTS_WEBHOOK_KEY` empty (route 400, fails closed) | keys |
+| 14 | Google OAuth redirect URIs | 🟡 | Google login page returns 200 for the production client with no `redirect_uri_mismatch`; console allow-list is in place. **Onboarding return bug fixed in `d95dbb5`.** End-to-end sign-in works for existing accounts. **Publishing status, Search Console ownership and restricted-scope verification/CASA still need confirmation** — in Testing only listed users can sign in and refresh tokens expire after 7 days | Google console |
+| 15 | Dodo webhook + live/test payment | 🔴 | **Test mode only.** Test key works against `test.dodopayments.com`; 2 subscription products exist; no credit-pack products; no webhook; `DODO_PAYMENTS_WEBHOOK_KEY` empty; live API 401. 3 test subscriptions, 0 webhook events | live key + webhook + product IDs |
 | 16 | R2 asset storage + CORS | ✅ | driver `s3`; `npm run verify:r2` passed PUT/HEAD/GET/DELETE + CORS 204 + presigned PUT 200 against `tartly-assets`; authenticated UI upload is an optional founder smoke test | — |
-| 17 | Offsite backups (R2) | 🟡 | 6-hourly cron + manual run verified in `r2:tartly-backups/postgres/`; `HEALTHCHECKS_*` still empty | Healthchecks URLs |
-| 18 | External monitoring / alerts | 🟡 | local `healthcheck.sh` every minute now covers readiness + disk 60/75/85 + RAM 80/90 + cert <30/<14 d; **no external heartbeat or uptime monitor** (`HEALTHCHECKS_*` empty) | user |
-| 19 | Security audit & dependency scan | 🟡 | host hardened; `npm audit --omit=dev` re-run 2026-10-24: 23 (7 high). Direct `zod` HIGH patched in `9e1f951`; `linkify-it` not reachable; `undici`/`@vercel/blob` chains accepted (trusted upstream, blob driver unused); web image 1 CRITICAL (`zlib1g` will_not_fix); worker 4 (Go stdlib inside esbuild — dev tool) | accepted / document |
+| 17 | Offsite backups (R2) | 🟡 | 6-hourly cron + manual run verified in `r2:tartly-backups/postgres/`; local dumps current; `HEALTHCHECKS_*` still empty | Healthchecks URLs |
+| 18 | External monitoring / alerts | 🟡 | local `healthcheck.sh` every minute covers readiness + disk 60/75/85 + RAM 80/90 + cert <30/<14 d; **no external heartbeat or uptime monitor** (`HEALTHCHECKS_*` empty) | user |
+| 19 | Security audit & dependency scan | 🟡 | host hardened; `npm audit --omit=dev` 23 (7 high), direct `zod` patched in `9e1f951`; accepted transitive/dev advisories documented | accepted |
 | 20 | Performance baseline (k6) | 🟡 | off-box edge smoke recorded (§7.1); authenticated 400 RPS / 2k SSE baseline still needs a dedicated Google test account | test account |
-| 21 | CI/CD (GHCR + Actions) | ⬜ | deploys are rsync + on-host build; host Git deploy key now works | — |
+| 21 | CI/CD (GHCR + Actions) | ⬜ | GitHub Actions CI exists; deploys are still rsync/on-host build | — |
 | 22 | Scale plan (10k users → 1M RPS) | ✅ | guide §2.7, §6.9, §16.2b; decisions D11–D14 | — |
-| 23 | 10k-user capacity + storage lifecycle | 🟡 | `body_text` capped 64 KiB / `body_html` 128 KiB at ingest (5 tests); 90-day archive/re-fetch still not implemented (A8) | retention job |
-| 24 | Clean git baseline / reproducible deploy | ✅ | `9e1f951` image from clean tree; host HEAD `9e1f951`; host deploy key authenticates to GitHub | — |
+| 23 | 10k-user capacity + storage lifecycle | 🟡 | `body_text` capped 64 KiB / `body_html` 128 KiB at ingest; 90-day archive/re-fetch still not implemented (A8) | retention job |
+| 24 | Clean git baseline / reproducible deploy | ✅ | `9e1f951` image from clean tree; host HEAD `3f610d0`; host deploy key authenticates to GitHub | — |
+| 25 | Go-live configuration checklist | ✅ | [`GO-LIVE-CHECKLIST.md`](./GO-LIVE-CHECKLIST.md) records every external value, owner and verification step | — |
+| 26 | Production checkout guard | 🟡 | code now refuses test-mode checkout and simulation activation in production, and requires the live webhook key before live checkout; awaiting deploy + live-key smoke test | deploy |
 
-**Launch gate:** stages 12, 13, 14 (console) and 16 are ✅ and the site is already serving. The remaining stage-14 step is the founder's real sign-in + Gmail connect, which also gates CSP enforce.
+**Launch gate:** public HTTPS and the technical stack are ✅. Revenue is **not**
+live: stage 15 is the hard blocker, and stage 14 still needs Google to confirm
+that the consent screen is published and that verification/CASA is on track.
+Monitoring (17/18) is the main operational gap. See
+[`GO-LIVE-CHECKLIST.md`](./GO-LIVE-CHECKLIST.md).
 
 ---
 
@@ -306,6 +314,30 @@ on 2026-10-23, so the previous "2 high" number is stale.
 the `@vercel/oidc`/`undici@6`/nested-`zod` chain. Do it as its own tested
 release, not during an incident.
 
+### A19 — Revenue go-live (Dodo + Google) 🔴
+**Owner:** user (external consoles) + agent (env/deploy) · **Procedure:**
+[`GO-LIVE-CHECKLIST.md`](./GO-LIVE-CHECKLIST.md).
+
+Verified 2026-10-26:
+- Dodo test key is valid against `test.dodopayments.com`; **live API returns
+  401** (no live key configured).
+- Test catalogue: 2 subscription products (monthly $25, yearly $240), **no
+  credit-pack products**, **0 webhook endpoints**.
+- `DODO_PAYMENTS_WEBHOOK_KEY` empty in `app.env`; `billing_webhook_events` has
+  **0 rows**.
+- Dodo has 3 **test-mode** subscriptions; the app mirrors 2 active. They are not
+  revenue and must not be treated as live customers.
+- Google DNS has SPF + Hostinger MX but **no `google-site-verification` TXT**
+  record.
+- 5 users, 5 connected accounts; refresh tokens are still being used, so the
+  consent screen may already be published — **confirm in the console**.
+- Production now refuses test-mode checkout and simulation activation (code
+  staged; deploy with the next clean tag).
+
+**Blocking ask (in order):** live Dodo key + live webhook secret + live product
+IDs (5) → live env in root `.env` → render/copy/recreate → real payment +
+refund → Google domain TXT → publish/verify consent screen → monitoring URLs.
+
 ---
 
 ## 5. Decisions log
@@ -355,8 +387,10 @@ release, not during an incident.
 | 14 local dumps on the same disk | backup consumes the disk it protects | medium | R2 is now the backup of record; local retention is 3 days (currently 7 files because manual runs are preserved) | 🟡 |
 | Unbounded AI/SSE concurrency | OOM, provider 429 storms | medium | **AI spend capped**: global 2,000 calls/day + per-user 500 + 200k tokens/run; per-minute agent limit 20; global generation semaphore deferred to measured 429s | 🟡 |
 | Gmail/AI provider quotas at 10k | sync/send/draft failures | medium | quota math in guide §16.2b; backoff + fallback chain | ⬜ |
-| Dodo webhook unverified | paid orders not activated | medium | configure before enabling live mode; `billing_webhook_events` is empty | ⬜ |
-| Dodo API key may belong to the live environment | test checkout could 401/403, or a live key could be sent to the test host | medium | key is opaque (len 65, no `dodo_*` prefix); founder must confirm it is a **test** key in the dashboard before the payment test | ⬜ |
+| Dodo webhook unverified | paid orders not activated | **high** | live webhook key empty; checkout now refuses production test mode and live checkout without the key; configure before enabling live mode | 🔴 |
+| Dodo test mode on the public host | real customers pay nothing yet, or a test checkout grants a paid plan free | **high** | production checkout guard (staged); live key/webhook/product IDs are the remaining external work | 🔴 |
+| Google consent screen still in Testing | new customers cannot sign in; refresh tokens expire after 7 days | **high** | confirm publishing status; add users only as a stopgap; complete verification/CASA | 🔴 |
+| Gmail API `rateLimitExceeded` in daily backfill | some mailboxes miss a day of sync | medium | observed for 2 accounts, no 5xx; watch after reconnect, raise project quota if it persists | 🟡 |
 | **Critical runtime advisories (`next` 16.3.5 RCE, `dompurify` XSS)** | remote compromise / stored XSS | **high** while public | patched in `8453e0d`; re-scan of `1d44127` shows only Debian `zlib1g` `will_not_fix` + dev-only Go stdlib in esbuild | ✅ |
 | `linkify-it` quadratic DoS via `ansi-to-react` | browser CPU spike on crafted terminal text | low | **not reachable**: `Ansi` defaults `linkify=false` and the only usage omits the prop; no runtime call path | ⚠️ |
 | `zod` memory exhaustion (GHSA-mrhx-c7xc-m3w5) | DoS via oversized constrained collections in request validation | medium | **fixed** in `9e1f951`: direct `zod` 4.6.5 → 4.6.7; tsc + 276 tests | ✅ |
@@ -542,8 +576,10 @@ script, a dedicated test session, and a generator with more upstream capacity.
 | Document | Use |
 | --- | --- |
 | `deploy/DEPLOYMENT-TRACKER.md` | **State + next action.** Update this. |
+| `deploy/GO-LIVE-CHECKLIST.md` | **External config + revenue launch checklist.** |
 | `deploy/DEPLOYMENT-GUIDE.md` | Full multi-stage reference and rationale. |
 | `deploy/RUNBOOK.md` | Day-2 commands, scaling notes, quick reference. |
+| `deploy/VPS.md` | Host profile: specs, access, network, filesystem, cron, limits. |
 | `deploy/docker-compose.yml` | The stack. |
 | `deploy/Caddyfile` | Edge config. |
 | `deploy/R2-SETUP.md` | **Cloudflare R2 buckets, CORS, tokens, env and backup heartbeat.** |

@@ -355,6 +355,11 @@ const envSchema = z.object({
   DODO_PRODUCT_CREDITS_PRO: z.string().min(1).optional(),
   // Force simulation even when an API key is configured ("true" | "false").
   BILLING_SIMULATION: z.enum(["true", "false"]).optional(),
+  // Allow Dodo TEST-mode checkout on a production build. This exists only for
+  // a staging/pre-launch check of the real hosted-checkout flow. Leave it
+  // false on the public host: a test-mode checkout never charges a card, so
+  // allowing it there would grant paid access for free.
+  ALLOW_TEST_CHECKOUT_IN_PRODUCTION: z.enum(["true", "false"]).optional(),
   // Opt-in to live Dodo mode. BOTH this and
   // `DODO_PAYMENTS_ENVIRONMENT="live_mode"` must be set; otherwise the billing
   // layer stays on the test host, so no real charge can be created. Set to
@@ -920,6 +925,23 @@ export function isDodoConfigured(): boolean {
 
 export function dodoApiKey(): string | undefined {
   return env.DODO_PAYMENTS_API_KEY;
+}
+
+/**
+ * Whether a production build may create a checkout session.
+ *
+ * Test-mode checkout is refused on a public production host by default: Dodo's
+ * test checkout never moves money, so allowing it would hand out paid access
+ * for free. A staging deployment can opt in explicitly. Live checkout requires
+ * the webhook signing key as well, because without it renewals, cancellations
+ * and past-due transitions never reach the subscription mirror.
+ */
+export function isProductionCheckoutAllowed(): boolean {
+  if (!isDodoConfigured()) return false;
+  if (!isDodoLiveModeAllowed()) {
+    return env.ALLOW_TEST_CHECKOUT_IN_PRODUCTION === "true";
+  }
+  return Boolean(env.DODO_PAYMENTS_WEBHOOK_KEY);
 }
 
 export function dodoWebhookKey(): string | undefined {

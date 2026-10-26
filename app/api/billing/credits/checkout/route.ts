@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { apiError, ok, withUser } from "@/lib/api/http";
 import { findCreditPack } from "@/lib/billing/credit-config";
 import { createCreditCheckoutSession } from "@/lib/billing/dodo";
+import { isProductionCheckoutAllowed } from "@/lib/env";
 import { publicOrigin } from "@/lib/http/public-origin";
 import { billingRepository } from "@/lib/repositories/billing";
 import { userRepository } from "@/lib/repositories/users";
@@ -24,6 +25,16 @@ export const POST = withUser(async (userId, request: NextRequest) => {
     typeof body.packId === "string" ? findCreditPack(body.packId) : undefined;
   if (!pack) {
     return apiError("bad_request", "Choose a credit pack.", 400);
+  }
+
+  // Credits are also a paid product: apply the same production guard as a
+  // subscription checkout so test-mode payment can never grant free credits.
+  if (process.env.NODE_ENV === "production" && !isProductionCheckoutAllowed()) {
+    return apiError(
+      "service_unavailable",
+      "Credit purchases are unavailable right now.",
+      503,
+    );
   }
 
   const [account, email, name] = await Promise.all([

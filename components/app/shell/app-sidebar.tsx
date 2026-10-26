@@ -267,6 +267,7 @@ function BrandHeader() {
  * sign-out.
  */
 function SidebarUserMenu({ user }: { user?: SidebarUser }) {
+  const router = useRouter();
   const { signOut, isSigningOut } = useSignOut();
   const name = user?.name?.trim() || "Account";
   const image = user?.image ?? null;
@@ -306,6 +307,13 @@ function SidebarUserMenu({ user }: { user?: SidebarUser }) {
             {name}
           </p>
         </div>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={() => router.push("/privacy")}>
+          Privacy Policy
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => router.push("/terms")}>
+          Terms of Service
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
           variant="destructive"

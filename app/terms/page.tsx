@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 
 export default function TermsPage() {
   return (
-    <LegalPage title="Terms of Service" updated="September 27, 2026">
+    <LegalPage title="Terms of Service" updated="October 26, 2026">
       <p>
         These Terms of Service (&ldquo;Terms&rdquo;) govern your access to and
         use of Tartly (the &ldquo;Service&rdquo;). By creating an account or
@@ -60,51 +60,78 @@ export default function TermsPage() {
         review — you are responsible for what you send and schedule.
       </p>
 
-      <h2>5. Third-party services</h2>
+      <h2>5. Sending and autonomy</h2>
+      <p>
+        Tartly is approval-first by default: it prepares drafts and proposed
+        calendar changes, and waits for you to approve them. If you explicitly
+        enable 24/7 Autopilot for a mailbox, you authorize Tartly to send
+        replies that pass the rules, limits, and safety checks you configured.
+        You remain responsible for the instructions you give, the rules you
+        enable, and the messages and events you approve or allow to run. You
+        can turn Autopilot off or pause it at any time.
+      </p>
+
+      <h2>6. Third-party services</h2>
       <p>
         The Service relies on third-party providers such as Google for
         authentication and account access. Your use of those services is
         governed by their own terms and policies.
       </p>
 
-      <h2>6. Fees</h2>
+      <h2>7. Fees, renewals and cancellation</h2>
       <p>
-        Some features may be offered for free and others for a fee. If you
-        purchase a paid plan, you agree to pay the applicable fees and taxes.
+        Some features may be offered for free and others for a fee. Paid
+        subscriptions renew automatically at the interval you selected (monthly
+        or yearly) until you cancel. You can cancel from Settings → Billing,
+        which opens the payment processor&rsquo;s customer portal, or by
+        contacting us. Cancellation stops future renewals; your access continues
+        until the end of the period you have already paid for.
+      </p>
+      <p>
+        Payments are processed by Dodo Payments, which acts as the merchant of
+        record for the transaction. Dodo&rsquo;s own terms and privacy policy
+        apply to the payment flow, and applicable taxes are handled there. We do
+        not store full payment-card details.
+      </p>
+      <p>
+        If you believe a charge is wrong, contact{" "}
+        <a href="mailto:support@tartly.in">support@tartly.in</a> within 30 days
+        of the charge. Refunds are considered case by case and are issued where
+        required by law or where the Service was not delivered as described.
       </p>
 
-      <h2>7. Termination</h2>
+      <h2>8. Termination</h2>
       <p>
         You may stop using the Service at any time and may disconnect connected
         accounts. We may suspend or terminate access if you violate these Terms
         or if we need to protect the Service or other users.
       </p>
 
-      <h2>8. Disclaimers</h2>
+      <h2>9. Disclaimers</h2>
       <p>
         The Service is provided &ldquo;as is&rdquo; without warranties of any
         kind, express or implied. We do not warrant that the Service will be
         uninterrupted, error-free, or that AI output will be accurate.
       </p>
 
-      <h2>9. Limitation of liability</h2>
+      <h2>10. Limitation of liability</h2>
       <p>
         To the maximum extent permitted by law, Tartly is not liable for any
         indirect, incidental, special, or consequential damages, or for lost
         data, profits, or business, arising from your use of the Service.
       </p>
 
-      <h2>10. Changes to these Terms</h2>
+      <h2>11. Changes to these Terms</h2>
       <p>
         We may update these Terms from time to time. If we make material
         changes, we will provide notice as required. Continued use of the
         Service after changes take effect constitutes acceptance.
       </p>
 
-      <h2>11. Contact</h2>
+      <h2>12. Contact</h2>
       <p>
         Questions about these Terms? Reach us at{" "}
-        <a href="mailto:support@tartly.app">support@tartly.app</a>.
+        <a href="mailto:support@tartly.in">support@tartly.in</a>.
       </p>
     </LegalPage>
   );

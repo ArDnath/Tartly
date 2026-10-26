@@ -1,9 +1,10 @@
 # Tartly — production runbook (single VPS)
 
 > **Start here:** [`DEPLOYMENT-TRACKER.md`](./DEPLOYMENT-TRACKER.md) for current
-> state and the next action, and [`DEPLOYMENT-GUIDE.md`](./DEPLOYMENT-GUIDE.md)
-> for the full multi-stage procedure, security audit, performance validation and
-> the scale path to 1M RPS.
+> state and the next action, [`VPS.md`](./VPS.md) for the host profile (specs,
+> access, ports, filesystem, cron), and
+> [`DEPLOYMENT-GUIDE.md`](./DEPLOYMENT-GUIDE.md) for the full multi-stage
+> procedure, security audit, performance validation and the scale path to 1M RPS.
 
 Target host: **srv2076028.hstgr.cloud** · `201.18.197.194` · Mumbai 2
 Plan: KVM 2 — 2 vCPU, 8 GB RAM, 100 GB NVMe, 8 TB transfer · Ubuntu 26.04 LTS
@@ -88,9 +89,57 @@ Keep the existing Vercel URIs until the cutover is verified, then remove them.
 
 If Outlook is enabled: `https://tartly.in/api/auth/callback/microsoft`.
 
+### 2.2a OAuth consent screen + domain ownership
+
+Google rejects verification with **"Your home page website is not registered to
+you"** until the Cloud project can see a verified owner of the homepage domain.
+Verification is per-domain, not per-URL, and must be done by a Google account
+that is an **Owner** of the Cloud project.
+
+1. Search Console → **Add property** → **Domain** → `tartly.in` (not URL-prefix).
+2. Copy the `google-site-verification=…` TXT value it gives you.
+3. Hostinger hPanel → `tartly.in` → DNS Records → add `TXT @ <value>`.
+   Leave the SPF/MX/DKIM records alone. Confirm with
+   `dig +short tartly.in TXT | grep google-site-verification`.
+4. Click **Verify** in Search Console. If the account differs from the Cloud
+   project owner, add it under Search Console → Settings → Users and
+   permissions → **Owner**.
+5. Wait 24 hours (Google's own instruction), then set the consent screen to:
+   - App homepage: `https://tartly.in` — apex, never `www.` (it 308s)
+   - Authorized domain: `tartly.in`
+   - Privacy policy: `https://tartly.in/privacy`
+   - Terms of service: `https://tartly.in/terms`
+6. Prepare for verification → Submit.
+
+Alternative (HTML tag): set `NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION` to the
+`content` value from Search Console and rebuild. It is already baked into the
+image (`Dockerfile`, `deploy/scripts/render-env.mjs`) and emitted by
+`app/layout.tsx`. DNS TXT is preferred: the homepage is cached
+(`s-maxage=31536000`), so a meta tag needs a rebuild *and* a cache purge.
+
+Never submit a `*.vercel.app` URL as the homepage — you cannot verify a shared
+host, which is the other way this exact error appears.
+
+### 2.2b Scope story and restricted-scope review
+
+The connect flow requests `gmail.modify`, `calendar.readonly`,
+`calendar.events`, and `https://mail.google.com/` (permanent delete), plus
+`openid/email/profile` at sign-in. `gmail.modify` already authorizes the Gmail
+send endpoint, so do **not** list `gmail.send` on the consent screen from an
+older configuration. `gmail.modify` and `https://mail.google.com/` are
+restricted scopes: verification includes an annual CASA security assessment,
+even if the full-mailbox scope is removed later.
+
+The full verification checklist, copy-paste scope justifications, demo-video
+script, and the Search Console evidence commands are in
+[`docs/google-oauth-verification.md`](../docs/google-oauth-verification.md).
+Keep the consent-screen privacy URL and the homepage link identical:
+`https://tartly.in/privacy`.
+
 ### 2.3 Gmail push (only if the email operator is on)
 
-- Verify `tartly.in` as a domain in Google Cloud (Search Console TXT record).
+- Domain must already be verified per §2.2a before the OAuth consent screen
+  can be submitted.
 - Topic: `projects/<project>/topics/gmail-inbox`
 - Grant `gmail-api-push@system.gserviceaccount.com` **Publisher** on the topic.
 - Push subscription endpoint: `https://tartly.in/api/webhooks/gmail`
@@ -98,6 +147,9 @@ If Outlook is enabled: `https://tartly.in/api/auth/callback/microsoft`.
 - Set `GOOGLE_PUBSUB_TOPIC` in `app.env`.
 
 ### 2.4 Dodo Payments webhook
+
+> Full live-mode sequence (products, webhook, env, payment + refund):
+> [`GO-LIVE-CHECKLIST.md`](./GO-LIVE-CHECKLIST.md) §2.
 
 - Endpoint: `https://tartly.in/api/webhooks/dodo`
 - Copy the signing secret into `DODO_PAYMENTS_WEBHOOK_KEY`.

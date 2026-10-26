@@ -6,6 +6,7 @@ import {
   isSimulatedInterval,
 } from "@/lib/billing/dodo";
 import { isBillingInterval } from "@/lib/billing/plans";
+import { isProductionCheckoutAllowed } from "@/lib/env";
 import { publicOrigin } from "@/lib/http/public-origin";
 import { billingRepository } from "@/lib/repositories/billing";
 import { userRepository } from "@/lib/repositories/users";
@@ -33,7 +34,7 @@ export const POST = withUser(async (userId, request: NextRequest) => {
   // fall-through to the in-app simulation (which would fake a payment).
   if (
     process.env.NODE_ENV === "production" &&
-    isSimulatedInterval(body.interval)
+    (!isProductionCheckoutAllowed() || isSimulatedInterval(body.interval))
   ) {
     return apiError(
       "service_unavailable",

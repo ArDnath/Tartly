@@ -49,7 +49,7 @@ const siteUrl = (
 ).replace(/\/$/, "");
 
 const appDescription =
-  "Tartly is an AI email operator that connects to both your Gmail and Outlook — plus Google Calendar (only with the permissions you approve) — to triage your inbox, draft replies, schedule meetings, and handle follow-ups.";
+  "Tartly is an AI email operator that connects to Gmail and Google Calendar (only with the permissions you approve) to triage your inbox, draft replies, schedule meetings, and handle follow-ups.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
@@ -65,7 +65,6 @@ export const metadata: Metadata = {
     "email triage",
     "AI email assistant",
     "Gmail",
-    "Outlook",
     "Google Calendar",
     "inbox management",
   ],
@@ -119,7 +118,7 @@ const structuredData = {
       name: "Tartly",
       url: siteUrl,
       logo: TARTLY_LOGO_URL,
-      email: "support@tartly.app",
+      email: "support@tartly.in",
     },
     {
       "@type": "WebSite",

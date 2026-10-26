@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowRight, Loader2 } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 
 import { GoogleIcon } from "@/components/icons/google-icon";
@@ -118,6 +119,64 @@ export const SyncEmailStep = () => {
 
       <OnboardingStepAnimatedItem index={2}>
         <OnboardingContentBlock className="gap-3">
+          {/*
+            In-product privacy notice required by Google OAuth verification.
+            It is shown before the consent screen and mirrors the disclosures
+            in `/privacy`, so a reviewer sees the same scope story in the app.
+          */}
+          <div
+            role="note"
+            aria-label="What Tartly will access"
+            className="rounded-2xl border border-border bg-muted/30 p-4 text-left"
+          >
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              What Tartly will access
+            </p>
+            <ul className="mt-2 space-y-1.5 text-xs leading-relaxed text-muted-foreground">
+              <li>
+                <strong className="font-medium text-foreground">Gmail</strong> —
+                read messages and threads, search, apply labels, archive, move
+                to trash, and create drafts. Tartly sends only mail you approve,
+                or mail that passes the Autopilot rules you opt into.
+              </li>
+              <li>
+                <strong className="font-medium text-foreground">
+                  Google Calendar
+                </strong>{" "}
+                — read events and free/busy times, and create, change, or cancel
+                events when you approve a scheduling action.
+              </li>
+              <li>
+                <strong className="font-medium text-foreground">
+                  Permanent delete
+                </strong>{" "}
+                — permanently delete messages or empty trash only when you
+                choose &ldquo;Delete forever&rdquo; or &ldquo;Empty trash&rdquo;.
+              </li>
+            </ul>
+            <p className="mt-3 border-t border-border/70 pt-3 text-[11px] leading-relaxed text-muted-foreground">
+              We do not sell Google user data, use it for advertising, or train
+              AI models on it. Read the{" "}
+              <Link
+                href="/privacy#google-user-data"
+                className="font-medium text-foreground underline underline-offset-2"
+              >
+                Privacy Policy
+              </Link>{" "}
+              and the{" "}
+              <a
+                href="https://developers.google.com/terms/api-services-user-data-policy"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-foreground underline underline-offset-2"
+              >
+                Google API Services User Data Policy
+              </a>
+              . You can revoke access at any time in your Google Account
+              permissions or in Tartly under Settings → Connected accounts.
+            </p>
+          </div>
+
           <button
             type="button"
             onClick={handleConnectGoogle}
@@ -209,8 +268,18 @@ export const SyncEmailStep = () => {
           )}
 
           <p className="pt-1 text-center text-xs text-muted-foreground">
-            You&apos;ll grant read, send, and calendar access. You can change
-            this later.
+            You&apos;ll grant Gmail read/send, Google Calendar, and
+            permanent-delete access. You can change this later in Settings →
+            Connected accounts or at{" "}
+            <a
+              href="https://myaccount.google.com/permissions"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline underline-offset-2 hover:text-foreground"
+            >
+              Google Account permissions
+            </a>
+            .
           </p>
 
           {showError ? (

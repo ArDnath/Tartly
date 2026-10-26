@@ -21,8 +21,8 @@ import {
 import { requireThreadId } from "./helpers";
 
 /**
- * The single send gate. Nothing else on the automation path may call
- * `gmail.send`.
+ * The single send gate. Nothing else on the automation path may call the
+ * Gmail send endpoint (authorized by the `gmail.modify` grant).
  *
  * Sending requires `autopilot` on the most specific scope (thread → contact →
  * mailbox) and no guardrail violation. Every other combination drafts for the

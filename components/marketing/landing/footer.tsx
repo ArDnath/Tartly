@@ -233,6 +233,36 @@ export default function Footer() {
             </div>
           </div>
 
+          {/*
+            Google OAuth homepage requirement: explain, on the public homepage,
+            why Google user data is requested. Kept server-rendered (not inside
+            a Reveal) so reviewers see it without executing the entrance
+            animations.
+          */}
+          <p className="mt-10 max-w-3xl text-xs leading-relaxed text-white/60">
+            Tartly connects to Gmail and Google Calendar only to read and triage
+            your inbox, draft and send replies you approve, and schedule
+            meetings on your behalf. We do not sell Google user data, use it for
+            advertising, or train AI models on it. You can revoke access at any
+            time. See our{" "}
+            <Link
+              href="/privacy"
+              className="underline underline-offset-2 transition-colors hover:text-white/70"
+            >
+              Privacy Policy
+            </Link>{" "}
+            and the{" "}
+            <a
+              href="https://developers.google.com/terms/api-services-user-data-policy"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline underline-offset-2 transition-colors hover:text-white/70"
+            >
+              Google API Services User Data Policy
+            </a>
+            .
+          </p>
+
           <div className="mt-12 h-px w-full bg-white/10" />
 
           <div className="mt-6 flex flex-col gap-4 text-sm text-white/60 sm:flex-row sm:items-center sm:justify-between">

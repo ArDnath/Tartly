@@ -15,6 +15,13 @@ export const dynamic = "force-dynamic";
  * a plan it did not start a checkout for.
  */
 export const POST = withUser(async (userId, request: NextRequest) => {
+  // Simulation is a development-only convenience. A production build must
+  // never activate a plan without a verified Dodo payment, even if a signed
+  // simulation token from another environment somehow reaches this route.
+  if (process.env.NODE_ENV === "production") {
+    return apiError("not_found", "Not found.", 404);
+  }
+
   const body = (await request.json().catch(() => ({}))) as { token?: unknown };
   if (typeof body.token !== "string") {
     return apiError("bad_request", "Missing checkout token.", 400);

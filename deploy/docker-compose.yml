@@ -200,7 +200,7 @@ services:
     image: caddy:2-alpine
     environment:
       TARTLY_DOMAIN: ${TARTLY_DOMAIN:-tartly.in}
-      ACME_EMAIL: ${ACME_EMAIL:-admin@tartly.in}
+      ACME_EMAIL: ${ACME_EMAIL:-support@tartly.in}
     ports:
       - "80:80"
       - "443:443"

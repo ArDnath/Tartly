@@ -16,7 +16,7 @@ const FOOTER_COLUMNS: { title: string; links: { href: string; label: string }[] 
   {
     title: "Trust",
     links: [
-      { href: "/#data", label: "Your data" },
+      { href: "/privacy#google-user-data", label: "Your data" },
       { href: "/privacy", label: "Privacy Policy" },
       { href: "/terms", label: "Terms of Service" },
     ],
@@ -32,8 +32,8 @@ export function SiteFooter({ className }: { className?: string }) {
             <Brand />
             <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
               Tartly is an AI email operator that triages your inbox, drafts
-              replies in your voice, schedules meetings, and handles follow-ups —
-              with nothing leaving your mailbox without your approval.
+              replies in your voice, schedules meetings, and handles follow-ups
+              — approval-first by default, with Autopilot only when you opt in.
             </p>
           </div>
 
@@ -62,12 +62,12 @@ export function SiteFooter({ className }: { className?: string }) {
             © {new Date().getFullYear()} Tartly. All rights reserved.
           </p>
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-            <span>Gmail + Outlook + Google Calendar</span>
+            <span>Gmail + Google Calendar</span>
             <a
-              href="mailto:support@tartly.app"
+              href="mailto:support@tartly.in"
               className="rounded-md transition-colors outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
             >
-              support@tartly.app
+              support@tartly.in
             </a>
           </div>
         </div>

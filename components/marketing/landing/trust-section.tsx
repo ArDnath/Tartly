@@ -35,7 +35,7 @@ const TRUST_SLIDES = [
       'https://images.unsplash.com/photo-1782977389500-dd7adad33ebe?q=80&w=1600&auto=format&fit=crop',
     eyebrow: 'Trust & safety · Control',
     support:
-      'Giving AI access to email is a trust decision. Tartly starts with drafts, so nothing leaves without your say-so.',
+      'Giving AI access to email is a trust decision. Tartly starts with drafts; Autopilot only sends on its own after you opt in and the guardrails pass.',
     caption: 'You stay in control.',
     description:
       'Drafts first, approvals when you want them, and one-click pause on any workflow.',
@@ -73,7 +73,7 @@ const TRUST_SLIDES = [
       'Per-workflow permissions let autonomy grow only as far as you allow it.',
     points: [
       'Per-workflow permissions you control',
-      'Scoped access, never blanket access',
+      'Separate consent for inbox access',
       'Expand permissions only when ready',
       'Revoke access instantly',
     ],

@@ -122,7 +122,7 @@ export function CheckoutClient({ interval }: { interval: "month" | "year" }) {
 const ORDER_FEATURES: { label: string; icon: LucideIcon }[] = [
   { label: "Unlimited AI drafting, triage and the agent", icon: Sparkles },
   { label: "Unlimited mail reading and sending", icon: MailCheck },
-  { label: "Gmail + Outlook — both connected together", icon: Mails },
+  { label: "Gmail + Google Calendar", icon: Mails },
   { label: "Follow-ups, meetings and automations", icon: CalendarCheck },
   { label: "Two months free on yearly billing", icon: Gift },
 ];

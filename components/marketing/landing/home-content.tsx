@@ -13,7 +13,6 @@ import { BrutalButton } from '@/components/shared/evil-buttons/brutal-button';
 import { BlurHighlight } from '@/components/shared/motion/blur-highlight';
 import { BlurText } from '@/components/shared/motion/blur-text';
 import { ClickSpark } from '@/components/shared/motion/click-spark';
-import { LogoLoop, type LogoItem } from '@/components/shared/motion/logo-loop';
 import { ProximityHeading } from '@/components/shared/motion/proximity-heading';
 import { StaggeredText } from '@/components/shared/motion/staggered-text';
 import ScrollFloat from '@/components/shared/motion/ScrollFloat';
@@ -43,7 +42,7 @@ import {
   ImageFile,
   Expand,
 } from '@/components/marketing/landing/icons';
-import { GmailMark, OutlookMark } from '@/components/marketing/landing/hero-brand-marks';
+import { GmailMark } from '@/components/marketing/landing/hero-brand-marks';
 import Footer from '@/components/marketing/landing/footer';
 import { PricingSection } from '@/components/marketing/landing/pricing-section';
 import { TrustSection } from '@/components/marketing/landing/trust-section';
@@ -177,8 +176,10 @@ function HeroDemo({ className }: { className?: string }) {
     const el = rootRef.current;
     if (!el) return;
     if (typeof IntersectionObserver === 'undefined') {
-      setActive(true);
-      return;
+      // Defer so this remains an external-system update rather than a
+      // synchronous setState in the effect body (React's lint rule).
+      const timer = window.setTimeout(() => setActive(true), 0);
+      return () => window.clearTimeout(timer);
     }
     const observer = new IntersectionObserver(
       ([entry]) => {
@@ -379,49 +380,23 @@ function HeroTextDither() {
  * there is no dead frame before the first paint.
  */
 
-/*
- * Social proof above the demo. Monochrome wordmarks of the companies people
- * are already joining from — muted so they read as a quiet trust row rather
- * than competing with the product frame below.
- */
-const COMPANY_LOGOS: LogoItem[] = [
-  { src: '/logos/accenture.svg', alt: 'Accenture', width: 232, height: 44 },
-  { src: '/logos/wellsfargo.svg', alt: 'Wells Fargo', width: 256, height: 40 },
-  { src: '/logos/cognizant.svg', alt: 'Cognizant', width: 212, height: 44 },
-  { src: '/logos/amazon.svg', alt: 'Amazon', width: 176, height: 52 },
-  { src: '/logos/microsoft.svg', alt: 'Microsoft', width: 258, height: 44 },
-];
-
 /**
- * Social-proof block for the demo frame: a small, salesy nudge above a looping
- * row of the companies people are joining from. Rendered inside the video
- * container so, on wide screens, it sits between the two side dither squares
- * and directly on top of the player.
+ * Audience line above the demo. Deliberately not social proof: the product
+ * has no verified customer logos, headcounts, or usage benchmarks, so this
+ * says who the product is for instead of implying customers we do not have.
+ * Google's brand-verification review checks that the homepage accurately
+ * represents the app, and an invented proof row would fail that test.
  */
-function CompanyProof({ className }: { className?: string }) {
+function AudienceProof({ className }: { className?: string }) {
   return (
     <div className={`relative flex flex-col items-center px-6 text-center ${className ?? ''}`}>
       <p className="text-sm font-medium tracking-tight text-[#B7B7B7] md:text-[15px]">
-        <span className="font-semibold text-white">20+ people</span> joined this week — when will
-        you?
+        Built for <span className="font-semibold text-white">founders, operators, and teams</span>{' '}
+        who live in their inbox.
       </p>
       <p className="mt-1.5 text-[10px] font-medium uppercase tracking-[0.22em] text-white/35">
-        Including people at
+        Gmail · Google Calendar
       </p>
-      <div className="mt-6 w-full max-w-4xl">
-        <LogoLoop
-          logos={COMPANY_LOGOS}
-          speed={65}
-          direction="left"
-          logoHeight={26}
-          gap={56}
-          pauseOnHover
-          fadeOut
-          fadeOutColor="#0F0F0F"
-          scaleOnHover
-          ariaLabel="Companies people are already joining from"
-        />
-      </div>
     </div>
   );
 }
@@ -437,7 +412,7 @@ const FAQS = [
   },
   {
     q: 'Which email providers are supported?',
-    a: 'Tartly connects to both Gmail and Outlook, plus Google Calendar, so it fits the workflow you already use.',
+    a: 'Tartly connects to Gmail and Google Calendar, so it fits the inbox you already use.',
   },
   {
     q: 'How fast can I get value?',
@@ -517,13 +492,13 @@ export default function HomeContent() {
             highlightDelay={0.9}
             highlightDuration={0.6}
             highlightDirection="left"
-            highlightedBits={['24/7 AI email operator', 'you approve every send']}
+            highlightedBits={['24/7 AI email operator', 'approval-first by default']}
             highlightColor="rgba(139, 92, 246, 0.32)"
             highlightClassName="text-white"
             className="mx-auto max-w-2xl text-center text-base font-medium text-[#B7B7B7] md:text-lg"
           >
-            Meet Tartly, your 24/7 AI email operator. It drafts, replies, and follows up for you — and
-            you approve every send.
+            Meet Tartly, your 24/7 AI email operator. It drafts, replies, and follows up for you —
+            approval-first by default, with Autopilot only when you opt in.
           </BlurHighlight>
         </div>
         {/* Primary CTAs. The primary action is a NeoBrutalist button with no
@@ -562,12 +537,13 @@ export default function HomeContent() {
         </motion.div>
 
         {/* Static "Works with" row — sits below the CTAs, no entry or hover
-            motion. The Gmail and Outlook marks are plain, unanimated SVGs. */}
+            motion. Outlook is only advertised when a deployment actually has
+            Entra ID configured; the production instance is Gmail-only. */}
         <div className="mt-3 mb-1 flex flex-wrap items-center justify-center gap-3 text-sm font-medium text-[#B7B7B7]">
           <span>Works with</span>
-          <span className="flex items-center gap-3" aria-label="Gmail and Outlook">
+          <span className="flex items-center gap-3" aria-label="Gmail and Google Calendar">
             <GmailMark className="size-7" />
-            <OutlookMark className="size-7" />
+            <span>Google Calendar</span>
           </span>
         </div>
       </section>
@@ -592,14 +568,14 @@ export default function HomeContent() {
                 aria-hidden
                 className="pointer-events-none absolute inset-x-0 top-4 border-t border-white/15"
               />
-              <CompanyProof className="pb-2 pt-10 md:pb-2 md:pt-10" />
+              <AudienceProof className="pb-2 pt-10 md:pb-2 md:pt-10" />
               <HeroDemo className="hidden w-full md:block" />
             </div>
           </div>
         </section>
 
         <div className="flex flex-col items-center justify-center px-4 md:hidden">
-          <CompanyProof className="pb-4 pt-10" />
+          <AudienceProof className="pb-4 pt-10" />
           <HeroDemo className="w-full rounded-xl border border-white/15" />
         </div>
       </div>

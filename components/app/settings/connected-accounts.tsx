@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { Check, CircleAlert, Loader2 } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { GoogleIcon } from "@/components/icons/google-icon";
@@ -266,10 +267,38 @@ export function ConnectedAccounts({ accounts }: { accounts: MailAccount[] }) {
         ))}
       </div>
 
-      <p className="text-[12px] text-muted-foreground">
-        Tartly asks for read, send, and calendar access. You can reconnect any
-        time to re-grant permissions.
-      </p>
+      <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 text-[12px] leading-relaxed text-muted-foreground">
+        <p className="font-medium text-foreground">What Google access covers</p>
+        <p className="mt-1">
+          Tartly asks for Gmail read/send, Google Calendar read/write, and
+          permanent-delete access. It uses Gmail only to triage and search mail,
+          manage labels and drafts, and send mail you approve (or mail that
+          passes the Autopilot rules you opt into). It uses Calendar only for
+          availability and events you approve. Permanent delete is used only
+          when you choose &ldquo;Delete forever&rdquo; or &ldquo;Empty
+          trash&rdquo;.
+        </p>
+        <p className="mt-2">
+          We do not sell Google user data, use it for advertising, or train AI
+          models on it. Read the{" "}
+          <Link
+            href="/privacy#google-user-data"
+            className="font-medium text-foreground underline underline-offset-2"
+          >
+            Privacy Policy
+          </Link>
+          . You can revoke access at any time from{" "}
+          <a
+            href="https://myaccount.google.com/permissions"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium text-foreground underline underline-offset-2"
+          >
+            Google Account permissions
+          </a>{" "}
+          or by disconnecting below.
+        </p>
+      </div>
     </div>
   );
 }

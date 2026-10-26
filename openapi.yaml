@@ -1100,6 +1100,74 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
       security:
         - sessionCookie: []
+  /api/billing/subscription:
+    get:
+      operationId: getApiBillingSubscription
+      tags:
+        - billing
+      summary: GET /api/billing/subscription
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: {}
+                required:
+                  - data
+                additionalProperties: false
+        "400":
+          description: Syntactic validation failure (invalid body/query).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Missing or invalid credentials.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Authenticated but not permitted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Resource not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: State conflict (duplicate/unique violation).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: Semantic validation failure (domain rule).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "429":
+          description: Rate limit exceeded; see `Retry-After`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Unhandled server error (redacted).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+      security:
+        - sessionCookie: []
   /api/billing/sync:
     post:
       operationId: postApiBillingSync

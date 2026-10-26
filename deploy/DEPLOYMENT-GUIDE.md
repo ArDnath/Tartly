@@ -3,6 +3,7 @@
 **Version:** 1.0.0
 **Applies to:** `tartly.in` on Hostinger KVM 2 (`srv2076028.hstgr.cloud`, `201.18.197.194`)
 **Companion state file:** [`DEPLOYMENT-TRACKER.md`](./DEPLOYMENT-TRACKER.md)
+**Host profile:** [`VPS.md`](./VPS.md)
 **Day-2 quick reference:** [`RUNBOOK.md`](./RUNBOOK.md)
 
 ---
@@ -1172,7 +1173,15 @@ If you enable proxying, also set `trusted_proxies` in Caddy and re-check client 
    - If Outlook is enabled: `https://tartly.in/api/auth/callback/microsoft`
 3. Keep the old Vercel URIs until the new host is verified.
 4. **OAuth consent screen:** publish the app / add test users. Unverified apps in “Testing” expire refresh tokens after 7 days — a common “mail stopped syncing” cause.
-5. Required scopes (already requested by the app): Gmail read/modify/send, Calendar, openid/email/profile. Adding scopes later forces re-consent.
+5. Required scopes (already requested by the app): `openid`, `email`,
+   `profile`, `gmail.modify`, `calendar.readonly`, `calendar.events`, and
+   `https://mail.google.com/` (permanent delete). `gmail.modify` also
+   authorizes sending, so `gmail.send` is not requested. `gmail.modify` and the
+   full-mailbox scope are **restricted**, so restricted-scope verification and
+   an annual CASA assessment are required. Adding scopes later forces
+   re-consent. See
+   [`docs/google-oauth-verification.md`](../docs/google-oauth-verification.md)
+   for the exact justifications and submission checklist.
 
 Verify:
 
@@ -1212,13 +1221,20 @@ Verify: send yourself an email; watch `docker compose logs -f worker` for an `in
 
 ### 10.3 Dodo Payments
 
+> End-to-end live checklist (all five products, webhook, env and a real
+> payment/refund): [`GO-LIVE-CHECKLIST.md`](./GO-LIVE-CHECKLIST.md) §2.
+
 1. Dashboard → Developers → Webhooks → add `https://tartly.in/api/webhooks/dodo`.
 2. Copy the signing secret into `DODO_PAYMENTS_WEBHOOK_KEY`.
 3. Keep `DODO_PAYMENTS_ENVIRONMENT=test_mode` and `DODO_LIVE_MODE_ENABLED=false` until a full test passes.
 4. Test card flow: checkout → `payment.succeeded` → `billing_webhook_events` row → entitlement/credits applied.
 5. Only then switch to live keys and set `DODO_LIVE_MODE_ENABLED=true`.
 
-The app intentionally refuses to create live charges while the test-mode lock is on (it logs an actionable warning).
+Production checkout fails closed: it refuses test-mode checkout, simulation
+activation, and live checkout without the webhook key. A staging host can opt
+into test checkout with `ALLOW_TEST_CHECKOUT_IN_PRODUCTION=true`; never set that
+on the public host. The app intentionally refuses to create live charges while
+the test-mode lock is on (it logs an actionable warning).
 
 Verify:
 

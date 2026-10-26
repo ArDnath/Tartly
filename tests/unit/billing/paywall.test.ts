@@ -119,6 +119,46 @@ describe("billing test-mode lock", () => {
     });
     expect(env.isDodoConfigured()).toBe(false);
   });
+
+  it("refuses test-mode checkout on a production host by default", async () => {
+    const locked = await loadEnvWith({
+      DODO_PAYMENTS_API_KEY: "dodo_test_abc",
+      DODO_PAYMENTS_ENVIRONMENT: "test_mode",
+      DODO_LIVE_MODE_ENABLED: "false",
+      BILLING_SIMULATION: undefined,
+      ALLOW_TEST_CHECKOUT_IN_PRODUCTION: undefined,
+    });
+    expect(locked.isProductionCheckoutAllowed()).toBe(false);
+
+    const staging = await loadEnvWith({
+      DODO_PAYMENTS_API_KEY: "dodo_test_abc",
+      DODO_PAYMENTS_ENVIRONMENT: "test_mode",
+      DODO_LIVE_MODE_ENABLED: "false",
+      BILLING_SIMULATION: undefined,
+      ALLOW_TEST_CHECKOUT_IN_PRODUCTION: "true",
+    });
+    expect(staging.isProductionCheckoutAllowed()).toBe(true);
+  });
+
+  it("requires the webhook key for live checkout", async () => {
+    const noWebhook = await loadEnvWith({
+      DODO_PAYMENTS_API_KEY: "dodo_live_abc",
+      DODO_PAYMENTS_ENVIRONMENT: "live_mode",
+      DODO_LIVE_MODE_ENABLED: "true",
+      DODO_PAYMENTS_WEBHOOK_KEY: undefined,
+      BILLING_SIMULATION: undefined,
+    });
+    expect(noWebhook.isProductionCheckoutAllowed()).toBe(false);
+
+    const ready = await loadEnvWith({
+      DODO_PAYMENTS_API_KEY: "dodo_live_abc",
+      DODO_PAYMENTS_ENVIRONMENT: "live_mode",
+      DODO_LIVE_MODE_ENABLED: "true",
+      DODO_PAYMENTS_WEBHOOK_KEY: "whsec_live",
+      BILLING_SIMULATION: undefined,
+    });
+    expect(ready.isProductionCheckoutAllowed()).toBe(true);
+  });
 });
 
 describe("subscription status", () => {

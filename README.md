@@ -390,9 +390,16 @@ Start with:
 
 - [`deploy/DEPLOYMENT-TRACKER.md`](./deploy/DEPLOYMENT-TRACKER.md) — live state,
   blockers, next actions. **Read this first.**
+- [`deploy/GO-LIVE-CHECKLIST.md`](./deploy/GO-LIVE-CHECKLIST.md) — every external
+  value and console action still needed to take real payments.
 - [`deploy/DEPLOYMENT-GUIDE.md`](./deploy/DEPLOYMENT-GUIDE.md) — the full
   multi-stage deployment, security, performance and scaling reference.
 - [`deploy/RUNBOOK.md`](./deploy/RUNBOOK.md) — day-2 operations.
+- [`deploy/VPS.md`](./deploy/VPS.md) — the production host itself: specs,
+  access, ports, filesystem, scheduled jobs and resize triggers.
+- [`docs/google-oauth-verification.md`](./docs/google-oauth-verification.md) —
+  Google OAuth verification status, consent-screen copy, scope justifications,
+  video script, and CASA checklist.
 
 ### Vercel (original target)
 
@@ -452,6 +459,9 @@ architecture and phased build plans.
   hosts 308-redirect to it (`next.config.ts`).
 - Sign-in grants only basic profile access. Inbox and calendar access are a
   separate, explicit consent step; access is limited to the approved scopes.
+- Google user data handling, the Limited Use statement, and the verification
+  scope justifications live in `/privacy` and
+  [`docs/google-oauth-verification.md`](./docs/google-oauth-verification.md).
 - Tartly never sends mail silently in `copilot` mode; the `egress` gate plus
   `send_ledger` guarantee user approval and at-most-once delivery.
 - **24/7 Autopilot** is off by default. Even when a mailbox policy is enabled,
@@ -468,4 +478,4 @@ architecture and phased build plans.
 ## License
 
 © Tartly. All rights reserved. This is a private, proprietary project; see the
-repository owner for terms. Contact: support@tartly.app
+repository owner for terms. Contact: support@tartly.in

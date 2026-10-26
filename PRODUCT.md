@@ -67,7 +67,7 @@ only, never message content.
 
 ## Brand Commitments
 
-- Name: **Tartly**. Support contact: support@tartly.app.
+- Name: **Tartly**. Support contact: support@tartly.in.
 - Voice: calm, plain-spoken, control-oriented. It explains permissions and
   consequences honestly and never implies more autonomy than the user granted.
 - Approval is framed as a promise, not a limitation: "nothing leaves your inbox

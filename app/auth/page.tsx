@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { GoogleSignInButton } from "@/components/app/auth-buttons";
@@ -40,9 +41,21 @@ export default async function AuthPage({
           <GoogleSignInButton callbackURL={next} />
         </div>
         <p className="mt-16 text-center text-xs leading-relaxed text-muted-foreground">
-          By using Tartly,
-          you agree to the Terms of Service and Data
-          Processing Agreement.
+          By using Tartly, you agree to our{" "}
+          <Link
+            href="/terms"
+            className="underline underline-offset-2 transition-colors hover:text-foreground"
+          >
+            Terms of Service
+          </Link>{" "}
+          and{" "}
+          <Link
+            href="/privacy"
+            className="underline underline-offset-2 transition-colors hover:text-foreground"
+          >
+            Privacy Policy
+          </Link>
+          .
         </p>
       </main>
     </div>

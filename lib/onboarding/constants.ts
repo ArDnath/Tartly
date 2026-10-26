@@ -58,20 +58,24 @@ export const GOOGLE_PERMANENT_DELETE_SCOPE = "https://mail.google.com/";
 /**
  * Google scopes requested on the "sync your inbox" step.
  *
- * `gmail.modify` lets the operator read and label mail; `gmail.send` lets it
- * send replies that the user approved; `calendar.readonly` reads availability
- * and `calendar.events` writes meetings; the full-mailbox scope adds permanent
- * delete. These live outside the Better Auth sign-in config so signing in never
- * asks for inbox access — the user grants it explicitly on this step.
+ * `gmail.modify` is the narrowest Gmail scope that covers the whole mail
+ * client: reading messages and threads, labels, archive/trash, drafts, and
+ * sending (`users.messages.send` accepts `gmail.modify`; a separate
+ * `gmail.send` grant would be redundant). `calendar.readonly` reads
+ * availability and `calendar.events` writes meetings. The full-mailbox scope
+ * adds permanent delete, which Google exposes only through that scope.
  *
- * Note: Gmail scopes are Google *restricted* scopes, and
- * {@link GOOGLE_PERMANENT_DELETE_SCOPE} is the most sensitive of them. Until the
- * OAuth app is verified + CASA-approved it must stay in testing mode with
- * explicit test users; the plan does not depend on approval to be built or run.
+ * These live outside the Better Auth sign-in config so signing in never asks
+ * for inbox access — the user grants it explicitly on this step.
+ *
+ * Note: `gmail.modify` and {@link GOOGLE_PERMANENT_DELETE_SCOPE} are Google
+ * *restricted* scopes, so the OAuth app needs restricted-scope verification and
+ * an annual CASA security assessment before it can leave testing. The exact
+ * scope justification and submission checklist live in
+ * `docs/google-oauth-verification.md`.
  */
 export const GOOGLE_CONNECT_SCOPES = [
   "https://www.googleapis.com/auth/gmail.modify",
-  "https://www.googleapis.com/auth/gmail.send",
   "https://www.googleapis.com/auth/calendar.readonly",
   "https://www.googleapis.com/auth/calendar.events",
   GOOGLE_PERMANENT_DELETE_SCOPE,
