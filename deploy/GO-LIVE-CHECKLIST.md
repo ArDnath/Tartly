@@ -83,6 +83,7 @@ Then:
 
 ```bash
 node deploy/scripts/render-env.mjs https://tartly.in
+npm run verify:dodo          # read-only: live flags, 5 products, webhook
 # copy deploy/app.env + deploy/.env to the host, then recreate web/worker
 ```
 

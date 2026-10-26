@@ -5,15 +5,15 @@
 
 | Field | Value |
 | --- | --- |
-| Last updated | **2026-10-26 18:15 UTC** |
+| Last updated | **2026-10-26 18:28 UTC** |
 | Environment | Production (first node) |
 | Canonical origin | `https://tartly.in` |
 | Host | `srv2076028.hstgr.cloud` · `201.18.197.194` · Mumbai 2 |
 | Provider / plan | Hostinger KVM 2 — 2 vCPU, 8 GB RAM, 100 GB NVMe, 8 TB/mo |
 | OS | Ubuntu 26.04.1 LTS (`resolute`), kernel 7.0.0-34 |
 | Runtime | Docker 29.9.2 · Compose v5.6.1 · Caddy 2.11.7 |
-| Deployed tag | `9e1f951` (clean tree; next release carries go-live readiness) |
-| Host git HEAD | `3f610d0` (docs-only ahead of the running image) |
+| Deployed tag | `44105f9` (clean tree; go-live readiness) |
+| Host git HEAD | `44105f9` (matches the running image) |
 | Data | 5 users · 5 connected accounts · 5 mailboxes · 90 threads · 164 messages |
 | Public traffic | **LIVE** — apex + www resolve here (TTL 300); Let's Encrypt valid to 2027-01-21; readiness 200 over HTTPS |
 | Payments | **TEST MODE** — Dodo test key, webhook key empty, no live product IDs; not accepting real money |
@@ -106,7 +106,7 @@ AI/SSE concurrency caps, CSP enforce, CI/GHCR.
 | 23 | 10k-user capacity + storage lifecycle | 🟡 | `body_text` capped 64 KiB / `body_html` 128 KiB at ingest; 90-day archive/re-fetch still not implemented (A8) | retention job |
 | 24 | Clean git baseline / reproducible deploy | ✅ | `9e1f951` image from clean tree; host HEAD `3f610d0`; host deploy key authenticates to GitHub | — |
 | 25 | Go-live configuration checklist | ✅ | [`GO-LIVE-CHECKLIST.md`](./GO-LIVE-CHECKLIST.md) records every external value, owner and verification step | — |
-| 26 | Production checkout guard | 🟡 | code now refuses test-mode checkout and simulation activation in production, and requires the live webhook key before live checkout; awaiting deploy + live-key smoke test | deploy |
+| 26 | Production checkout guard | 🟡 | deployed `44105f9`: production refuses test-mode checkout, simulation activation and live checkout without the webhook key; verified the flag is unset in web-1. Awaiting live-key smoke test | live keys |
 
 **Launch gate:** public HTTPS and the technical stack are ✅. Revenue is **not**
 live: stage 15 is the hard blocker, and stage 14 still needs Google to confirm
@@ -332,7 +332,10 @@ Verified 2026-10-26:
 - 5 users, 5 connected accounts; refresh tokens are still being used, so the
   consent screen may already be published — **confirm in the console**.
 - Production now refuses test-mode checkout and simulation activation (code
-  staged; deploy with the next clean tag).
+  deployed in `44105f9`).
+- `npm run verify:dodo` is the read-only preflight: it currently reports
+  **5 failures** (webhook key + 3 credit products + no webhook endpoint) and
+  warns that the mode is `test_mode`.
 
 **Blocking ask (in order):** live Dodo key + live webhook secret + live product
 IDs (5) → live env in root `.env` → render/copy/recreate → real payment +
@@ -469,6 +472,10 @@ refund → Google domain TXT → publish/verify consent screen → monitoring UR
 | 2026-10-24 09:06 | Production dependency re-audit | 🟡 | `npm audit --omit=dev`: 23 (7 high). New vs 19:34: `zod` 4.6.5 (direct, HIGH), `undici` 7.29.1 / 6.29.0 (transitive, HIGH), `@vercel/blob` chain. Direct zod patched below; rest recorded |
 | 2026-10-24 09:09 | Release `9e1f951` (zod 4.6.7) | ✅ | `tsc --noEmit` clean; 276/276 unit tests; lockfile regenerated with npm 10.9.9 + `ci --dry-run` clean; web-1/web-2 healthy; worker up; ready 200 |
 | 2026-10-24 09:12 | Post-release verification | ✅ | ready 200; onboarding callback `307 → https://tartly.in/auth` (no `0.0.0.0`); www `308`; cert valid to 2027-01-21; `BETTER_AUTH_URL` inside web-1 = `https://tartly.in`; zero error/fatal/panic in 10 m; disk 45/96 GB (47% after two builds) |
+| 2026-10-26 18:20 | Revenue blocker audit | 🔴 | Dodo test key works, live API 401; 2 test subscription products, 0 credit packs, 0 webhooks, 0 webhook events; 3 test subscriptions exist (2 mirrored); `DODO_PAYMENTS_WEBHOOK_KEY` empty; no Google domain TXT record |
+| 2026-10-26 18:24 | Pre-deploy backup | ✅ | `tartly-20261026T182406Z.dump.zst` (608 KB); R2 upload succeeded on retry (transient 501) |
+| 2026-10-26 18:26 | Release `44105f9` (go-live readiness) | ✅ | tsc clean; lint 0 errors; 278/278 unit tests; build clean; web-1/web-2 healthy; worker started; ready 200; home/privacy/terms/pricing/auth 200; www 308; Dodo webhook fails closed 400; Google verification copy live |
+| 2026-10-26 18:28 | Post-release guard check | ✅ | container has no `ALLOW_TEST_CHECKOUT_IN_PRODUCTION` (defaults false), Dodo `test_mode`, live flag false; no error/fatal/panic in 10 m |
 
 ### 7.1 Off-box edge smoke (2026-10-23 19:20 UTC)
 
@@ -501,7 +508,8 @@ script, a dedicated test session, and a generator with more upstream capacity.
 | `1d44127` | 18:57 | R2 asset wiring (S3 driver + CSP `connect-src`), R2 setup docs, split backup heartbeat from readiness ping | previous |
 | `f1ed59a` | 19:27 | 64 KiB text / 128 KiB HTML body caps at ingest + 5 tests | previous; clean tree; rollback target is `1d44127` |
 | `d95dbb5` | 2026-10-24 08:59 | canonical public origin for onboarding + billing redirects (`lib/http/public-origin.ts`) + unit test | previous; clean tree; rollback target is `f1ed59a` |
-| `9e1f951` | 2026-10-24 09:09 | zod 4.6.5 → 4.6.7 (HIGH GHSA-mrhx-c7xc-m3w5) | **current**; clean tree; rollback target is `d95dbb5` |
+| `9e1f951` | 2026-10-24 09:09 | zod 4.6.5 → 4.6.7 (HIGH GHSA-mrhx-c7xc-m3w5) | previous; rollback target is `d95dbb5` |
+| `44105f9` | 2026-10-26 18:26 | go-live readiness: Google verification copy/scopes, fail-closed production checkout, Dodo credit-pack env, terms, go-live checklist | **current**; clean tree; rollback target is `9e1f951` |
 | `a14f782` (HEAD) | 2026-10-07 | last upstream commit | baseline before the snapshot |
 
 ---
