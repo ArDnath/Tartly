@@ -375,11 +375,16 @@ and return `{ data }` or `{ error: { code, message } }`.
 
 ### Self-hosted production (current)
 
-The production stack is **provisioned but not yet public**: DNS and TLS are the
-remaining launch gates (see the tracker). It runs on a Hostinger KVM 2 VPS
-(2 vCPU / 8 GB / 100 GB NVMe / 8 TB transfer) with Docker Compose — Caddy, two
-Next.js replicas, a queue worker, Postgres 18, Redis + Upstash REST shim, and
+The production stack is **live at `https://tartly.in`** — apex + `www`, TLS,
+readiness, backups and asset storage are verified. It runs on a Hostinger KVM 2
+VPS (2 vCPU / 8 GB / 100 GB NVMe / 8 TB transfer) with Docker Compose — Caddy,
+two Next.js replicas, a queue worker, Postgres 18, Redis + Upstash REST shim, and
 R2 for assets.
+
+**Payments are not live yet.** Dodo is still in test mode, the webhook signing
+key is unset, and the live product IDs are not configured, so production
+checkout deliberately fails closed. The exact remaining external configuration
+is in [`deploy/GO-LIVE-CHECKLIST.md`](./deploy/GO-LIVE-CHECKLIST.md).
 
 **Capacity target:** 10k active users (~1–2k peak concurrent sessions,
 100–400 API RPS) with local Postgres and Redis. Guide §2.7 defines the model,

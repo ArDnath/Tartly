@@ -290,14 +290,14 @@ dumps. See §13.5.1 and A8 in the tracker.
 | Dependency | What you need | Where it goes | Status |
 | --- | --- | --- | --- |
 | Hostinger VPS | IP, root access, panel | SSH, DNS, snapshots | ✅ |
-| Domain `tartly.in` | DNS zone control | A record `@` → host IP | ⛔ pending |
-| Google Cloud | OAuth Web client (ID/secret), Gmail + Calendar APIs, Pub/Sub topic | `GOOGLE_CLIENT_ID/SECRET`, `GOOGLE_PUBSUB_TOPIC` | 🟡 redirect pending |
-| Dodo Payments | API key, webhook signing key, product IDs | `DODO_*` | 🟡 webhook key empty |
-| Cloudflare R2 | 2 buckets + S3 API token | `S3_*`, `/etc/tartly/backup.env` | ⬜ |
+| Domain `tartly.in` | DNS zone control | A record `@` → host IP | ✅ apex + www live, TLS valid |
+| Google Cloud | OAuth Web client (ID/secret), Gmail + Calendar APIs, Pub/Sub topic | `GOOGLE_CLIENT_ID/SECRET`, `GOOGLE_PUBSUB_TOPIC` | 🟡 redirect ✅; publishing/verification + CASA + domain TXT pending; Pub/Sub deferred |
+| Dodo Payments | API key, webhook signing key, product IDs | `DODO_*` | 🔴 test mode only; live key/webhook/credit products pending |
+| Cloudflare R2 | 2 buckets + S3 API token | `S3_*`, `/etc/tartly/backup.env` | ✅ assets + backups verified |
 | AI provider | API key + base URL + model IDs | `OPENCODE_*`, `AI_*` | ✅ |
 | Search provider | Tavily key | `SEARCH_API_KEY` | ✅ |
-| Healthchecks.io | 1 check + ping URL | `/etc/tartly/backup.env` | ⬜ |
-| GitHub | repo access / deploy key | deploy source | ✅ clean tag `83ccc5a`; host deploy key pending (A11) |
+| Healthchecks.io | 2 checks + ping URLs | `/etc/tartly/backup.env` | ⬜ |
+| GitHub | repo access / deploy key | deploy source | ✅ host deploy key works |
 | ImageKit | URL endpoint (public build-time) | `NEXT_PUBLIC_IMAGEKIT_URL_ENDPOINT` | ✅ |
 
 ### 3.2 DNS records (the only required change)
@@ -1671,8 +1671,8 @@ dumps: WAL is incremental, while each dump is a full copy.
 | Structured error responses, no stack traces | `lib/api/http.ts` | ✅ |
 | Graceful shutdown + 530 readiness | `lib/lifecycle`, worker | ✅ |
 | Queue idempotency + dead-letter | `job_queue`, `send_ledger` | ✅ |
-| Webhook signature + idempotency | Dodo/Gmail routes | ✅ (Dodo key pending) |
-| Presigned uploads with bounds | `lib/assets` | ✅ (R2 pending) |
+| Webhook signature + idempotency | Dodo/Gmail routes | ✅ code; Dodo signing key pending |
+| Presigned uploads with bounds | `lib/assets` | ✅ R2 verified |
 | Metrics/cron bearer auth | routes | ✅ |
 
 ### 14.4 Secrets
@@ -1681,7 +1681,8 @@ dumps: WAL is incremental, while each dump is a full copy.
 - `.dockerignore` excludes the whole `deploy/` directory.
 - No secret in `NEXT_PUBLIC_*`.
 - Rotation table in §5.6.
-- **Current gap:** `BETTER_AUTH_SECRET` is a short dev value (Better Auth warns on every boot). Rotate before launch or accept the risk in writing.
+- `BETTER_AUTH_SECRET` is rotated to a 32-char high-entropy value; no Better
+  Auth low-entropy warning. Rotating it again disconnects every mailbox.
 
 ### 14.5 Supply chain
 
@@ -1714,7 +1715,7 @@ Add to CI: lint, typecheck, unit, integration, OpenAPI breaking check, `npm audi
 | 12 | Pooling | 8/8/4 of 120 | ✅ |
 | 13 | Caching | Redis, TTLs | ✅ |
 | 14 | Queues | Postgres queue, DLQ | ✅ |
-| 15 | Direct uploads | presigned R2 | 🟡 pending creds |
+| 15 | Direct uploads | presigned R2 | ✅ |
 | 16 | Webhook security | HMAC/OIDC + idempotency | ✅ |
 | 17 | 12-factor | env + lockfile | ✅ |
 | 18 | Observability | logs/health/metrics | 🟡 no external scraper |
