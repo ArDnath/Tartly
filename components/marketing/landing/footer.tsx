@@ -136,6 +136,8 @@ export default function Footer() {
           src="/gradient.svg"
           alt=""
           aria-hidden="true"
+          loading="lazy"
+          decoding="async"
           className="pointer-events-none absolute inset-x-0 top-0 h-72 w-full object-cover opacity-70"
         />
 

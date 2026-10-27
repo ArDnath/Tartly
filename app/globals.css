@@ -10,13 +10,103 @@
 }
 
 /*
- * Single dark palette built around the brand base #1B1B1B.
- * #1B1B1B is the canvas/background everywhere; surfaces sit a
- * few points lighter so hierarchy still reads without borders.
+ * Dual-theme token system. `:root` is the light palette; `.dark` (toggled on
+ * `<html>` by lib/theme.ts + the boot script in app/layout.tsx) carries the
+ * brand dark palette built around #1B1B1B. Both blocks define the SAME token
+ * set — equal specificity means the later `.dark` rule must override every
+ * custom property `:root` sets, or light values would leak into dark mode.
+ *
+ * The landing (`/`) follows the toggle through the `--landing-*` chrome
+ * tokens defined below; `/pricing` still pins a `dark` wrapper class because
+ * its instrument panel is designed for the dark canvas only.
  */
 :root {
-  color-scheme: dark;
+  color-scheme: light;
   caret-color: var(--canvas-foreground);
+  /* Light theme — the dark hierarchy inverted: a soft zinc canvas with white
+     surfaces a step above it, and the brand #1B1B1B reused as the ink. */
+  --canvas: #f6f6f7;
+  --canvas-foreground: #1b1b1b;
+  --background: #f6f6f7;
+  --foreground: #1b1b1b;
+  --card: #ffffff;
+  --card-foreground: #1b1b1b;
+  --popover: #ffffff;
+  --popover-foreground: #1b1b1b;
+  --primary: #1b1b1b;
+  --primary-foreground: #f4f4f5;
+  --secondary: #ececee;
+  --secondary-foreground: #1b1b1b;
+  --muted: #ececee;
+  --muted-foreground: #5c5c64;
+  --accent: #e4e4e8;
+  --accent-foreground: #1b1b1b;
+  --destructive: oklch(0.577 0.215 27.325);
+  --border: rgba(0, 0, 0, 0.08);
+  --input: rgba(0, 0, 0, 0.14);
+  --ring: #a1a1aa;
+  --chart-1: #27272a;
+  --chart-2: #52525b;
+  --chart-3: #71717a;
+  --chart-4: #a1a1aa;
+  --chart-5: #d4d4d8;
+  --radius: 0.625rem;
+  --sidebar: #f6f6f7;
+  --sidebar-foreground: #1b1b1b;
+  --sidebar-primary: #1b1b1b;
+  --sidebar-primary-foreground: #f4f4f5;
+  --sidebar-accent: #e4e4e8;
+  --sidebar-accent-foreground: #1b1b1b;
+  --sidebar-border: rgba(0, 0, 0, 0.08);
+  --sidebar-ring: #a1a1aa;
+
+  /* Star glyph on mail rows/reader. */
+  --warning: #f8b84e;
+  --warning-foreground: #171715;
+
+  /* Activity dashboard — the one warm moment on an otherwise neutral surface,
+     mirroring the reference board's accent card. Used for the peak-activity
+     bead matrix, never as general decoration. */
+  --activity-accent: #f2b4cb;
+  --activity-accent-soft: #f7d2e0;
+  --activity-accent-ink: #2b1622;
+
+  /* Mail client — light canvas: white surfaces over a zinc rail. Accent
+     colours (unread blue, draft red, tag tints) swap the dark theme's glowy
+     pastels for deeper tones that keep their contrast on white. */
+  --mail-surface: var(--card); /* #ffffff */
+  --mail-rail: #efeff1; /* sidebar chrome — a step under the content surfaces */
+  --mail-rail-active: var(--accent); /* #e4e4e8 */
+  --mail-line: var(--border); /* rgba(0,0,0,0.08) */
+  --mail-row-hover: #f0f0f2;
+  --mail-row-selected: #e6e6ea;
+  --mail-strong: var(--foreground); /* #1b1b1b */
+  --mail-muted: var(--muted-foreground); /* #5c5c64 */
+  --mail-unread: #1d4ed8;
+  --mail-draft: #b42318;
+  --mail-chip: #e9e9ec;
+  --mail-chip-foreground: #52525b;
+  --mail-tag-important: #fbe4e2;
+  --mail-tag-important-foreground: #b3261e;
+  --mail-tag-newsletter: #fdf0d3;
+  --mail-tag-newsletter-foreground: #8a5a00;
+  --mail-tag-calendar: #f3e5fc;
+  --mail-tag-calendar-foreground: #7b1fa2;
+  --mail-recipient: #1d4ed8;
+  --mail-recipient-surface: rgba(29, 78, 216, 0.1);
+  --mail-compose-chrome: #ececee;
+  /* Mail assistant (AI rail) — matched to the navigation rail so the two
+     chrome columns read as one system. */
+  --mail-assistant: #efeff1;
+}
+
+/*
+ * Dark theme — the brand palette. #1B1B1B is the canvas/background
+ * everywhere; surfaces sit a few points lighter so hierarchy still reads
+ * without borders.
+ */
+.dark {
+  color-scheme: dark;
   --canvas: #1b1b1b;
   --canvas-foreground: #f4f4f5;
   --background: #1b1b1b;
@@ -42,7 +132,6 @@
   --chart-3: #71717a;
   --chart-4: #52525b;
   --chart-5: #3f3f46;
-  --radius: 0.625rem;
   --sidebar: #1b1b1b;
   --sidebar-foreground: #f4f4f5;
   --sidebar-primary: #f4f4f5;
@@ -52,13 +141,9 @@
   --sidebar-border: rgba(255, 255, 255, 0.08);
   --sidebar-ring: #52525b;
 
-  /* Star glyph on mail rows/reader. */
   --warning: #f8b84e;
   --warning-foreground: #171715;
 
-  /* Activity dashboard — the one warm moment on an otherwise neutral surface,
-     mirroring the reference board's accent card. Used for the peak-activity
-     bead matrix, never as general decoration. */
   --activity-accent: #f2b4cb;
   --activity-accent-soft: #f7d2e0;
   --activity-accent-ink: #2b1622;
@@ -92,46 +177,41 @@
 }
 
 /*
- * `.dark` mirrors the base palette so the app keeps the same
- * #1B1B1B surfaces whether or not the class is present.
+ * Marketing-page chrome tokens.
+ *
+ * The landing (`/`) used to be pinned dark because its copy and canvas were
+ * hard-coded hex values. These tokens give the page chrome — canvas, ink,
+ * hairlines, FAQ/secondary cards and the pricing table — a light and a dark
+ * value so the landing can follow the app-wide theme switch. The product
+ * mock-ups (including the "Ask away" panels), trust panel and footer
+ * intentionally keep their literal dark styling — the text inside them
+ * included — in both themes: they read as product screenshots on the light
+ * canvas, the same way they sit on the dark one.
  */
+:root {
+  --landing-bg: #f4f4f5;
+  --landing-fg: #101012;
+  --landing-muted: #52525b;
+  --landing-faint: rgba(16, 16, 18, 0.5);
+  --landing-line: rgba(16, 16, 18, 0.12);
+  --landing-card: #ffffff;
+  --landing-card-hover: #f0f0f2;
+  --landing-card-border: rgba(16, 16, 18, 0.1);
+  --landing-panel: #ffffff;
+  --landing-panel-border: rgba(16, 16, 18, 0.1);
+}
+
 .dark {
-  --canvas: #1b1b1b;
-  --canvas-foreground: #f4f4f5;
-  --background: #1b1b1b;
-  --foreground: #f4f4f5;
-  --card: #222222;
-  --card-foreground: #f4f4f5;
-  --popover: #222222;
-  --popover-foreground: #f4f4f5;
-  --primary: #f4f4f5;
-  --primary-foreground: #1b1b1b;
-  --secondary: #262626;
-  --secondary-foreground: #f4f4f5;
-  --muted: #262626;
-  --muted-foreground: #a1a1aa;
-  --accent: #2e2e2e;
-  --accent-foreground: #f4f4f5;
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: rgba(255, 255, 255, 0.08);
-  --input: rgba(255, 255, 255, 0.12);
-  --ring: #52525b;
-  --chart-1: #e4e4e7;
-  --chart-2: #a1a1aa;
-  --chart-3: #71717a;
-  --chart-4: #52525b;
-  --chart-5: #3f3f46;
-  --sidebar: #1b1b1b;
-  --sidebar-foreground: #f4f4f5;
-  --sidebar-primary: #f4f4f5;
-  --sidebar-primary-foreground: #1b1b1b;
-  --sidebar-accent: #2e2e2e;
-  --sidebar-accent-foreground: #f4f4f5;
-  --sidebar-border: rgba(255, 255, 255, 0.08);
-  --sidebar-ring: #52525b;
-  --activity-accent: #f2b4cb;
-  --activity-accent-soft: #f7d2e0;
-  --activity-accent-ink: #2b1622;
+  --landing-bg: #0f0f0f;
+  --landing-fg: #ffffff;
+  --landing-muted: #b7b7b7;
+  --landing-faint: rgba(255, 255, 255, 0.4);
+  --landing-line: rgba(255, 255, 255, 0.15);
+  --landing-card: #1e1e1e;
+  --landing-card-hover: #262626;
+  --landing-card-border: rgba(255, 255, 255, 0.12);
+  --landing-panel: #161616;
+  --landing-panel-border: #2e2e2e;
 }
 
 body {
@@ -314,6 +394,24 @@ body {
       scroll-behavior: auto;
     }
   }
+
+  /* Lenis (landing smooth scroll — see landing-smooth-scroll.tsx). The
+     recommended resets: while Lenis is driving, its own rAF loop owns the
+     scroll position, so the native `scroll-behavior: smooth` above must stand
+     down to avoid double-easing programmatic scrolls. */
+  html.lenis,
+  html.lenis body {
+    height: auto;
+  }
+  .lenis.lenis-smooth {
+    scroll-behavior: auto !important;
+  }
+  .lenis.lenis-smooth [data-lenis-prevent] {
+    overscroll-behavior: contain;
+  }
+  .lenis.lenis-stopped {
+    overflow: hidden;
+  }
 }
 
 @layer utilities {
@@ -377,6 +475,24 @@ body {
 
   @supports ((-webkit-background-clip: text) or (background-clip: text)) {
     .tartly-wordmark {
+      /* Light theme: a blush leading edge into deep ink, so the mark keeps
+         its chrome-and-blush character on the light canvas. */
+      background-image: linear-gradient(
+        100deg,
+        #b07a8f 0%,
+        #d0a3b5 5%,
+        #1b1b1b 22%,
+        #26262b 58%,
+        #71717a 100%
+      );
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      -webkit-text-fill-color: transparent;
+    }
+
+    /* Dark theme: the original chrome-and-blush gradient. */
+    .dark .tartly-wordmark {
       background-image: linear-gradient(
         100deg,
         #f2b4cb 0%,
@@ -385,11 +501,16 @@ body {
         #f4f4f5 58%,
         #a6a6b0 100%
       );
-      -webkit-background-clip: text;
-      background-clip: text;
-      color: transparent;
-      -webkit-text-fill-color: transparent;
     }
+  }
+
+  /* Flat wordmark — opt out of the gradient (the marketing navbar). Kept after
+     the themed gradient rules so it wins at equal specificity in both themes. */
+  .tartly-wordmark-flat,
+  .dark .tartly-wordmark-flat {
+    background-image: none;
+    color: var(--canvas-foreground);
+    -webkit-text-fill-color: currentColor;
   }
 
   .shadow-row {
@@ -535,8 +656,8 @@ body {
 
 :root {
   --matrix-cycle: 1200ms;
-  --matrix-base: #333333;
-  --matrix-active: #d4d4d8;
+  --matrix-base: #d9d9de;
+  --matrix-active: #3f3f46;
   --matrix-ease: ease-in-out;
 }
 

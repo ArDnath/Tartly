@@ -144,6 +144,19 @@ const HERO_PANEL_WIDTH = 'max(0px, calc((100vw - 80rem) / 2 + 1px))';
  * exactly (none of the picture is cropped).
  */
 const YT_CHROME_CROP = 72;
+const HERO_TEXT_EASE = (progress: number) => 1 - (1 - progress) ** 3;
+
+const DESKTOP_DITHER_QUERY = '(min-width: 80rem)';
+
+function subscribeToDesktopDither(callback: () => void) {
+  const mediaQuery = window.matchMedia(DESKTOP_DITHER_QUERY);
+  mediaQuery.addEventListener('change', callback);
+  return () => mediaQuery.removeEventListener('change', callback);
+}
+
+function getDesktopDitherSnapshot() {
+  return window.matchMedia(DESKTOP_DITHER_QUERY).matches;
+}
 
 /**
  * Hero media frame. The outer box keeps the exact aspect ratio the old hero
@@ -230,7 +243,7 @@ function HeroDemo({ className }: { className?: string }) {
   return (
     <div
       ref={rootRef}
-      className={`relative overflow-hidden border-b border-white/15 bg-[#0F0F0F] ${className ?? ''}`}
+      className={`relative overflow-hidden border-b border-[var(--landing-line)] bg-[var(--landing-bg)] ${className ?? ''}`}
       style={{ aspectRatio: HERO_FRAME_RATIO }}
     >
       {/* 16:9 screen, centred both ways in the frame via absolute positioning
@@ -297,8 +310,39 @@ const PixelBlast = dynamic(() => import('@/components/shared/motion/pixel-blast'
  * hard rectangle — the colours are untouched.
  *
  * The effect is confined to these two boxes; nothing else on the page uses it.
+ *
+ * The shader's palette is WebGL, so it cannot come from the CSS theme tokens.
+ * The `dark` class on `<html>` is read directly (and watched through a
+ * MutationObserver) to hand it an explicit pair of RGB values per theme: the
+ * panels stay black-on-gray on the dark canvas and paper-on-gray on the light
+ * one, so the flowing field reads in both without turning into a black slab.
  */
 function HeroSideDither({ side }: { side: 'left' | 'right' }) {
+  // The side panels are `xl:block`, so don't download or start their WebGL
+  // renderer on smaller screens where those panels are never visible.
+  const isDesktop = React.useSyncExternalStore(
+    subscribeToDesktopDither,
+    getDesktopDitherSnapshot,
+    () => false,
+  );
+  const [isDark, setIsDark] = React.useState(() => {
+    if (typeof document === 'undefined') return true;
+    return document.documentElement.classList.contains('dark');
+  });
+
+  React.useEffect(() => {
+    if (!isDesktop) return;
+    const sync = () =>
+      setIsDark(document.documentElement.classList.contains('dark'));
+    sync();
+    const observer = new MutationObserver(sync);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class'],
+    });
+    return () => observer.disconnect();
+  }, [isDesktop]);
+
   const horizontalFade =
     side === 'left'
       ? 'linear-gradient(to left, black 0%, black 62%, rgb(0 0 0 / 0.5) 86%, transparent 100%)'
@@ -322,17 +366,19 @@ function HeroSideDither({ side }: { side: 'left' | 'right' }) {
         WebkitMaskRepeat: 'no-repeat',
       }}
     >
-      <Dither
-        waveColor={[0.5, 0.5, 0.5]}
-        backgroundColor={[0, 0, 0]}
-        colorNum={4}
-        waveAmplitude={0.3}
-        waveFrequency={3}
-        waveSpeed={0.05}
-        disableAnimation={false}
-        enableMouseInteraction={true}
-        mouseRadius={0.3}
-      />
+      {isDesktop ? (
+        <Dither
+          waveColor={isDark ? [0.5, 0.5, 0.5] : [0.45, 0.45, 0.47]}
+          backgroundColor={isDark ? [0, 0, 0] : [0.957, 0.957, 0.961]}
+          colorNum={4}
+          waveAmplitude={0.3}
+          waveFrequency={3}
+          waveSpeed={0.05}
+          disableAnimation={false}
+          enableMouseInteraction={true}
+          mouseRadius={0.3}
+        />
+      ) : null}
     </div>
   );
 }
@@ -355,12 +401,14 @@ function HeroTextDither() {
   return (
     <div
       aria-hidden
-      className="pointer-events-none absolute inset-0 -z-10 opacity-70"
+      className="pointer-events-none absolute inset-0 -z-10 opacity-20 dark:opacity-70"
       style={{ maskImage: fade, WebkitMaskImage: fade }}
     >
       <PixelBlast
         variant="square"
         pixelSize={4}
+        maxPixelRatio={1.5}
+        antialias={false}
         color="#454545"
         patternScale={2.5}
         patternDensity={0.55}
@@ -390,11 +438,14 @@ function HeroTextDither() {
 function AudienceProof({ className }: { className?: string }) {
   return (
     <div className={`relative flex flex-col items-center px-6 text-center ${className ?? ''}`}>
-      <p className="text-sm font-medium tracking-tight text-[#B7B7B7] md:text-[15px]">
-        Built for <span className="font-semibold text-white">founders, operators, and teams</span>{' '}
+      <p className="text-sm font-medium tracking-tight text-[var(--landing-muted)] md:text-[15px]">
+        Built for{' '}
+        <span className="font-semibold text-[var(--landing-fg)]">
+          founders, operators, and teams
+        </span>{' '}
         who live in their inbox.
       </p>
-      <p className="mt-1.5 text-[10px] font-medium uppercase tracking-[0.22em] text-white/35">
+      <p className="mt-1.5 text-[10px] font-medium uppercase tracking-[0.22em] text-[var(--landing-faint)]">
         Gmail · Google Calendar
       </p>
     </div>
@@ -454,7 +505,7 @@ export default function HomeContent() {
     : { hidden: { opacity: 0, y: 18 }, visible: { opacity: 1, y: 0 } };
 
   return (
-    <main className="relative flex h-full flex-1 flex-col overflow-x-hidden bg-[#0F0F0F]">
+    <main className="relative flex h-full flex-1 flex-col overflow-x-hidden bg-[var(--landing-bg)]">
       <section className="relative z-10 mt-32 flex flex-col items-center px-4">
         {/* Gray PixelBlast wash, full-bleed behind the hero copy. */}
         <HeroTextDither />
@@ -467,9 +518,12 @@ export default function HomeContent() {
             text="Your email should work while you do."
             animateBy="words"
             direction="top"
-            delay={150}
-            stepDuration={0.35}
-            className="justify-center text-center text-4xl font-semibold text-white md:text-6xl"
+            animationFrom={{ filter: 'blur(4px)', opacity: 0, y: -24 }}
+            animationTo={[{ filter: 'blur(0px)', opacity: 1, y: 0 }]}
+            easing={HERO_TEXT_EASE}
+            delay={120}
+            stepDuration={0.5}
+            className="justify-center text-center text-4xl font-semibold text-[var(--landing-fg)] md:text-6xl"
             proximity
             proximityRadius={120}
             proximityFrom="'wght' 600, 'opsz' 9"
@@ -481,7 +535,7 @@ export default function HomeContent() {
               the texture, but this paragraph reads on clean background. */}
           <div
             aria-hidden
-            className="absolute -inset-x-10 -inset-y-5 -z-10 bg-[#0F0F0F] blur-lg"
+            className="absolute -inset-x-10 -inset-y-5 -z-10 bg-[var(--landing-bg)] blur-lg"
           />
           <BlurHighlight
             inView={false}
@@ -494,8 +548,8 @@ export default function HomeContent() {
             highlightDirection="left"
             highlightedBits={['24/7 AI email operator', 'approval-first by default']}
             highlightColor="rgba(139, 92, 246, 0.32)"
-            highlightClassName="text-white"
-            className="mx-auto max-w-2xl text-center text-base font-medium text-[#B7B7B7] md:text-lg"
+            highlightClassName="text-[var(--landing-fg)]"
+            className="mx-auto max-w-2xl text-center text-base font-medium text-[var(--landing-muted)] md:text-lg"
           >
             Meet Tartly, your 24/7 AI email operator. It drafts, replies, and follows up for you —
             approval-first by default, with Autopilot only when you opt in.
@@ -524,11 +578,11 @@ export default function HomeContent() {
               color="#8b5cf6"
               speed={5}
               radius={10}
-              innerClassName="border border-[#2A2A2A] bg-[#1E1E1E] transition-colors hover:bg-[#262626]"
+              innerClassName="border border-[var(--landing-card-border)] bg-[var(--landing-card)] transition-colors hover:bg-[var(--landing-card-hover)]"
             >
               <Link
                 href="#how"
-                className="inline-flex h-9 items-center justify-center px-5 text-sm font-medium text-white"
+                className="inline-flex h-9 items-center justify-center px-5 text-sm font-medium text-[var(--landing-fg)]"
               >
                 See how it works
               </Link>
@@ -539,7 +593,7 @@ export default function HomeContent() {
         {/* Static "Works with" row — sits below the CTAs, no entry or hover
             motion. Outlook is only advertised when a deployment actually has
             Entra ID configured; the production instance is Gmail-only. */}
-        <div className="mt-3 mb-1 flex flex-wrap items-center justify-center gap-3 text-sm font-medium text-[#B7B7B7]">
+        <div className="mt-3 mb-1 flex flex-wrap items-center justify-center gap-3 text-sm font-medium text-[var(--landing-muted)]">
           <span>Works with</span>
           <span className="flex items-center gap-3" aria-label="Gmail and Google Calendar">
             <GmailMark className="size-7" />
@@ -556,17 +610,17 @@ export default function HomeContent() {
       <div id="how" className="mt-4 md:mt-8">
         <section className="relative mt-0 hidden flex-col justify-center md:flex">
           <div
-            className="relative bottom-2 flex w-full justify-center md:border-t md:border-white/15"
+            className="relative bottom-2 flex w-full justify-center md:border-t md:border-[var(--landing-line)]"
             style={{ clipPath: 'inset(0 0 0 0)', height: '110%' }}
           >
-            <div className="container relative -top-1.5 md:border-x md:border-white/15 xl:max-w-7xl">
+            <div className="container relative -top-1.5 md:border-x md:border-[var(--landing-line)] xl:max-w-7xl">
               <HeroSideDither side="left" />
               <HeroSideDither side="right" />
               {/* Thin rule tucked just under the frame's top border, above the
                   social-proof row. */}
               <div
                 aria-hidden
-                className="pointer-events-none absolute inset-x-0 top-4 border-t border-white/15"
+                className="pointer-events-none absolute inset-x-0 top-4 border-t border-[var(--landing-line)]"
               />
               <AudienceProof className="pb-2 pt-10 md:pb-2 md:pt-10" />
               <HeroDemo className="hidden w-full md:block" />
@@ -576,25 +630,31 @@ export default function HomeContent() {
 
         <div className="flex flex-col items-center justify-center px-4 md:hidden">
           <AudienceProof className="pb-4 pt-10" />
-          <HeroDemo className="w-full rounded-xl border border-white/15" />
+          <HeroDemo className="w-full rounded-xl border border-[var(--landing-line)]" />
         </div>
       </div>
 
-      <div className="relative -top-3.5 hidden h-[1px] w-full bg-[#313135] md:block" />
+      <div className="relative -top-3.5 hidden h-[1px] w-full bg-[var(--landing-line)] md:block" />
 
       <div id="features" className="relative mt-52 flex items-center justify-center px-6">
         <div className="mx-auto grid max-w-[1250px] gap-12 md:grid-cols-2 lg:grid-cols-3">
           <motion.div
-            initial={{ opacity: 0, y: 28, filter: 'blur(6px)' }}
-            whileInView={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-            viewport={{ once: false, amount: 0.2 }}
-            transition={{ duration: 1, ease: [0.22, 1, 0.36, 1] }}
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, amount: 0.2 }}
+            transition={{ duration: 0.65, ease: [0.22, 1, 0.36, 1] }}
             className="flex flex-col"
           >
             <div className="relative h-96 w-full overflow-hidden rounded-2xl">
-              <div
-                className="absolute left-0 top-0 h-96 w-96 rounded-2xl border border-[#252525] bg-neutral-800 bg-cover bg-center"
-                style={{ backgroundImage: "url('/assets/images/feature-card-1.webp')" }}
+              {/* An <img loading="lazy"> rather than a CSS background-image:
+                  the ~260KB texture then defers until this below-the-fold card
+                  approaches the viewport instead of fetching at first paint. */}
+              <img
+                src="/assets/images/feature-card-1.webp"
+                alt=""
+                loading="lazy"
+                decoding="async"
+                className="absolute left-0 top-0 h-96 w-96 rounded-2xl border border-[#252525] bg-neutral-800 object-cover"
               />
               <div className="outline-tokens-stroke-light/5 bg-[#1A1A1A] absolute left-[39px] top-[34px] inline-flex h-[771px] w-72 flex-col items-start justify-start overflow-hidden rounded-lg">
                 <div className="inline-flex h-10 items-center justify-start gap-3 self-stretch overflow-hidden border-b-[0.38px] border-[#252525] px-4 py-5">
@@ -666,6 +726,8 @@ export default function HomeContent() {
                       alt="Nizzy"
                       height={250}
                       width={250}
+                      loading="lazy"
+                      decoding="async"
                       className="h-6 w-6 rounded-full object-cover"
                       src="/nizzy.svg"
                     />
@@ -731,7 +793,7 @@ export default function HomeContent() {
                 ease="back.inOut(2)"
                 scrollStart="top 85%"
                 stagger={0.03}
-                containerClassName="mb-2 text-xl font-semibold leading-loose text-white"
+                containerClassName="mb-2 text-xl font-semibold leading-loose text-[var(--landing-fg)]"
                 proximity
                 proximityRadius={80}
                 proximityFrom="'wght' 600, 'opsz' 9"
@@ -744,20 +806,24 @@ export default function HomeContent() {
                 segmentBy="words"
                 direction="bottom"
                 delay={22}
-                className="max-w-sm text-sm font-light text-[#979797]"
+                className="max-w-sm text-sm font-light text-[var(--landing-muted)]"
               />
             </div>
           </motion.div>
           <motion.div
-            initial={{ opacity: 0, y: 28, filter: 'blur(6px)' }}
-            whileInView={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-            viewport={{ once: false, amount: 0.2 }}
-            transition={{ duration: 1, ease: [0.22, 1, 0.36, 1] }}
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, amount: 0.2 }}
+            transition={{ duration: 0.65, ease: [0.22, 1, 0.36, 1] }}
           >
             <div className="relative h-96 w-96 overflow-hidden rounded-2xl">
-              <div
-                className="absolute left-0 top-0 h-96 w-96 rounded-2xl bg-[#2B2B2B] bg-cover bg-center"
-                style={{ backgroundImage: "url('/assets/images/feature-card-2.webp')" }}
+              {/* Lazy <img> instead of a CSS background — see card one. */}
+              <img
+                src="/assets/images/feature-card-2.webp"
+                alt=""
+                loading="lazy"
+                decoding="async"
+                className="absolute left-0 top-0 h-96 w-96 rounded-2xl bg-[#2B2B2B] object-cover"
               />
               <div className="absolute left-[44px] top-0 h-[720px] w-[610px]">
                 <div className="absolute left-[31px] top-[29px] inline-flex h-[720px] w-[547px] flex-col items-start justify-start overflow-hidden rounded-lg bg-[#202020] opacity-20">
@@ -835,6 +901,8 @@ export default function HomeContent() {
                             <img
                               alt=""
                               aria-hidden="true"
+                              loading="lazy"
+                              decoding="async"
                               className="h-3.5 w-3.5 rounded-full object-cover"
                               src="/adam.svg"
                             />
@@ -847,6 +915,8 @@ export default function HomeContent() {
                               <img
                                 alt=""
                                 aria-hidden="true"
+                                loading="lazy"
+                                decoding="async"
                                 className="h-4 w-4 rounded-full object-cover"
                                 src="/ryan.svg"
                               />
@@ -859,6 +929,8 @@ export default function HomeContent() {
                             <img
                               alt=""
                               aria-hidden="true"
+                              loading="lazy"
+                              decoding="async"
                               className="h-3.5 w-3.5 rounded-full object-cover"
                               src="/ahmet.svg"
                             />
@@ -934,6 +1006,8 @@ export default function HomeContent() {
                         alt="Ahmet"
                         height={200}
                         width={200}
+                        loading="lazy"
+                        decoding="async"
                         className="h-6 w-6 rounded-full"
                         src="/ahmet.svg"
                       />
@@ -965,7 +1039,14 @@ export default function HomeContent() {
                 <div className="absolute left-0 top-[121px] inline-flex w-[650px] flex-col items-start justify-start gap-4 overflow-hidden rounded-3xl border border-[#8B5CF6] bg-[#2A1D48] p-6 outline outline-[#3F325F]">
                   <div className="inline-flex items-center justify-start gap-1.5">
                     <div className="relative h-3.5 w-3.5">
-                      <img src="/star.svg" alt="AI Summary" width={16} height={16} />
+                  <img
+                    src="/star.svg"
+                    alt="AI Summary"
+                    width={16}
+                    height={16}
+                    loading="lazy"
+                    decoding="async"
+                  />
                     </div>
                     <div className="flex items-center justify-start gap-1 text-xs leading-3 text-[#948CA4]">
                       AI Summary
@@ -987,7 +1068,7 @@ export default function HomeContent() {
                 ease="back.inOut(2)"
                 scrollStart="top 85%"
                 stagger={0.03}
-                containerClassName="mb-2 mt-4 text-lg font-semibold leading-loose text-white"
+                containerClassName="mb-2 mt-4 text-lg font-semibold leading-loose text-[var(--landing-fg)]"
                 proximity
                 proximityRadius={80}
                 proximityFrom="'wght' 600, 'opsz' 9"
@@ -1000,20 +1081,24 @@ export default function HomeContent() {
                 segmentBy="words"
                 direction="bottom"
                 delay={22}
-                className="max-w-sm text-sm font-light text-[#979797]"
+                className="max-w-sm text-sm font-light text-[var(--landing-muted)]"
               />
             </div>
           </motion.div>
           <motion.div
-            initial={{ opacity: 0, y: 28, filter: 'blur(6px)' }}
-            whileInView={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-            viewport={{ once: false, amount: 0.2 }}
-            transition={{ duration: 1, ease: [0.22, 1, 0.36, 1] }}
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, amount: 0.2 }}
+            transition={{ duration: 0.65, ease: [0.22, 1, 0.36, 1] }}
           >
             <div className="relative h-96 w-96 overflow-hidden rounded-2xl">
-              <div
-                className="absolute left-0 top-0 h-96 w-96 rounded-2xl bg-[#2B2B2B] bg-cover bg-center"
-                style={{ backgroundImage: "url('/assets/images/feature-card-3.webp')" }}
+              {/* Lazy <img> instead of a CSS background — see card one. */}
+              <img
+                src="/assets/images/feature-card-3.webp"
+                alt=""
+                loading="lazy"
+                decoding="async"
+                className="absolute left-0 top-0 h-96 w-96 rounded-2xl bg-[#2B2B2B] object-cover"
               />
               <div className="bg-[#1A1A1A] absolute left-[34px] top-[34px] inline-flex w-[600px] flex-col items-start justify-start overflow-hidden rounded-xl">
                 <div className="bg-tokens-surface-secondary border-tokens-stroke-light/5 inline-flex h-12 items-center justify-center gap-3 self-stretch overflow-hidden border-b-[0.50px] px-4 py-3">
@@ -1045,6 +1130,8 @@ export default function HomeContent() {
                             alt="Stripe"
                             width={12}
                             height={24}
+                            loading="lazy"
+                            decoding="async"
                             className="w-18 absolute h-6"
                           />
                         </div>
@@ -1082,6 +1169,8 @@ export default function HomeContent() {
                             alt="Stripe"
                             width={12}
                             height={24}
+                            loading="lazy"
+                            decoding="async"
                             className="w-18 absolute h-6"
                           />
                         </div>
@@ -1117,6 +1206,8 @@ export default function HomeContent() {
                         alt="Dudu"
                         width={32}
                         height={32}
+                        loading="lazy"
+                        decoding="async"
                       />
                       <div className="inline-flex h-9 flex-1 flex-col items-start justify-start gap-2.5">
                         <div className="inline-flex items-start justify-start gap-2.5 self-stretch">
@@ -1287,7 +1378,7 @@ export default function HomeContent() {
                 ease="back.inOut(2)"
                 scrollStart="top 85%"
                 stagger={0.03}
-                containerClassName="mb-2 text-lg font-semibold leading-loose text-white"
+                containerClassName="mb-2 text-lg font-semibold leading-loose text-[var(--landing-fg)]"
                 proximity
                 proximityRadius={80}
                 proximityFrom="'wght' 600, 'opsz' 9"
@@ -1300,7 +1391,7 @@ export default function HomeContent() {
                 segmentBy="words"
                 direction="bottom"
                 delay={22}
-                className="max-w-sm text-sm font-light text-[#979797]"
+                className="max-w-sm text-sm font-light text-[var(--landing-muted)]"
               />
             </div>
           </motion.div>
@@ -1315,7 +1406,7 @@ export default function HomeContent() {
             segmentBy="words"
             direction="bottom"
             delay={45}
-            className="text-center text-lg font-light text-white/40 md:text-xl"
+            className="text-center text-lg font-light text-[var(--landing-faint)] md:text-xl"
           />
           <div className="mt-2 flex flex-col items-center justify-center md:mt-8">
             <ProximityHeading
@@ -1323,7 +1414,7 @@ export default function HomeContent() {
               label="Ask away"
               radius={140}
               duration={0.7}
-              className="text-4xl font-semibold text-white md:text-6xl"
+              className="text-4xl font-semibold text-[var(--landing-fg)] md:text-6xl"
             />
             <ProximityHeading
               as="h2"
@@ -1331,7 +1422,7 @@ export default function HomeContent() {
               radius={140}
               startDelay={0.1}
               duration={0.7}
-              className="mb-4 text-4xl font-semibold text-white/40 md:text-6xl"
+              className="mb-4 text-4xl font-semibold text-[var(--landing-faint)] md:text-6xl"
             />
           </div>
 
@@ -1339,7 +1430,7 @@ export default function HomeContent() {
             className="relative flex items-center justify-center"
             initial="hidden"
             whileInView="visible"
-            viewport={{ once: false, amount: 0.2, margin: "0px 0px -8% 0px" }}
+            viewport={{ once: true, amount: 0.2, margin: "0px 0px -8% 0px" }}
             variants={askGroup}
           >
             <div className="relative mx-auto flex h-[600px] w-full max-w-[1180px] items-center justify-center rounded-xl">
@@ -1383,13 +1474,15 @@ export default function HomeContent() {
                       alt="avatar"
                       width={32}
                       height={32}
+                      loading="lazy"
+                      decoding="async"
                       className="rounded-full"
                     />
                     <div className="inline-flex h-9 flex-1 flex-col items-start justify-start gap-2.5">
                       <div className="inline-flex items-start justify-start gap-2.5 self-stretch">
                         <div className="flex flex-1 items-center justify-start gap-3">
                           <div className="flex items-center justify-start gap-1">
-                            <div className="text-base-gray-950 justify-start text-sm leading-none">
+                            <div className="justify-start text-sm leading-none text-white">
                               Priya from Northwind
                             </div>
                             <div className="justify-start text-center text-sm leading-none text-[#8C8C8C]">
@@ -1419,7 +1512,7 @@ export default function HomeContent() {
                       <div className="inline-flex items-start justify-start gap-2.5 self-stretch">
                         <div className="flex flex-1 items-center justify-start gap-3">
                           <div className="flex items-center justify-start gap-1.5">
-                            <div className="text-base-gray-950 justify-start text-sm leading-none">
+                            <div className="justify-start text-sm leading-none text-white">
                               Alex, Ali, Sarah
                             </div>
                             <div className="justify-start text-center text-sm leading-none text-[#8C8C8C]">
@@ -1452,7 +1545,7 @@ export default function HomeContent() {
                       <div className="inline-flex items-start justify-start gap-2.5 self-stretch">
                         <div className="flex flex-1 items-center justify-start gap-3">
                           <div className="flex items-center justify-start gap-1">
-                            <div className="text-base-gray-950 justify-start text-sm leading-none">
+                            <div className="justify-start text-sm leading-none text-white">
                               GitHub
                             </div>
                             <div className="justify-start text-center text-sm leading-none text-[#8C8C8C]">
@@ -1484,9 +1577,9 @@ export default function HomeContent() {
                 variants={askCard}
                 transition={{ duration: 1.3, ease: "easeInOut" }}
               >
-                <div className="border-tokens-stroke-light/5 inline-flex items-center justify-start gap-2 self-stretch overflow-hidden border-b-[0.50px] py-3.5 pl-5 pr-3.5">
+                <div className="inline-flex items-center justify-start gap-2 self-stretch overflow-hidden border-b-[0.50px] border-white/5 py-3.5 pl-5 pr-3.5">
                   <div className="flex flex-1 items-center justify-start gap-3">
-                    <div className="text-base-gray-950 flex flex-1 items-center justify-start text-sm leading-none">
+                    <div className="flex flex-1 items-center justify-start text-sm leading-none text-white">
                       <X className="mr-2 h-4 w-4 fill-[#8C8C8C]" />
                       New task
                     </div>
@@ -1504,7 +1597,7 @@ export default function HomeContent() {
                 <div className="relative flex flex-1 flex-col items-center justify-center gap-8 self-stretch overflow-hidden px-5 py-4">
                   <TartlyAgentLogo size={28} className="h-7 w-7" />
                   <div className="flex flex-col items-center justify-start gap-3">
-                    <div className="text-base-gray-950 justify-start text-sm leading-none">
+                    <div className="justify-start text-sm leading-none text-white">
                       Ask Tartly to run your email
                     </div>
                     <div className="justify-start text-sm font-normal leading-none text-[#929292]">
@@ -1561,7 +1654,7 @@ export default function HomeContent() {
                         Ask Tartly to do anything...
                       </div>
                       <div className="flex h-6 items-center justify-center gap-2.5 rounded bg-[#262626] px-1">
-                        <CurvedArrow className="relative left-[1px] mt-1 h-4 w-4 fill-black dark:fill-[#929292]" />
+                        <CurvedArrow className="relative left-[1px] mt-1 h-4 w-4 fill-[#929292]" />
                       </div>
                     </div>
                   </div>
@@ -1635,7 +1728,7 @@ export default function HomeContent() {
         <div className="flex flex-col items-start gap-12 lg:flex-row lg:justify-between lg:gap-8">
           <div className="relative flex w-full flex-col gap-10 lg:sticky lg:top-28 lg:max-w-[580px] lg:flex-1">
             <div className="flex flex-col items-start gap-8">
-              <p className="font-heading text-xl font-semibold leading-6 text-white/40">
+              <p className="font-heading text-xl font-semibold leading-6 text-[var(--landing-faint)]">
                 FAQ
               </p>
               <ProximityHeading
@@ -1643,7 +1736,7 @@ export default function HomeContent() {
                 label="Questions, answered"
                 radius={140}
                 duration={0.7}
-                className="font-heading text-[clamp(30px,5vw,48px)] font-semibold leading-none tracking-[-0.031em] text-white"
+                className="font-heading text-[clamp(30px,5vw,48px)] font-semibold leading-none tracking-[-0.031em] text-[var(--landing-fg)]"
               />
             </div>
           </div>
@@ -1654,7 +1747,7 @@ export default function HomeContent() {
               return (
                 <div
                   key={faq.q}
-                  className="w-full overflow-clip rounded-[16px] border border-[#2E2E2E] bg-[#161616] shadow-[0_4px_24px_rgba(0,0,0,0.35)]"
+                  className="w-full overflow-clip rounded-[16px] border border-[var(--landing-panel-border)] bg-[var(--landing-panel)] shadow-[0_4px_24px_rgba(0,0,0,0.12)] dark:shadow-[0_4px_24px_rgba(0,0,0,0.35)]"
                 >
                   <button
                     type="button"
@@ -1662,7 +1755,7 @@ export default function HomeContent() {
                     onClick={() => setOpenFaq(open ? null : i)}
                     className={`flex w-full cursor-pointer items-start px-8 pt-8 text-left transition-[padding] duration-300 ease-out ${open ? 'pb-[13px]' : 'pb-8'}`}
                   >
-                    <span className="w-full text-[20px] font-bold leading-normal tracking-[-0.6px] text-white">
+                    <span className="w-full text-[20px] font-bold leading-normal tracking-[-0.6px] text-[var(--landing-fg)]">
                       {faq.q}
                     </span>
                   </button>
@@ -1670,7 +1763,7 @@ export default function HomeContent() {
                     className={`grid transition-[grid-template-rows] duration-300 ease-out ${open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
                   >
                     <div className="overflow-hidden">
-                      <p className="w-full px-8 pb-8 text-[16px] font-medium leading-6 text-white/60">
+                      <p className="w-full px-8 pb-8 text-[16px] font-medium leading-6 text-[var(--landing-muted)]">
                         {faq.a}
                       </p>
                     </div>

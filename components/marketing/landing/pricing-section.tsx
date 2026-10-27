@@ -96,7 +96,10 @@ function planCta(plan: Plan, isYearly: boolean): { label: string; href: string }
  * `geometric` is the squared treatment used by the landing page and the
  * `/pricing` route: two panels butt-jointed into one instrument, corner
  * registration marks, and hairline rules instead of rounded, shadowed cards.
- * `default` is the softer, tonal card table kept as an alternate treatment.
+ * It is drawn with the `--landing-*` chrome tokens, so it follows the
+ * light/dark switch (the `/pricing` route pins a `dark` wrapper, which keeps
+ * the panel dark there). `default` is the softer, tonal card table kept as
+ * an alternate treatment; it stays pinned dark.
  */
 export type PricingVariant = "default" | "geometric";
 
@@ -111,10 +114,10 @@ type Cycle = "Monthly" | "Yearly";
 function CornerMarks() {
   return (
     <div aria-hidden className="pointer-events-none absolute inset-0 z-10">
-      <span className="absolute -left-px -top-px size-2.5 border-l border-t border-white/40" />
-      <span className="absolute -right-px -top-px size-2.5 border-r border-t border-white/40" />
-      <span className="absolute -bottom-px -left-px size-2.5 border-b border-l border-white/40" />
-      <span className="absolute -bottom-px -right-px size-2.5 border-b border-r border-white/40" />
+      <span className="absolute -left-px -top-px size-2.5 border-l border-t border-[var(--landing-faint)]" />
+      <span className="absolute -right-px -top-px size-2.5 border-r border-t border-[var(--landing-faint)]" />
+      <span className="absolute -bottom-px -left-px size-2.5 border-b border-l border-[var(--landing-faint)]" />
+      <span className="absolute -bottom-px -right-px size-2.5 border-b border-r border-[var(--landing-faint)]" />
     </div>
   );
 }
@@ -133,7 +136,7 @@ function AnimatedPrice({
   reduceMotion: boolean | null;
 }) {
   const figure = (
-    <span className="inline-block text-4xl font-semibold leading-none tabular-nums tracking-[-0.03em] text-white sm:text-5xl">
+    <span className="inline-block text-4xl font-semibold leading-none tabular-nums tracking-[-0.03em] text-[var(--landing-fg)] sm:text-5xl">
       {value}
     </span>
   );
@@ -148,7 +151,7 @@ function AnimatedPrice({
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -6 }}
         transition={{ duration: 0.22, ease: "easeOut" }}
-        className="inline-block text-4xl font-semibold leading-none tabular-nums tracking-[-0.03em] text-white sm:text-5xl"
+        className="inline-block text-4xl font-semibold leading-none tabular-nums tracking-[-0.03em] text-[var(--landing-fg)] sm:text-5xl"
       >
         {value}
       </motion.span>
@@ -208,7 +211,7 @@ function BillingToggle({
       <div
         role="tablist"
         aria-label="Billing cycle"
-        className="inline-flex border border-white/15"
+        className="inline-flex border border-[var(--landing-line)]"
       >
         {(["Monthly", "Yearly"] as const).map((cycle, index) => {
           const active = billing === cycle;
@@ -220,9 +223,11 @@ function BillingToggle({
               aria-selected={active}
               onClick={() => onChange(cycle)}
               className={cn(
-                "inline-flex items-center gap-2 px-5 py-2.5 text-[11px] font-semibold uppercase tracking-[0.18em] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/60",
-                index === 1 && "border-l border-white/15",
-                active ? "bg-white text-black" : "text-white/55 hover:text-white",
+                "inline-flex items-center gap-2 px-5 py-2.5 text-[11px] font-semibold uppercase tracking-[0.18em] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--landing-muted)]",
+                index === 1 && "border-l border-[var(--landing-line)]",
+                active
+                  ? "bg-[var(--landing-fg)] text-[var(--landing-bg)]"
+                  : "text-[var(--landing-muted)] hover:text-[var(--landing-fg)]",
               )}
             >
               <span>{cycle}</span>
@@ -230,7 +235,7 @@ function BillingToggle({
                 <span
                   className={cn(
                     "text-[10px] font-medium tracking-normal",
-                    active ? "text-black/50" : "text-white/50",
+                    active ? "opacity-60" : "text-[var(--landing-faint)]",
                   )}
                 >
                   −20%
@@ -283,9 +288,9 @@ function FeatureList({
         <li key={label} className="flex items-start gap-3">
           <Icon
             aria-hidden
-            className="mt-0.5 size-4 shrink-0 text-white/45"
+            className="mt-0.5 size-4 shrink-0 text-[var(--landing-faint)]"
           />
-          <span className="flex-1 text-[13px] font-medium leading-5 text-white/80">
+          <span className="flex-1 text-[13px] font-medium leading-5 text-[var(--landing-fg)]">
             {label}
           </span>
         </li>
@@ -421,9 +426,9 @@ function GeometricPlans({
 }) {
   return (
     <Reveal delay={0.08} className="mx-auto mt-12 w-full max-w-3xl">
-      <div className="relative border border-white/15 bg-[#141414]">
+      <div className="relative border border-[var(--landing-panel-border)] bg-[var(--landing-panel)]">
         <CornerMarks />
-        <div className="grid divide-y divide-white/10 md:grid-cols-2 md:divide-x md:divide-y-0">
+        <div className="grid divide-y divide-[var(--landing-line)] md:grid-cols-2 md:divide-x md:divide-y-0">
           {PLANS.map((plan) => {
             const displayedPrice = isYearly ? plan.yearlyPrice : plan.monthlyPrice;
             const yearlyTotal = (plan.yearlyPrice ?? 0) * 12;
@@ -433,37 +438,37 @@ function GeometricPlans({
             return (
               <div key={plan.name} className="relative flex flex-col p-7 sm:p-9">
                 <div className="flex items-center gap-2.5">
-                  <span aria-hidden className="size-1.5 shrink-0 bg-white/40" />
-                  <h3 className="text-[11px] font-medium uppercase tracking-[0.22em] text-white/55">
+                  <span aria-hidden className="size-1.5 shrink-0 bg-[var(--landing-faint)]" />
+                  <h3 className="text-[11px] font-medium uppercase tracking-[0.22em] text-[var(--landing-muted)]">
                     {plan.name}
                   </h3>
                 </div>
 
-                <p className="mt-4 min-h-[2.85rem] text-sm leading-relaxed text-white/60">
+                <p className="mt-4 min-h-[2.85rem] text-sm leading-relaxed text-[var(--landing-muted)]">
                   {plan.tagline}
                 </p>
 
                 <div className="mt-8 flex items-baseline gap-2" aria-label="Price">
                   {quoted ? (
-                    <span className="text-4xl font-semibold leading-none tracking-[-0.03em] text-white sm:text-5xl">
+                    <span className="text-4xl font-semibold leading-none tracking-[-0.03em] text-[var(--landing-fg)] sm:text-5xl">
                       Custom
                     </span>
                   ) : (
                     <>
-                      <span className="text-base font-medium leading-none text-white/60">$</span>
+                      <span className="text-base font-medium leading-none text-[var(--landing-muted)]">$</span>
                       <AnimatedPrice
                         value={displayedPrice}
                         billing={billing}
                         reduceMotion={reduceMotion}
                       />
-                      <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-white/55">
+                      <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--landing-muted)]">
                         /mo
                       </span>
                     </>
                   )}
                 </div>
 
-                <p className="mt-3 min-h-[2.25rem] text-[11px] font-medium uppercase leading-relaxed tracking-[0.12em] text-white/50">
+                <p className="mt-3 min-h-[2.25rem] text-[11px] font-medium uppercase leading-relaxed tracking-[0.12em] text-[var(--landing-faint)]">
                   {quoted
                     ? plan.note
                     : isYearly
@@ -471,7 +476,7 @@ function GeometricPlans({
                       : "Billed monthly"}
                 </p>
 
-                <div className="mt-7 h-px w-full bg-white/10" />
+                <div className="mt-7 h-px w-full bg-[var(--landing-line)]" />
 
                 <FeatureList features={plan.features} variant="geometric" />
 
@@ -482,9 +487,9 @@ function GeometricPlans({
                     target={cta.href.startsWith("http") ? "_blank" : undefined}
                     rel={cta.href.startsWith("http") ? "noreferrer" : undefined}
                     className={cn(
-                      "inline-flex h-11 w-full items-center justify-center text-[11px] font-semibold uppercase tracking-[0.2em] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#141414]",
+                      "inline-flex h-11 w-full items-center justify-center text-[11px] font-semibold uppercase tracking-[0.2em] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[var(--landing-muted)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--landing-panel)]",
                       quoted
-                        ? "border border-white/20 text-white hover:border-white/40 hover:bg-white/[0.06]"
+                        ? "border border-[var(--landing-line)] text-[var(--landing-fg)] hover:border-[var(--landing-faint)] hover:bg-[var(--landing-card-hover)]"
                         : "bg-[#8b5cf6] text-white hover:bg-[#7c4ce0]",
                     )}
                   >
@@ -535,19 +540,21 @@ export function PricingSection({
           segmentBy="words"
           direction="bottom"
           delay={45}
-          className="text-lg font-light text-white/40 md:text-xl"
+          className="text-lg font-light text-[var(--landing-faint)] md:text-xl"
         />
         {/* Static heading: the section deliberately avoids the Variable
             Proximity cursor effect so the cards below never shift when the
             pointer passes over the title. */}
-        <h2 className="mt-2 text-4xl font-semibold text-white md:text-6xl">{heading}</h2>
+        <h2 className="mt-2 text-4xl font-semibold text-[var(--landing-fg)] md:text-6xl">
+          {heading}
+        </h2>
         <StaggeredText
           as="p"
           text={description}
           segmentBy="words"
           direction="bottom"
           delay={35}
-          className="mt-4 max-w-2xl text-base font-light text-white/70"
+          className="mt-4 max-w-2xl text-base font-light text-[var(--landing-muted)]"
         />
       </div>
 

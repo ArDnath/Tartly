@@ -174,12 +174,12 @@ function AccountRow({
   return (
     <div
       className={cn(
-        "flex flex-col gap-4 rounded-xl border border-white/10 bg-white/[0.02] p-4",
+        "flex flex-col gap-4 rounded-xl border border-foreground/10 bg-foreground/[0.02] p-4",
         !account.available && "opacity-60",
       )}
     >
       <div className="flex items-start gap-3">
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03]">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-foreground/10 bg-foreground/[0.03]">
           <Icon className="size-5" />
         </span>
         <div className="min-w-0 flex-1">
@@ -267,7 +267,7 @@ export function ConnectedAccounts({ accounts }: { accounts: MailAccount[] }) {
         ))}
       </div>
 
-      <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 text-[12px] leading-relaxed text-muted-foreground">
+      <div className="rounded-xl border border-foreground/10 bg-foreground/[0.02] p-4 text-[12px] leading-relaxed text-muted-foreground">
         <p className="font-medium text-foreground">What Google access covers</p>
         <p className="mt-1">
           Tartly asks for Gmail read/send, Google Calendar read/write, and

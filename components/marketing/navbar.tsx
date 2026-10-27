@@ -7,6 +7,7 @@ import {
     useSmoothScroll,
 } from '@/components/marketing/landing/use-smooth-scroll'
 import { Button } from '@/components/ui/button'
+import { ThemeSwitch } from '@/components/marketing/landing/theme-switch'
 import { cn } from '@/lib/utils'
 import { Menu, X } from 'lucide-react'
 import Link from 'next/link'
@@ -34,7 +35,17 @@ import RubberSegment from '@/components/shared/motion/RubberSegment'
  * pathname and the browser's can disagree, which made the control's
  * `aria-checked`/`tabIndex` differ during hydration.
  */
-export const Navbar = ({ active = 'Features' }: { active?: string }) => {
+export const Navbar = ({
+    active = 'Features',
+    // Only pages whose visuals honour the app-wide light/dark switch render
+    // the toggle. `/` does; `/pricing` is still pinned to its dark instrument
+    // panel, so it opts out rather than flipping a switch that changes nothing
+    // on that page.
+    themeToggle = false,
+}: {
+    active?: string
+    themeToggle?: boolean
+}) => {
     const [menuState, setMenuState] = React.useState(false)
     const [scrolled, setScrolled] = React.useState(false)
     const [contentWidth, setContentWidth] = React.useState<number | null>(null)
@@ -138,7 +149,11 @@ export const Navbar = ({ active = 'Features' }: { active?: string }) => {
                             window.history.replaceState(null, '', '/')
                         }}
                         className="flex shrink-0 items-center rounded-md outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
-                        <Brand size={42} wordmarkClassName="text-2xl" />
+                        <Brand
+                            size={42}
+                            wordmarkClassName="text-2xl"
+                            wordmarkGradient={false}
+                        />
                     </Link>
 
                     {/* Centre — the primary routes as the React Bits
@@ -178,8 +193,11 @@ export const Navbar = ({ active = 'Features' }: { active?: string }) => {
                         />
                     </div>
 
-                    {/* Right — sign in (desktop) + primary CTA + mobile toggle. */}
+                    {/* Right — theme switch + sign in (desktop) + primary CTA +
+                        mobile toggle. */}
                     <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+                        {themeToggle && <ThemeSwitch />}
+
                         <Link
                             href="/auth"
                             className="hidden rounded-md px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground lg:block">

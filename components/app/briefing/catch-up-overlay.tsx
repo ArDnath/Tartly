@@ -78,7 +78,7 @@ export function CatchUpOverlay({
           // a more opaque one where `backdrop-filter` is unsupported.
           "bg-popover/70 backdrop-blur-2xl backdrop-saturate-150",
           "supports-[backdrop-filter]:bg-popover/45",
-          "ring-1 ring-white/10",
+          "ring-1 ring-foreground/10",
           "shadow-[0_24px_80px_-28px_rgba(0,0,0,0.85),inset_0_1px_0_0_rgba(255,255,255,0.08)]",
         )}
       >
@@ -112,13 +112,13 @@ export function CatchUpOverlay({
           </div>
 
           {catchUp.preview.length > 0 ? (
-            <ul className="flex flex-col divide-y divide-white/5 overflow-hidden rounded-lg border border-white/10">
+            <ul className="flex flex-col divide-y divide-foreground/5 overflow-hidden rounded-lg border border-foreground/10">
               {catchUp.preview.map((item, index) => {
                 const Icon = PREVIEW_ICON[item.kind];
                 return (
                   <li
                     key={`${item.kind}:${index}`}
-                    className="flex items-center gap-3 bg-white/[0.03] px-3.5 py-2.5"
+                    className="flex items-center gap-3 bg-foreground/[0.03] px-3.5 py-2.5"
                   >
                     <Icon
                       className="size-4 shrink-0 text-muted-foreground"
@@ -139,7 +139,7 @@ export function CatchUpOverlay({
           ) : null}
 
           {catchUp.overnight ? (
-            <div className="flex flex-col gap-2 rounded-lg border border-white/10 bg-white/[0.03] p-3.5">
+            <div className="flex flex-col gap-2 rounded-lg border border-foreground/10 bg-foreground/[0.03] p-3.5">
               <div className="flex items-center justify-between gap-2">
                 <span className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
                   <MoonIcon className="size-4 text-muted-foreground" aria-hidden />
@@ -150,13 +150,13 @@ export function CatchUpOverlay({
                 </span>
               </div>
               <div className="flex flex-wrap gap-2 text-xs">
-                <span className="rounded-full border border-white/10 px-2.5 py-0.5 text-foreground">
+                <span className="rounded-full border border-foreground/10 px-2.5 py-0.5 text-foreground">
                   {catchUp.overnight.totals.sent} sent
                 </span>
-                <span className="rounded-full border border-white/10 px-2.5 py-0.5 text-muted-foreground">
+                <span className="rounded-full border border-foreground/10 px-2.5 py-0.5 text-muted-foreground">
                   {catchUp.overnight.totals.drafted} drafted
                 </span>
-                <span className="rounded-full border border-white/10 px-2.5 py-0.5 text-muted-foreground">
+                <span className="rounded-full border border-foreground/10 px-2.5 py-0.5 text-muted-foreground">
                   {catchUp.overnight.totals.blocked} held
                 </span>
               </div>

@@ -91,11 +91,10 @@ const sources = {
 };
 
 const getCurrentTheme = (): "light" | "dark" => {
+  // The .dark class on <html> is the app's authoritative theme signal —
+  // its absence means light (see lib/theme.ts).
   if (typeof window !== "undefined") {
     if (document.documentElement.classList.contains("dark")) {
-      return "dark";
-    }
-    if (window.matchMedia?.("(prefers-color-scheme: dark)").matches) {
       return "dark";
     }
   }

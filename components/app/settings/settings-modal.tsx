@@ -72,16 +72,16 @@ export function SettingsModal({ children }: { children: ReactNode }) {
         className={cn(
           "glass-panel flex h-[min(780px,calc(100dvh-1.5rem))] w-[min(1080px,calc(100vw-1.5rem))] max-w-none flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-none lg:flex-row",
           "bg-popover/70 backdrop-blur-2xl backdrop-saturate-150 supports-[backdrop-filter]:bg-popover/40",
-          "ring-1 ring-white/10",
+          "ring-1 ring-foreground/10",
           "shadow-[0_30px_90px_-30px_rgba(0,0,0,0.9),inset_0_1px_0_0_rgba(255,255,255,0.08)]",
         )}
       >
         {/* Desktop rail */}
         <nav
           aria-label="Settings"
-          className="hidden w-60 shrink-0 flex-col border-r border-white/10 bg-white/[0.02] lg:flex"
+          className="hidden w-60 shrink-0 flex-col border-r border-foreground/10 bg-foreground/[0.02] lg:flex"
         >
-          <div className="flex h-14 shrink-0 items-center gap-2 border-b border-white/10 px-4">
+          <div className="flex h-14 shrink-0 items-center gap-2 border-b border-foreground/10 px-4">
             <GearSix
               className="size-4 shrink-0 text-muted-foreground"
               aria-hidden
@@ -113,7 +113,7 @@ export function SettingsModal({ children }: { children: ReactNode }) {
           {/* Mobile tab strip */}
           <div
             aria-label="Settings"
-            className="scrollbar-none flex shrink-0 gap-1 overflow-x-auto border-b border-white/10 px-3 py-2 lg:hidden"
+            className="scrollbar-none flex shrink-0 gap-1 overflow-x-auto border-b border-foreground/10 px-3 py-2 lg:hidden"
           >
             {SETTINGS_GROUPS.flatMap((group) => group.links).map((link) => (
               <ModalTab
@@ -124,7 +124,7 @@ export function SettingsModal({ children }: { children: ReactNode }) {
             ))}
           </div>
 
-          <header className="flex h-14 shrink-0 items-center gap-3 border-b border-white/10 px-5">
+          <header className="flex h-14 shrink-0 items-center gap-3 border-b border-foreground/10 px-5">
             <div className="min-w-0 flex-1">
               <DialogTitle className="truncate text-[14px] font-semibold tracking-tight text-foreground">
                 {title}
@@ -142,7 +142,7 @@ export function SettingsModal({ children }: { children: ReactNode }) {
               type="button"
               onClick={close}
               aria-label="Close settings"
-              className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground"
+              className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
             >
               <X className="size-4" aria-hidden />
             </button>
@@ -175,8 +175,8 @@ function ModalRailLink({
       className={cn(
         "group flex h-9 items-center gap-3 rounded-lg px-2.5 text-[13px] transition-colors",
         active
-          ? "bg-white/10 font-medium text-foreground"
-          : "text-muted-foreground hover:bg-white/10 hover:text-foreground",
+          ? "bg-foreground/10 font-medium text-foreground"
+          : "text-muted-foreground hover:bg-foreground/10 hover:text-foreground",
       )}
     >
       <Icon
@@ -203,8 +203,8 @@ function ModalTab({ link, active }: { link: SettingsLink; active: boolean }) {
       className={cn(
         "flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-[12px] transition-colors",
         active
-          ? "border-transparent bg-white/10 font-medium text-foreground"
-          : "border-white/10 text-muted-foreground hover:bg-white/10 hover:text-foreground",
+          ? "border-transparent bg-foreground/10 font-medium text-foreground"
+          : "border-foreground/10 text-muted-foreground hover:bg-foreground/10 hover:text-foreground",
       )}
     >
       <Icon className="size-3.5 shrink-0" aria-hidden />

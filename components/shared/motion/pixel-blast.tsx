@@ -421,6 +421,8 @@ export interface PixelBlastProps {
   transparent?: boolean;
   /** MSAA on the WebGL renderer. */
   antialias?: boolean;
+  /** Cap the renderer's device pixel ratio to limit GPU fragment work. */
+  maxPixelRatio?: number;
   /** Pause rendering while the container is scrolled out of view. */
   autoPauseOffscreen?: boolean;
   /** Additional classes on the container. */
@@ -454,6 +456,7 @@ export function PixelBlast({
   noiseAmount = 0,
   transparent = true,
   antialias = true,
+  maxPixelRatio = 2,
   autoPauseOffscreen = true,
   className,
   style,
@@ -462,16 +465,19 @@ export function PixelBlast({
   const visibilityRef = useRef({ visible: true });
   const speedRef = useRef(speed);
   const threeRef = useRef<PixelBlastThree | null>(null);
-  const prevConfigRef = useRef<{ antialias: boolean; liquid: boolean; noiseAmount: number } | null>(
-    null,
-  );
+  const prevConfigRef = useRef<{
+    antialias: boolean;
+    liquid: boolean;
+    noiseAmount: number;
+    maxPixelRatio: number;
+  } | null>(null);
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
     speedRef.current = speed;
-    const needsReinitKeys = ['antialias', 'liquid', 'noiseAmount'] as const;
-    const cfg = { antialias, liquid, noiseAmount };
+    const needsReinitKeys = ['antialias', 'liquid', 'noiseAmount', 'maxPixelRatio'] as const;
+    const cfg = { antialias, liquid, noiseAmount, maxPixelRatio };
     let mustReinit = false;
     if (!threeRef.current) mustReinit = true;
     else if (prevConfigRef.current) {
@@ -500,7 +506,7 @@ export function PixelBlast({
       });
       renderer.domElement.style.width = '100%';
       renderer.domElement.style.height = '100%';
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, maxPixelRatio));
       container.appendChild(renderer.domElement);
       if (transparent) renderer.setClearAlpha(0);
       else renderer.setClearColor(0x000000, 1);
@@ -635,9 +641,8 @@ export function PixelBlast({
       });
       let raf = 0;
       const animate = () => {
+        raf = 0;
         if (autoPauseOffscreen && !visibilityRef.current.visible) {
-          raf = requestAnimationFrame(animate);
-          if (threeRef.current) threeRef.current.raf = raf;
           return;
         }
         uniforms.uTime.value = timeOffset + clock.getElapsedTime() * speedRef.current;
@@ -651,19 +656,35 @@ export function PixelBlast({
           });
           composer.render();
         } else renderer.render(scene, camera);
-        raf = requestAnimationFrame(animate);
-        // Keep the ref pointed at the live frame id so teardown cancels the
-        // right one (the original only ever cancelled the very first id).
-        if (threeRef.current) threeRef.current.raf = raf;
+        scheduleFrame();
       };
-      raf = requestAnimationFrame(animate);
-      const intersectionObserver = new IntersectionObserver(
-        ([entry]) => {
-          visibilityRef.current.visible = entry.isIntersecting;
-        },
-        { threshold: 0 },
-      );
-      intersectionObserver.observe(container);
+
+      function scheduleFrame() {
+        if (raf) return;
+        raf = requestAnimationFrame(animate);
+        // Keep teardown pointed at the currently scheduled frame.
+        if (threeRef.current) threeRef.current.raf = raf;
+      }
+
+      let intersectionObserver: IntersectionObserver | undefined;
+      if (autoPauseOffscreen && typeof IntersectionObserver !== 'undefined') {
+        intersectionObserver = new IntersectionObserver(
+          ([entry]) => {
+            visibilityRef.current.visible = entry.isIntersecting;
+            if (entry.isIntersecting) {
+              scheduleFrame();
+            } else if (raf) {
+              cancelAnimationFrame(raf);
+              raf = 0;
+              if (threeRef.current) threeRef.current.raf = 0;
+            }
+          },
+          { threshold: 0 },
+        );
+        intersectionObserver.observe(container);
+      } else {
+        visibilityRef.current.visible = true;
+      }
       threeRef.current = {
         renderer,
         scene,
@@ -681,6 +702,7 @@ export function PixelBlast({
         touch,
         liquidEffect,
       };
+      scheduleFrame();
     } else {
       const t = threeRef.current;
       if (!t) return;

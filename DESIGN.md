@@ -1,6 +1,15 @@
 ---
 name: Tartly
 description: A dark, Gmail-native AI email operator — an operator's desk for the inbox.
+theming:
+  summary: >
+    Dual-theme token system (light + dark). `:root` in app/globals.css holds the
+    light palette, `.dark` the brand dark palette; the toggle flips the `dark`
+    class on `<html>` (lib/theme.ts + boot script in app/layout.tsx, persisted
+    to localStorage, OS preference as default). The landing (`/`) follows the
+    switch through `--landing-*` chrome tokens; its product mock-ups, trust
+    panel and footer stay deliberately dark. `/pricing` is exempt: it pins a
+    `dark` wrapper class because its panel is designed for the dark canvas.
 colors:
   canvas: "#1b1b1b"
   canvas-foreground: "#f4f4f5"

@@ -38,6 +38,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -255,7 +256,7 @@ function BrandHeader() {
     <div className="flex h-14 shrink-0 items-center gap-2.5 px-4">
       <TartlyLogo
         alt="Tartly"
-        className="size-10 shrink-0 rounded-[11px] border-2 border-white"
+        className="size-10 shrink-0 rounded-[11px] border-2 border-black/15 dark:border-white"
       />
       <TartlyWordmark className="text-[15px]" />
     </div>
@@ -505,17 +506,22 @@ export function AppSidebar({
 
       <footer className="flex shrink-0 flex-col gap-1.5 border-t border-border p-2.5">
         <SidebarUserMenu user={user} />
-        <button
-          type="button"
-          onClick={openCommandPalette}
-          className="flex h-8 w-full items-center gap-2 rounded-md px-2.5 text-[12px] text-muted-foreground transition-colors hover:bg-mail-rail-active hover:text-foreground"
-        >
-          <Command className="size-4 shrink-0" aria-hidden />
-          <span className="flex-1 text-left">Quick actions</span>
-          <kbd className="rounded border border-border bg-canvas px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-            ⌘K
-          </kbd>
-        </button>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={openCommandPalette}
+            className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2.5 text-[12px] text-muted-foreground transition-colors hover:bg-mail-rail-active hover:text-foreground"
+          >
+            <Command className="size-4 shrink-0" aria-hidden />
+            <span className="flex-1 truncate text-left">Quick actions</span>
+            <kbd className="rounded border border-border bg-canvas px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+              ⌘K
+            </kbd>
+          </button>
+          {/* Light/dark toggle (with click sound + view-transition reveal).
+              Marketing pages are exempt — they pin their own dark canvas. */}
+          <AnimatedThemeToggler className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-mail-rail-active hover:text-foreground [&_svg]:size-4" />
+        </div>
       </footer>
     </aside>
   );

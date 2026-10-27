@@ -186,7 +186,7 @@ export const SyncEmailStep = () => {
               isConnecting ? "Connecting to Google…" : "Continue with Google"
             }
             title="Continue with Google"
-            className="group flex w-full items-center gap-4 rounded-2xl border border-border bg-card px-5 py-4 text-left text-foreground transition-colors hover:border-white hover:bg-white hover:text-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-60"
+            className="group flex w-full items-center gap-4 rounded-2xl border border-border bg-card px-5 py-4 text-left text-foreground transition-colors hover:border-foreground hover:bg-foreground hover:text-background focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-60"
           >
             <span className="flex size-8 shrink-0 items-center justify-center">
               {isConnecting ? (
@@ -221,7 +221,7 @@ export const SyncEmailStep = () => {
                   : "Continue with Outlook"
               }
               title="Continue with Outlook"
-              className="group flex w-full items-center gap-4 rounded-2xl border border-border bg-card px-5 py-4 text-left text-foreground transition-colors hover:border-white hover:bg-white hover:text-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-60"
+              className="group flex w-full items-center gap-4 rounded-2xl border border-border bg-card px-5 py-4 text-left text-foreground transition-colors hover:border-foreground hover:bg-foreground hover:text-background focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-60"
             >
               <span className="flex size-8 shrink-0 items-center justify-center">
                 {isConnectingOutlook ? (

@@ -21,6 +21,11 @@ function prefersReducedMotion() {
  * `false` when the href is not an in-page hash or the target is missing, so
  * callers can fall through to routing. The address bar is kept shareable via
  * `replaceState` rather than a second scroll.
+ *
+ * When the landing page's Lenis instance is running (see
+ * `landing-smooth-scroll.tsx`), the jump is routed through it so anchors share
+ * the same eased motion as wheel scrolling instead of fighting it with a
+ * competing native smooth scroll.
  */
 export function scrollToHash(href: string): boolean {
   const isBareHash = href.startsWith("#");
@@ -32,13 +37,20 @@ export function scrollToHash(href: string): boolean {
   const target = id ? document.getElementById(id) : null;
   if (!target) return false;
 
-  const top =
-    target.getBoundingClientRect().top + window.scrollY - SCROLL_OFFSET;
+  const lenis = window.__lenis;
+  if (lenis) {
+    // Lenis' offset is applied to the target's top edge; negative pulls the
+    // landing spot back up by the nav height, matching SCROLL_OFFSET.
+    lenis.scrollTo(target, { offset: -SCROLL_OFFSET, duration: 1.15 });
+  } else {
+    const top =
+      target.getBoundingClientRect().top + window.scrollY - SCROLL_OFFSET;
 
-  window.scrollTo({
-    top,
-    behavior: prefersReducedMotion() ? "auto" : "smooth",
-  });
+    window.scrollTo({
+      top,
+      behavior: prefersReducedMotion() ? "auto" : "smooth",
+    });
+  }
 
   window.history.replaceState(null, "", hash);
   return true;
@@ -50,6 +62,11 @@ export function scrollToHash(href: string): boolean {
  * `/` would otherwise do nothing.
  */
 export function scrollToTop() {
+  const lenis = window.__lenis;
+  if (lenis) {
+    lenis.scrollTo(0, { duration: 1.15 });
+    return;
+  }
   window.scrollTo({
     top: 0,
     behavior: prefersReducedMotion() ? "auto" : "smooth",

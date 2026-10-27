@@ -1,9 +1,15 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Moon, Sun } from "lucide-react"
+import { Moon, Sun } from "@phosphor-icons/react"
 import { flushSync } from "react-dom"
 
+import {
+  applyTheme,
+  getCurrentTheme,
+  playThemeClick,
+  type Theme,
+} from "@/lib/theme"
 import { cn } from "@/lib/utils"
 
 interface AnimatedThemeTogglerProps
@@ -11,22 +17,31 @@ interface AnimatedThemeTogglerProps
   duration?: number
 }
 
+/**
+ * App-wide light/dark toggle. The switch is the `dark` class on `<html>` (see
+ * lib/theme.ts); on top of the plain flip this adds:
+ *
+ * - a circular view-transition reveal radiating from the button (skipped
+ *   under `prefers-reduced-motion` or where `startViewTransition` is absent),
+ * - a soft synthesized click, voiced per direction (lib/theme.ts).
+ *
+ * State is read straight off the `<html>` class through a MutationObserver,
+ * so the icon stays correct no matter who flipped the theme (this button, the
+ * boot script, or another tab via the root layout's <ThemeSync>).
+ */
 export const AnimatedThemeToggler = ({
   className,
   duration = 400,
   ...props
 }: AnimatedThemeTogglerProps) => {
-  const [isDark, setIsDark] = useState(false)
+  const [theme, setTheme] = useState<Theme>("dark")
   const buttonRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
-    const updateTheme = () => {
-      setIsDark(document.documentElement.classList.contains("dark"))
-    }
+    const syncFromDom = () => setTheme(getCurrentTheme())
+    syncFromDom()
 
-    updateTheme()
-
-    const observer = new MutationObserver(updateTheme)
+    const observer = new MutationObserver(syncFromDom)
     observer.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ["class"],
@@ -36,15 +51,24 @@ export const AnimatedThemeToggler = ({
   }, [])
 
   const toggleTheme = useCallback(async () => {
-    if (!buttonRef.current) return
+    const next: Theme = theme === "dark" ? "light" : "dark"
+    playThemeClick(next)
+
+    const reduceMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches
+
+    if (
+      reduceMotion ||
+      typeof document.startViewTransition !== "function" ||
+      !buttonRef.current
+    ) {
+      applyTheme(next)
+      return
+    }
 
     await document.startViewTransition(() => {
-      flushSync(() => {
-        const newTheme = !isDark
-        setIsDark(newTheme)
-        document.documentElement.classList.toggle("dark")
-        localStorage.setItem("theme", newTheme ? "dark" : "light")
-      })
+      flushSync(() => applyTheme(next))
     }).ready
 
     const { top, left, width, height } =
@@ -69,16 +93,21 @@ export const AnimatedThemeToggler = ({
         pseudoElement: "::view-transition-new(root)",
       }
     )
-  }, [isDark, duration])
+  }, [theme, duration])
 
   return (
     <button
       ref={buttonRef}
+      type="button"
       onClick={toggleTheme}
+      aria-label={
+        theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
+      }
+      title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
       className={cn(className)}
       {...props}
     >
-      {isDark ? <Sun /> : <Moon />}
+      {theme === "dark" ? <Sun aria-hidden /> : <Moon aria-hidden />}
       <span className="sr-only">Toggle theme</span>
     </button>
   )

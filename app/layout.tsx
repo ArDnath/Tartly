@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { Geist, Inter, Roboto_Flex } from "next/font/google";
+import Script from "next/script";
 import type { ReactNode } from "react";
 import { SafePointerCapture } from "@/components/shared/safe-pointer-capture";
+import { ThemeSync } from "@/components/shared/theme/theme-sync";
 import { TARTLY_LOGO_URL } from "@/components/shared/brand/brand-assets";
 import { BillingProvider } from "@/components/app/paywall/billing-provider";
 import { ImageKitRootProvider } from "@/components/shared/media";
@@ -142,6 +144,18 @@ const structuredData = {
   ],
 };
 
+/**
+ * Pre-hydration theme bootstrap. Runs before first paint: applies the user's
+ * stored choice, else the OS preference, else the brand-default dark — by
+ * toggling the `dark` class the light palette in `:root` / dark in `.dark`
+ * (globals.css) keys off. Mirrors lib/theme.ts; keep the storage key in sync.
+ *
+ * Rendered through `next/script` `beforeInteractive` so the per-request CSP
+ * nonce minted in proxy.ts is stamped automatically (a raw inline `<script>`
+ * would be blocked by the app's strict CSP on authed routes).
+ */
+const themeInitScript = `(function(){try{var t=window.localStorage.getItem("theme");if(t!=="light"&&t!=="dark"){t=window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";}document.documentElement.classList.toggle("dark",t==="dark");}catch(e){}})();`;
+
 export default function RootLayout({
   children,
   modal,
@@ -149,9 +163,18 @@ export default function RootLayout({
   return (
     <html
       lang="en"
+      suppressHydrationWarning
       className={`dark h-full ${inter.className} ${inter.variable} ${robotoFlex.variable} ${geist.variable}`}
     >
       <body className="min-h-full" suppressHydrationWarning>
+        {/* Injected into <head> and executed during parsing, before paint. */}
+        <Script id="theme-init" strategy="beforeInteractive">
+          {themeInitScript}
+        </Script>
+        {/* Re-applies the theme after React's dev Strict-Mode remount (which
+            resets `<html>` attributes the boot script set) and keeps tabs in
+            sync via the storage event. A no-op in production. */}
+        <ThemeSync />
         <SafePointerCapture />
         {/* Entrance animations write opacity/transform inline; without script
             they would never settle. Reveal everything for no-JS visitors. */}

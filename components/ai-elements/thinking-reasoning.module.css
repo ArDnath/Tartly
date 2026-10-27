@@ -146,14 +146,6 @@
   --tre-chevron: #737373;
   --tre-hover: #a3a3a3;
 }
-@media (prefers-color-scheme: dark) {
-  :global(:root:not([data-theme])) {
-    --tre-label: #737373;
-    --tre-verb: #a3a3a3;
-    --tre-chevron: #737373;
-    --tre-hover: #a3a3a3;
-  }
-}
 
 @media (prefers-reduced-motion: reduce) {
   .tr,

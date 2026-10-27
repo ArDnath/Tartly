@@ -10,8 +10,9 @@
    pass: `@react-three/fiber` draws the animated noise in a shader, then
    `postprocessing` quantises it into a small palette with an 8×8 Bayer matrix.
 
-   The original ships as plain JS; the only changes here are type annotations,
-   a `className` passthrough and the local CSS import convention. */
+   The original ships as plain JS; this version adds type annotations,
+   viewport-aware rendering, a `className` passthrough and the local CSS import
+   convention. */
 
 import {
   forwardRef,
@@ -391,26 +392,44 @@ export function Dither({
   mouseRadius = 1,
   className,
 }: DitherProps) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [isVisible, setIsVisible] = useState(true);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root || typeof IntersectionObserver === 'undefined') return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => setIsVisible(entry.isIntersecting),
+      { rootMargin: '120px 0px' },
+    );
+    observer.observe(root);
+    return () => observer.disconnect();
+  }, []);
+
   return (
-    <Canvas
-      className={cn('dither-container', className)}
-      camera={{ position: [0, 0, 6] }}
-      dpr={1}
-      gl={{ antialias: true, preserveDrawingBuffer: true }}
-    >
-      <DitheredWaves
-        waveSpeed={waveSpeed}
-        waveFrequency={waveFrequency}
-        waveAmplitude={waveAmplitude}
-        waveColor={waveColor}
-        backgroundColor={backgroundColor}
-        colorNum={colorNum}
-        pixelSize={pixelSize}
-        disableAnimation={disableAnimation}
-        enableMouseInteraction={enableMouseInteraction}
-        mouseRadius={mouseRadius}
-      />
-    </Canvas>
+    <div ref={rootRef} className="dither-root">
+      <Canvas
+        className={cn('dither-container', className)}
+        camera={{ position: [0, 0, 6] }}
+        dpr={1}
+        frameloop={isVisible ? 'always' : 'never'}
+        gl={{ antialias: false }}
+      >
+        <DitheredWaves
+          waveSpeed={waveSpeed}
+          waveFrequency={waveFrequency}
+          waveAmplitude={waveAmplitude}
+          waveColor={waveColor}
+          backgroundColor={backgroundColor}
+          colorNum={colorNum}
+          pixelSize={pixelSize}
+          disableAnimation={disableAnimation}
+          enableMouseInteraction={enableMouseInteraction}
+          mouseRadius={mouseRadius}
+        />
+      </Canvas>
+    </div>
   );
 }
 

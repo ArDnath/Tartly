@@ -27,7 +27,10 @@ export const metadata: Metadata = {
 
 export default function PricingPage() {
   return (
-    <div className="font-subtext relative isolate min-h-screen overflow-x-clip bg-[#0F0F0F]">
+    // Pinned dark: the `dark` wrapper forces the shared `--landing-*` tokens
+    // to their dark values, so this route's pricing panel stays dark no
+    // matter the app theme — unlike the landing, which follows the toggle.
+    <div className="dark font-subtext relative isolate min-h-screen overflow-x-clip bg-[#0F0F0F]">
       <Navbar active="Pricing" />
       <main className="relative flex flex-1 flex-col overflow-x-hidden bg-[#0F0F0F] pt-32 md:pt-40">
         <PricingSection
