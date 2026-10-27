@@ -5,15 +5,15 @@
 
 | Field | Value |
 | --- | --- |
-| Last updated | **2026-10-26 18:28 UTC** |
+| Last updated | **2026-10-27 18:13 UTC** |
 | Environment | Production (first node) |
 | Canonical origin | `https://tartly.in` |
 | Host | `srv2076028.hstgr.cloud` · `201.18.197.194` · Mumbai 2 |
 | Provider / plan | Hostinger KVM 2 — 2 vCPU, 8 GB RAM, 100 GB NVMe, 8 TB/mo |
 | OS | Ubuntu 26.04.1 LTS (`resolute`), kernel 7.0.0-34 |
 | Runtime | Docker 29.9.2 · Compose v5.6.1 · Caddy 2.11.7 |
-| Deployed tag | `44105f9` (clean tree; go-live readiness) |
-| Host git HEAD | `44105f9` (matches the running image) |
+| Deployed tag | `6b9af7c` (clean tree; dual-theme landing, Lenis smooth scroll, render perf) |
+| Host git HEAD | `6b9af7c` (matches the running image) |
 | Data | 5 users · 5 connected accounts · 5 mailboxes · 90 threads · 164 messages |
 | Public traffic | **LIVE** — apex + www resolve here (TTL 300); Let's Encrypt valid to 2027-01-21; readiness 200 over HTTPS |
 | Payments | **TEST MODE** — Dodo test key, webhook key empty, no live product IDs; not accepting real money |
@@ -106,7 +106,7 @@ AI/SSE concurrency caps, CSP enforce, CI/GHCR.
 | 23 | 10k-user capacity + storage lifecycle | 🟡 | `body_text` capped 64 KiB / `body_html` 128 KiB at ingest; 90-day archive/re-fetch still not implemented (A8) | retention job |
 | 24 | Clean git baseline / reproducible deploy | ✅ | `9e1f951` image from clean tree; host HEAD `3f610d0`; host deploy key authenticates to GitHub | — |
 | 25 | Go-live configuration checklist | ✅ | [`GO-LIVE-CHECKLIST.md`](./GO-LIVE-CHECKLIST.md) records every external value, owner and verification step | — |
-| 26 | Production checkout guard | 🟡 | deployed `44105f9`: production refuses test-mode checkout, simulation activation and live checkout without the webhook key; verified the flag is unset in web-1. Awaiting live-key smoke test | live keys |
+| 26 | Production checkout guard | 🟡 | deployed `6b9af7c`: production refuses test-mode checkout, simulation activation and live checkout without the webhook key; verified the flag is unset in web-1. Awaiting live-key smoke test | live keys |
 
 **Launch gate:** public HTTPS and the technical stack are ✅. Revenue is **not**
 live: stage 15 is the hard blocker, and stage 14 still needs Google to confirm
@@ -476,6 +476,9 @@ refund → Google domain TXT → publish/verify consent screen → monitoring UR
 | 2026-10-26 18:24 | Pre-deploy backup | ✅ | `tartly-20261026T182406Z.dump.zst` (608 KB); R2 upload succeeded on retry (transient 501) |
 | 2026-10-26 18:26 | Release `44105f9` (go-live readiness) | ✅ | tsc clean; lint 0 errors; 278/278 unit tests; build clean; web-1/web-2 healthy; worker started; ready 200; home/privacy/terms/pricing/auth 200; www 308; Dodo webhook fails closed 400; Google verification copy live |
 | 2026-10-26 18:28 | Post-release guard check | ✅ | container has no `ALLOW_TEST_CHECKOUT_IN_PRODUCTION` (defaults false), Dodo `test_mode`, live flag false; no error/fatal/panic in 10 m |
+| 2026-10-27 18:05 | Release `2a6ee96` build | ⚠️ → fixed | `npm ci` failed in the image (`lockfile out of sync`: missing `@emnapi/*`, `@types/react@18.3.31`, `esbuild@0.28.2`) because the lock was written by npm 11 and the image ships npm 10.9.9. Script aborts before touching containers, so no traffic moved; fixed in `6b9af7c` |
+| 2026-10-27 18:09 | Release `6b9af7c` (dual-theme landing + Lenis + perf) | ✅ | tsc clean; eslint 0 errors; 278/278 unit tests; lockfile regenerated with npm 10.9.9 and `ci --dry-run` clean; images `tartly-web:6b9af7c` / `tartly-worker:6b9af7c`; migrations complete; web-1/web-2 healthy; worker up; Caddy reloaded; ready 200; homepage 200 with theme-init + toggle + `--landing-*` tokens; `/pricing` 200; www 308 |
+| 2026-10-27 18:12 | Rollback pointer repair | ✅ | the failed build left `.deploy/previous-tag=2a6ee96` (no image); set to `44105f9`, whose images are present. `current-tag=6b9af7c` |
 
 ### 7.1 Off-box edge smoke (2026-10-23 19:20 UTC)
 
@@ -509,7 +512,8 @@ script, a dedicated test session, and a generator with more upstream capacity.
 | `f1ed59a` | 19:27 | 64 KiB text / 128 KiB HTML body caps at ingest + 5 tests | previous; clean tree; rollback target is `1d44127` |
 | `d95dbb5` | 2026-10-24 08:59 | canonical public origin for onboarding + billing redirects (`lib/http/public-origin.ts`) + unit test | previous; clean tree; rollback target is `f1ed59a` |
 | `9e1f951` | 2026-10-24 09:09 | zod 4.6.5 → 4.6.7 (HIGH GHSA-mrhx-c7xc-m3w5) | previous; rollback target is `d95dbb5` |
-| `44105f9` | 2026-10-26 18:26 | go-live readiness: Google verification copy/scopes, fail-closed production checkout, Dodo credit-pack env, terms, go-live checklist | **current**; clean tree; rollback target is `9e1f951` |
+| `44105f9` | 2026-10-26 18:26 | go-live readiness: Google verification copy/scopes, fail-closed production checkout, Dodo credit-pack env, terms, go-live checklist | previous; clean tree; rollback target is `9e1f951` |
+| `6b9af7c` | 2026-10-27 18:09 | dual-theme landing (lib/theme.ts, `--landing-*` tokens, ThemeSwitch, app-wide toggle), Lenis smooth scroll, WebGL/lazy-image render perf; lockfile regenerated with npm 10.9.9 | **current**; clean tree; rollback target is `44105f9` |
 | `a14f782` (HEAD) | 2026-10-07 | last upstream commit | baseline before the snapshot |
 
 ---
