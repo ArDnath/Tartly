@@ -1,18 +1,27 @@
 name: CI
 
+# Every pull request gets the full gate. Every push to main re-runs it so the
+# deploy workflow only ever ships a commit that passed on the same SHA.
 on:
   pull_request:
   push:
     branches: [main]
   workflow_dispatch:
 
+# Cancel superseded PR runs, but never cancel a main-branch run: the deploy
+# workflow keys off its conclusion.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# Non-secret placeholders that satisfy the Zod env schema (`lib/env.ts`) so the
-# build and the DB-backed smoke suite can run without production credentials.
+permissions:
+  contents: read
+
+# Non-secret placeholders that satisfy the Zod env schema (`lib/env.ts`) so
+# typecheck/build/tests can run without production credentials.
 env:
+  NODE_VERSION: "22"
+  NEXT_TELEMETRY_DISABLED: "1"
   DATABASE_URL: postgresql://postgres:postgres@localhost:5432/app
   BETTER_AUTH_SECRET: ci-secret-ci-secret-ci-secret
   BETTER_AUTH_URL: http://localhost:3000
@@ -23,9 +32,81 @@ env:
   UPSTASH_REDIS_REST_TOKEN: ci-upstash-token
 
 jobs:
-  verify:
-    name: Typecheck · Lint · Test · Build
+  quality:
+    name: Static checks · unit tests
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so the breaking-change check can read the spec at the
+          # PR merge-base.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
+
+      - name: OpenAPI spec is in sync with the contract registry
+        run: npm run openapi:check
+
+      - name: Shell script syntax
+        run: bash -n deploy/scripts/*.sh
+
+      - name: OpenAPI breaking-change check
+        if: github.event_name == 'pull_request'
+        run: |
+          base="$(git merge-base HEAD "origin/${{ github.base_ref }}")"
+          if git cat-file -e "$base:openapi.yaml" 2>/dev/null; then
+            git show "$base:openapi.yaml" > /tmp/openapi-base.yaml
+            npm run openapi:breaking -- --base /tmp/openapi-base.yaml --head openapi.yaml
+          else
+            echo "No openapi.yaml at the merge-base; skipping breaking-change check."
+          fi
+
+      - name: Unit tests & coverage gate
+        run: npm run test:coverage
+
+      # Non-blocking on day one: advisory transitive CVEs should be triaged,
+      # not block every PR. Tighten to blocking once the tree is clean.
+      - name: Dependency audit (advisory)
+        continue-on-error: true
+        run: npm audit --audit-level=high
+
+  integration:
+    name: Integration tests (Testcontainers)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      # Exercises the real Drizzle migrations and SQL constraints against a
+      # throwaway Postgres container; GitHub's runner provides Docker.
+      - name: Integration tests
+        run: npm run test:integration
+
+  smoke:
+    name: Migrations · smoke & eval suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:16
@@ -42,44 +123,14 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@v4
-        with:
-          # Full history so the breaking-change check can read the spec at the
-          # PR merge-base.
-          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
-
-      - name: Typecheck
-        run: npx tsc --noEmit
-
-      - name: Lint
-        run: npm run lint
-
-      - name: OpenAPI spec is in sync with the contract registry
-        run: npm run openapi:check
-
-      - name: OpenAPI breaking-change check
-        if: github.event_name == 'pull_request'
-        run: |
-          base="$(git merge-base HEAD origin/${{ github.base_ref }})"
-          if git cat-file -e "$base:openapi.yaml" 2>/dev/null; then
-            git show "$base:openapi.yaml" > /tmp/openapi-base.yaml
-            npm run openapi:breaking -- --base /tmp/openapi-base.yaml --head openapi.yaml
-          else
-            echo "No openapi.yaml at the merge-base; skipping breaking-change check."
-          fi
-
-      - name: Unit tests & coverage gate
-        run: npm run test:coverage
-
-      - name: Integration tests (Testcontainers Postgres)
-        run: npm run test:integration
+        run: npm ci --no-audit --no-fund
 
       - name: Apply database migrations
         run: npm run db:migrate
@@ -87,22 +138,50 @@ jobs:
       - name: Smoke & eval suite
         run: npm test
 
+  build:
+    name: Production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Restore Next build cache
+        uses: actions/cache@v4
+        with:
+          path: .next/cache
+          key: next-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-${{ github.sha }}
+          restore-keys: |
+            next-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-
+
       - name: Production build
         run: npm run build
 
-      # Non-blocking on day one: advisory transitive CVEs should be triaged,
-      # not block every PR. Tighten to blocking once the tree is clean.
-      - name: Dependency audit (advisory)
-        continue-on-error: true
-        run: npm audit --audit-level=high
-
   docker:
-    name: Build container image
+    name: Dockerfile build (PR/manual)
+    # On main the deploy workflow builds the exact images that ship, so a
+    # duplicate build here would only add runner minutes.
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
       - uses: docker/setup-buildx-action@v3
+
+      - name: Validate Compose configuration
+        # app.env is intentionally gitignored; a dummy file lets Compose parse
+        # the stack without production secrets.
+        run: |
+          touch deploy/app.env
+          docker compose -f deploy/docker-compose.yml --env-file deploy/.env.example config -q
 
       # Proves the multi-stage Dockerfile (Phase D6) builds from a clean tree:
       # `npm ci` against the committed lockfile + `next build` + the minimal,
@@ -114,8 +193,15 @@ jobs:
           target: runner
           push: false
           tags: app-server:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
 
       - name: Build (worker target)
-        run: docker build --target worker -t app-server-worker:${{ github.sha }} .
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: worker
+          push: false
+          tags: app-server-worker:${{ github.sha }}
+          cache-from: type=gha,scope=worker
+          cache-to: type=gha,mode=max,scope=worker

@@ -22,7 +22,7 @@ x-logging: &default-logging
     max-file: "5"
 
 x-web: &web
-  image: tartly-web:${TAG:-latest}
+  image: ${WEB_IMAGE:-tartly-web:${TAG:-latest}}
   env_file:
     - app.env
   environment:
@@ -172,7 +172,7 @@ services:
         condition: service_started
 
   worker:
-    image: tartly-worker:${TAG:-latest}
+    image: ${WORKER_IMAGE:-tartly-worker:${TAG:-latest}}
     build:
       context: ..
       dockerfile: Dockerfile

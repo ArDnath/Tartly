@@ -1,0 +1,227 @@
+name: Deploy production
+
+# Runs only after the CI workflow on `main` concludes successfully. This means
+# a merge is deployed only when typecheck, lint, unit, integration, smoke,
+# build and the Docker gate all passed for that exact commit.
+#
+# Manual runs are allowed for re-deploying a known-good ref (for example an
+# earlier SHA) without waiting for a new push; the images are rebuilt from that
+# ref and the same release script is used.
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref or commit SHA to build and deploy
+        required: true
+        default: main
+        type: string
+
+# Serialise production releases. Never cancel a deploy that is midway through
+# a migration or a rolling restart.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+  actions: read
+
+env:
+  REGISTRY: ghcr.io
+  PUBLIC_URL: ${{ vars.PUBLIC_URL }}
+
+jobs:
+  build-images:
+    name: Build & push images
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    outputs:
+      release_sha: ${{ steps.meta.outputs.release_sha }}
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+      web_image: ${{ steps.meta.outputs.web_image }}
+      worker_image: ${{ steps.meta.outputs.worker_image }}
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.ref || github.event.workflow_run.head_sha }}
+          fetch-depth: 1
+
+      - name: Resolve release metadata
+        id: meta
+        run: |
+          set -Eeuo pipefail
+          release_sha="$(git rev-parse HEAD)"
+          image_tag="sha-${release_sha}"
+          image_base="${REGISTRY}/$(printf '%s' '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+
+          {
+            echo "release_sha=${release_sha}"
+            echo "image_tag=${image_tag}"
+            echo "web_image=${image_base}-web"
+            echo "worker_image=${image_base}-worker"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "RELEASE_SHA=${release_sha}"
+            echo "IMAGE_TAG=${image_tag}"
+            echo "WEB_IMAGE=${image_base}-web"
+            echo "WORKER_IMAGE=${image_base}-worker"
+          } >> "$GITHUB_ENV"
+
+      - name: Verify build-time configuration
+        env:
+          NEXT_PUBLIC_BETTER_AUTH_URL: ${{ vars.PUBLIC_URL }}
+        run: |
+          if [[ -z "${NEXT_PUBLIC_BETTER_AUTH_URL:-}" ]]; then
+            echo "::error::Repository variable PUBLIC_URL is required (e.g. https://tartly.in)."
+            exit 1
+          fi
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The web image is the minimal Next.js standalone runtime.
+      - name: Build & push web
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runner
+          push: true
+          provenance: false
+          tags: |
+            ${{ env.WEB_IMAGE }}:${{ env.IMAGE_TAG }}
+            ${{ env.WEB_IMAGE }}:main
+          build-args: |
+            NEXT_PUBLIC_BETTER_AUTH_URL=${{ vars.PUBLIC_URL }}
+            NEXT_PUBLIC_IMAGEKIT_URL_ENDPOINT=${{ vars.NEXT_PUBLIC_IMAGEKIT_URL_ENDPOINT }}
+            NEXT_PUBLIC_CAL_BOOKING_LINK=${{ vars.NEXT_PUBLIC_CAL_BOOKING_LINK }}
+            NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION=${{ vars.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION }}
+            NEXT_PUBLIC_MICROSOFT_CONNECT_ENABLED=${{ vars.NEXT_PUBLIC_MICROSOFT_CONNECT_ENABLED || 'false' }}
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+
+      # The worker image keeps the source + tsx it needs for the durable queue.
+      - name: Build & push worker
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: worker
+          push: true
+          provenance: false
+          tags: |
+            ${{ env.WORKER_IMAGE }}:${{ env.IMAGE_TAG }}
+            ${{ env.WORKER_IMAGE }}:main
+          cache-from: type=gha,scope=worker
+          cache-to: type=gha,mode=max,scope=worker
+
+  deploy:
+    name: Deploy to VPS
+    needs: build-images
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: production
+      url: ${{ vars.PUBLIC_URL }}
+    env:
+      RELEASE_SHA: ${{ needs.build-images.outputs.release_sha }}
+      IMAGE_TAG: ${{ needs.build-images.outputs.image_tag }}
+      WEB_IMAGE: ${{ needs.build-images.outputs.web_image }}
+      WORKER_IMAGE: ${{ needs.build-images.outputs.worker_image }}
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ vars.VPS_USER || 'deploy' }}
+      VPS_PORT: ${{ vars.VPS_PORT || '22' }}
+      VPS_DEPLOY_PATH: ${{ vars.VPS_DEPLOY_PATH || '/opt/tartly' }}
+      VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+      VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+    steps:
+      - name: Verify deployment configuration
+        run: |
+          set -Eeuo pipefail
+          missing=0
+          for name in PUBLIC_URL VPS_HOST VPS_SSH_KEY VPS_KNOWN_HOSTS; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::${name} is not configured for this repository/environment."
+              missing=1
+            fi
+          done
+          if (( missing )); then
+            echo "See deploy/CI-CD.md for the one-time setup."
+            exit 1
+          fi
+
+      - name: Configure SSH
+        run: |
+          set -Eeuo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          ssh -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=20 "$VPS_USER@$VPS_HOST" "echo SSH_OK"
+
+      # The workflow's GITHUB_TOKEN is short-lived and scoped to this repo. It
+      # is sent over SSH stdin only for the image pull and then removed by the
+      # logout step, so no long-lived registry PAT is stored on the VPS.
+      - name: Log in to GHCR on the host
+        env:
+          GHCR_EPHEMERAL_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          printf '%s' "$GHCR_EPHEMERAL_TOKEN" | ssh -p "$VPS_PORT" \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$VPS_USER@$VPS_HOST" \
+            "docker login ghcr.io -u '${{ github.actor }}' --password-stdin"
+
+      - name: Checkout release on the host and deploy
+        run: |
+          set -Eeuo pipefail
+          # Client-side expansion is intentional: the release SHA and image refs
+          # are substituted into the remote script that runs over stdin.
+          # shellcheck disable=SC2087
+          ssh -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$VPS_USER@$VPS_HOST" "bash -s" <<REMOTE
+          set -Eeuo pipefail
+          cd '$VPS_DEPLOY_PATH'
+          git fetch --prune origin
+          git checkout --force --detach '$RELEASE_SHA'
+          TAG='$IMAGE_TAG' WEB_IMAGE='$WEB_IMAGE' WORKER_IMAGE='$WORKER_IMAGE' \
+            bash deploy/scripts/release.sh
+          REMOTE
+
+      - name: Public smoke test
+        run: |
+          set -Eeuo pipefail
+          for attempt in $(seq 1 12); do
+            if curl -fsS --max-time 10 "$PUBLIC_URL/api/health/ready" >/dev/null; then
+              echo "$PUBLIC_URL/api/health/ready is healthy"
+              exit 0
+            fi
+            echo "attempt ${attempt}/12 not ready yet"
+            sleep 5
+          done
+          echo "::error::Public readiness check failed after deploy."
+          exit 1
+
+      - name: Log out of GHCR on the host
+        if: always()
+        run: |
+          ssh -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "$VPS_USER@$VPS_HOST" "docker logout ghcr.io" || true

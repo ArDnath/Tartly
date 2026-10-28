@@ -1,8 +1,9 @@
 # Tartly — production runbook (single VPS)
 
 > **Start here:** [`DEPLOYMENT-TRACKER.md`](./DEPLOYMENT-TRACKER.md) for current
-> state and the next action, [`VPS.md`](./VPS.md) for the host profile (specs,
-> access, ports, filesystem, cron), and
+> state and the next action, [`CI-CD.md`](./CI-CD.md) for the GitHub Actions
+> pipeline and required secrets, [`VPS.md`](./VPS.md) for the host profile
+> (specs, access, ports, filesystem, cron), and
 > [`DEPLOYMENT-GUIDE.md`](./DEPLOYMENT-GUIDE.md) for the full multi-stage
 > procedure, security audit, performance validation and the scale path to 1M RPS.
 
@@ -261,8 +262,12 @@ Gmail → open `/assistant` and confirm the reply **streams** (not one blob).
 
 | Task | Command |
 | --- | --- |
-| Deploy a new commit | `cd /opt/tartly && git pull --ff-only && bash deploy/scripts/deploy.sh` |
+| Deploy by merging to `main` | Open a PR → CI must pass → merge. **Deploy production** runs automatically. See [`CI-CD.md`](./CI-CD.md). |
+| Manual release (host build) | `cd /opt/tartly && git checkout -f main && git pull --ff-only && bash deploy/scripts/deploy.sh` |
+| Manual release (prebuilt images) | `TAG=… WEB_IMAGE=… WORKER_IMAGE=… bash deploy/scripts/release.sh` |
 | Roll back app images | `bash deploy/scripts/rollback.sh` |
+| Redeploy an older SHA | `gh workflow run "Deploy production" -f ref=<sha>` |
+| Watch the pipeline | `gh run list --workflow "Deploy production" --limit 5` |
 | Logs (follow) | `docker compose --env-file .env logs -f --tail 200 web-1 worker caddy` |
 | Restart one replica | `docker compose --env-file .env restart web-1` |
 | Postgres shell | `docker compose --env-file .env exec postgres psql -U tartly -d tartly` |
@@ -277,10 +282,16 @@ the pre-deploy dump instead.
 
 ### Deploy safety
 
-`deploy.sh` builds first, then starts data services, **runs migrations**, then
-rolls `web-1` → health check → `web-2` → worker → Caddy. A failed build or
-migration aborts before any traffic moves. Caddy removes unhealthy upstreams
-within ~10 s.
+Both paths now share `release.sh`: pull/build images → start data services →
+**pre-deploy dump** → **run migrations** → roll `web-1` → health check →
+`web-2` → worker → Caddy → public `/api/health/ready` probe. A failed build,
+backup or migration aborts before any traffic moves. If a container replacement
+or the readiness probe fails, `release.sh` automatically restores the previous
+images. Caddy removes unhealthy upstreams within ~10 s. A `flock` prevents two
+releases from racing.
+
+The CI/CD trigger, required secrets/variables and setup commands are in
+[`CI-CD.md`](./CI-CD.md).
 
 ---
 
