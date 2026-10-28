@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 #
-# Build, migrate and roll the production stack. Run on the VPS from the repo:
+# Build the production images on this host, then hand off to release.sh for the
+# guarded deploy (backup -> migrations -> rolling restart -> readiness ->
+# automatic rollback on failure).
 #
 #   cd /opt/tartly && git pull --ff-only
 #   sudo -u deploy bash deploy/scripts/deploy.sh
 #
-# Ordering is deliberate: image build -> infra healthy -> migrations -> web
-# replicas -> worker -> edge. A failed migration aborts before traffic moves.
+# CI/CD uses prebuilt GHCR images instead and calls release.sh directly; see
+# deploy/CI-CD.md.
 #
 set -Eeuo pipefail
 
@@ -24,12 +26,6 @@ log "Preflight"
 command -v docker >/dev/null || die "docker not installed — run bootstrap.sh first"
 docker info >/dev/null 2>&1 || die "cannot talk to the Docker daemon (is the user in the docker group?)"
 
-set -a
-# shellcheck disable=SC1091
-. ./.env
-set +a
-[[ -n "${PUBLIC_URL:-}" ]] || die "PUBLIC_URL missing from deploy/.env"
-
 # Traceable image tag. A dirty tree is marked so a deploy of uncommitted work
 # is never mistaken for a clean release (and rollback stays unambiguous).
 GIT_SHA=$(git -C .. rev-parse --short HEAD 2>/dev/null || true)
@@ -43,92 +39,14 @@ if [[ -n "$GIT_SHA" ]]; then
 else
   TAG="$(date -u +%Y%m%d%H%M%S)"
 fi
-export TAG
 
-mkdir -p .deploy
-if [[ -f .deploy/current-tag ]]; then
-  cp .deploy/current-tag .deploy/previous-tag
-fi
-echo "$TAG" >.deploy/current-tag
-
-# Keep manual `docker compose` commands on the same image as the release.
-# Without this, .env's TAG=latest could start a stale/nonexistent image.
-if grep -q '^TAG=' .env; then
-  sed -i "s|^TAG=.*|TAG=${TAG}|" .env
-else
-  printf '\nTAG=%s\n' "$TAG" >>.env
-fi
-
-wait_healthy() {
-  local service=$1 id status
-  id=$("${COMPOSE[@]}" ps -q "$service")
-  [[ -n "$id" ]] || die "${service}: no container"
-  for _ in $(seq 1 60); do
-    status=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$id")
-    case "$status" in
-      healthy) echo "  ${service}: healthy"; return 0 ;;
-      unhealthy) docker logs --tail 50 "$id" >&2; die "${service}: unhealthy" ;;
-    esac
-    sleep 2
-  done
-  docker logs --tail 80 "$id" >&2
-  die "${service}: did not become healthy in 120s"
-}
-
-log "Pulling infrastructure images"
-"${COMPOSE[@]}" pull postgres redis redis-http caddy || warn "image pull failed; using cached images"
+WEB_IMAGE="tartly-web:${TAG}"
+WORKER_IMAGE="tartly-worker:${TAG}"
+export TAG WEB_IMAGE WORKER_IMAGE
 
 log "Building web + worker (tag ${TAG})"
 "${COMPOSE[@]}" build web-1 worker
 
-log "Starting data services"
-"${COMPOSE[@]}" up -d postgres redis redis-http
-wait_healthy postgres
-wait_healthy redis
-
-log "Running database migrations"
-"${COMPOSE[@]}" run --rm --no-deps worker npm run db:migrate
-
-log "Rolling web replicas"
-"${COMPOSE[@]}" up -d --no-deps web-1
-wait_healthy web-1
-"${COMPOSE[@]}" up -d --no-deps web-2
-wait_healthy web-2
-
-log "Starting queue worker"
-"${COMPOSE[@]}" up -d --no-deps worker
-
-# Only start Caddy once DNS points here: issuing certificates for a name that
-# resolves elsewhere burns Let's Encrypt rate limits.
-log "Edge (Caddy)"
-DOMAIN="${TARTLY_DOMAIN:-$(printf '%s' "$PUBLIC_URL" | sed -E 's#https?://##; s#/.*##')}"
-PUBLIC_IP=$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)
-DNS_IP=$(getent ahostsv4 "$DOMAIN" 2>/dev/null | awk '{print $1; exit}')
-if [[ -n "$PUBLIC_IP" && "$DNS_IP" == "$PUBLIC_IP" ]]; then
-  caddy_id=$("${COMPOSE[@]}" ps -q caddy 2>/dev/null || true)
-  if [[ -n "$caddy_id" ]]; then
-    "${COMPOSE[@]}" exec -T caddy caddy reload --config /etc/caddy/Caddyfile
-  else
-    "${COMPOSE[@]}" up -d --remove-orphans caddy
-  fi
-  log "Verifying public endpoint"
-  for _ in $(seq 1 30); do
-    if curl -fsS --max-time 10 "${PUBLIC_URL}/api/health/ready" >/dev/null; then
-      echo "  ${PUBLIC_URL} is ready"
-      break
-    fi
-    sleep 4
-  done
-else
-  warn "DNS for ${DOMAIN} is ${DNS_IP:-unset}, expected ${PUBLIC_IP:-unknown}"
-  warn "Skipping Caddy. Point an A record at ${PUBLIC_IP:-this host}, then run:"
-  warn "  docker compose --env-file .env up -d caddy"
-fi
-
-log "Cleaning up old images"
-docker image prune -f --filter "until=168h" >/dev/null || true
-# Build cache is the other disk grower on a 100 GB node (~6 GB after one build).
-docker builder prune -f --filter "until=168h" >/dev/null 2>&1 || true
-
-log "Deployed ${TAG}"
-"${COMPOSE[@]}" ps
+log "Handing off to release.sh"
+# The images now exist locally, so skip the registry pull inside release.sh.
+SKIP_PULL=1 exec bash scripts/release.sh

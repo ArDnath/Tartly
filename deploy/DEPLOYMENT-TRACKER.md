@@ -591,6 +591,7 @@ script, a dedicated test session, and a generator with more upstream capacity.
 | `deploy/GO-LIVE-CHECKLIST.md` | **External config + revenue launch checklist.** |
 | `deploy/DEPLOYMENT-GUIDE.md` | Full multi-stage reference and rationale. |
 | `deploy/RUNBOOK.md` | Day-2 commands, scaling notes, quick reference. |
+| `deploy/CI-CD.md` | **GitHub Actions pipeline, GHCR images, required secrets/variables, deploy and rollback.** |
 | `deploy/VPS.md` | Host profile: specs, access, network, filesystem, cron, limits. |
 | `deploy/docker-compose.yml` | The stack. |
 | `deploy/Caddyfile` | Edge config. |

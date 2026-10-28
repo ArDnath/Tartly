@@ -147,6 +147,8 @@ const nextInfra = {
   POSTGRES_PASSWORD: postgresPassword,
   REDIS_REST_TOKEN: redisToken,
   TAG: infra.TAG ?? "latest",
+  WEB_IMAGE: infra.WEB_IMAGE ?? `tartly-web:${infra.TAG ?? "latest"}`,
+  WORKER_IMAGE: infra.WORKER_IMAGE ?? `tartly-worker:${infra.TAG ?? "latest"}`,
   NEXT_PUBLIC_IMAGEKIT_URL_ENDPOINT: app.NEXT_PUBLIC_IMAGEKIT_URL_ENDPOINT ?? "",
   NEXT_PUBLIC_CAL_BOOKING_LINK: app.NEXT_PUBLIC_CAL_BOOKING_LINK ?? "",
   NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION: app.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION ?? "",

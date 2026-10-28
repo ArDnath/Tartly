@@ -381,6 +381,10 @@ VPS (2 vCPU / 8 GB / 100 GB NVMe / 8 TB transfer) with Docker Compose — Caddy,
 two Next.js replicas, a queue worker, Postgres 18, Redis + Upstash REST shim, and
 R2 for assets.
 
+Merging to `main` runs the full CI gate and then builds images into GHCR and
+deploys them over SSH with a rolling restart, pre-deploy dump, public readiness
+probe and automatic rollback. See [`deploy/CI-CD.md`](./deploy/CI-CD.md).
+
 **Payments are not live yet.** Dodo is still in test mode, the webhook signing
 key is unset, and the live product IDs are not configured, so production
 checkout deliberately fails closed. The exact remaining external configuration
@@ -395,6 +399,8 @@ Start with:
 
 - [`deploy/DEPLOYMENT-TRACKER.md`](./deploy/DEPLOYMENT-TRACKER.md) — live state,
   blockers, next actions. **Read this first.**
+- [`deploy/CI-CD.md`](./deploy/CI-CD.md) — GitHub Actions pipeline, GHCR
+  images, required secrets/variables, deploy and rollback procedure.
 - [`deploy/GO-LIVE-CHECKLIST.md`](./deploy/GO-LIVE-CHECKLIST.md) — every external
   value and console action still needed to take real payments.
 - [`deploy/DEPLOYMENT-GUIDE.md`](./deploy/DEPLOYMENT-GUIDE.md) — the full
