@@ -174,6 +174,14 @@ request and select these status checks:
 Also enable "Require branches to be up to date before merging". Then the only
 commits that reach production are ones whose CI passed on the merge result.
 
+> **GitHub Free private repositories:** branch protection and repository rulesets
+> return `403 Upgrade to GitHub Pro` on this plan. The deployment gate still
+> holds — `Deploy production` only runs after CI succeeds for the `main` merge
+> SHA — but GitHub cannot physically block merging a red PR. Upgrade to Pro (or
+> make the repository public) if you want required status checks enforced at
+> merge time. The `Production` environment is still restricted to the `main`
+> branch, which limits where a deployment job can run.
+
 ---
 
 ## 4. Day-to-day

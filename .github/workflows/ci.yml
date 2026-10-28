@@ -51,6 +51,11 @@ jobs:
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
 
+      - name: Generate Next.js route types
+        # Clean checkouts have no generated `LayoutProps`/`PageProps` helpers;
+        # `next typegen` creates them without running a full build.
+        run: npx next typegen
+
       - name: Typecheck
         run: npx tsc --noEmit
 
