@@ -42,10 +42,6 @@ WORKER_IMAGE="$RELEASE_WORKER_IMAGE"
 [[ -n "$TAG" ]] || die "TAG is required (for example TAG=sha-<commit>)"
 [[ -n "$WEB_IMAGE" ]] || die "WEB_IMAGE is required"
 [[ -n "$WORKER_IMAGE" ]] || die "WORKER_IMAGE is required"
-[[ "$TAG" =~ ^[A-Za-z0-9._-]+$ ]] || die "TAG contains unexpected characters: ${TAG}"
-[[ "$WEB_IMAGE" =~ ^[A-Za-z0-9._/:@+-]+$ ]] || die "WEB_IMAGE contains unexpected characters"
-[[ "$WORKER_IMAGE" =~ ^[A-Za-z0-9._/:@+-]+$ ]] || die "WORKER_IMAGE contains unexpected characters"
-export TAG WEB_IMAGE WORKER_IMAGE
 
 log "Preflight"
 [[ -f .env ]] || die "deploy/.env missing — run: node deploy/scripts/render-env.mjs (on your workstation) then copy it here"
@@ -61,10 +57,28 @@ set -a
 set +a
 [[ -n "${PUBLIC_URL:-}" ]] || die "PUBLIC_URL missing from deploy/.env"
 
-# Restore the release values (`.env` may carry the previous TAG/IMAGE lines).
+# Restore the release values (`.env` may carry the previous TAG/IMAGE lines),
+# then normalize bare repository names to this release's tag.
 TAG="$RELEASE_TAG"
 WEB_IMAGE="$RELEASE_WEB_IMAGE"
 WORKER_IMAGE="$RELEASE_WORKER_IMAGE"
+
+# Accept either a fully tagged ref or the bare repository name from CI. This
+# prevents a missing tag from silently falling back to `:latest`.
+normalize_image_ref() {
+  local ref=$1
+  if [[ "${ref##*/}" == *:* ]]; then
+    printf '%s' "$ref"
+  else
+    printf '%s:%s' "$ref" "$TAG"
+  fi
+}
+WEB_IMAGE="$(normalize_image_ref "$WEB_IMAGE")"
+WORKER_IMAGE="$(normalize_image_ref "$WORKER_IMAGE")"
+
+[[ "$TAG" =~ ^[A-Za-z0-9._-]+$ ]] || die "TAG contains unexpected characters: ${TAG}"
+[[ "$WEB_IMAGE" =~ ^[A-Za-z0-9._/:@+-]+$ ]] || die "WEB_IMAGE contains unexpected characters"
+[[ "$WORKER_IMAGE" =~ ^[A-Za-z0-9._/:@+-]+$ ]] || die "WORKER_IMAGE contains unexpected characters"
 export TAG WEB_IMAGE WORKER_IMAGE
 
 mkdir -p .deploy
