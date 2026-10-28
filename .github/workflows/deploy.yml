@@ -202,7 +202,7 @@ jobs:
           cd '$VPS_DEPLOY_PATH'
           git fetch --prune origin
           git checkout --force --detach '$RELEASE_SHA'
-          TAG='$IMAGE_TAG' WEB_IMAGE='$WEB_IMAGE' WORKER_IMAGE='$WORKER_IMAGE' \
+          TAG='$IMAGE_TAG' WEB_IMAGE='$WEB_IMAGE:$IMAGE_TAG' WORKER_IMAGE='$WORKER_IMAGE:$IMAGE_TAG' \
             bash deploy/scripts/release.sh
           REMOTE
 
