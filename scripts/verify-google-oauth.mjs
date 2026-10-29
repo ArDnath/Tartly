@@ -307,7 +307,8 @@ async function checkConsentScreen() {
     pass("Consent screen support email is support@tartly.in");
   } else {
     warn(
-      `Consent screen support email is ${supportEmail}; docs expect support@tartly.in — update it in the OAuth consent screen`,
+      `Consent screen support email is ${supportEmail}. This is acceptable if the address is monitored. ` +
+        "To display support@tartly.in, that address must first be a Google account or Google Group and a project Editor/Owner; see docs/google-oauth-verification.md §3.1.",
     );
   }
 }
@@ -348,7 +349,7 @@ async function checkMetaVerification() {
 function reportExternalSteps() {
   console.log("\nExternal steps this script cannot verify:");
   console.log("  • Search Console property tartly.in shows Verified");
-  console.log("  • Consent-screen user support email is the intended monitored address");
+  console.log("  • Consent-screen user support email is an address you monitor");
   console.log("  • Consent-screen logo, authorized domain and redirect URI are correct");
   console.log("  • Demo video recorded and linked");
   console.log("  • CASA restricted-scope assessment completed");

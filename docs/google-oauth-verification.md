@@ -32,7 +32,7 @@ for the policy is Google's [Verification requirements](https://support.google.co
 | Consent-screen app identity | ✅ Verified | The public consent page shows the app name `Tartly`, the Tartly envelope/pie logo (512×512), and links to `/privacy` and `/terms` (checked 29 October 2026). |
 | Privacy policy linked from the OAuth consent screen | ✅ Verified | The public consent page links `https://tartly.in/privacy`. |
 | Same privacy URL in both places | ✅ Verified | Consent screen and `/privacy` both use `https://tartly.in/privacy`. |
-| User support email on the consent screen | 🟡 Recommendation | Current console value is `ariyamandebnath.ad@gmail.com`; prefer `support@tartly.in` if the console will accept it. This is not an App Privacy Policy criterion, but it should match the public support contact. |
+| User support email on the consent screen | ℹ️ Optional | Current console value is `ariyamandebnath.ad@gmail.com`. Any regularly monitored Google account or Google Group is acceptable; this is not an App Privacy Policy criterion. To display `support@tartly.in`, make it a Google account first — see §3.1. |
 | Domain ownership verified by a Cloud project Owner/Editor | 🟡 External | TXT record is present; confirm the Search Console property shows **Verified** and that the Search Console owner is a Cloud project Owner/Editor. See §5. |
 | Google branding on the sign-in/connect control | ✅ | Official multicolour G mark; "Continue with Google" label; no altered logo colours. |
 | Up-to-date project contacts | 🟡 Console | Confirm the Cloud project's technical and billing contacts. |
@@ -93,7 +93,7 @@ Use these values exactly:
 | Field | Value |
 | --- | --- |
 | App name | `Tartly` |
-| User support email | Prefer `support@tartly.in`; the current console value is `ariyamandebnath.ad@gmail.com` |
+| User support email | Any monitored Google account or Google Group. Current console value: `ariyamandebnath.ad@gmail.com`. To use `support@tartly.in`, follow §3.1 first. |
 | App homepage | `https://tartly.in` (apex, no `www`) |
 | Authorized domain | `tartly.in` |
 | Privacy policy | `https://tartly.in/privacy` |
@@ -106,6 +106,46 @@ Use these values exactly:
 Sign-in requests only `openid`, `email` and `profile`. Gmail and Calendar are
 requested later, from the onboarding "Sync your inbox" step, so the first
 consent screen is not a request for inbox access. Keep that separation.
+
+### 3.1 Making `support@tartly.in` selectable
+
+The **User support email** dropdown does not accept arbitrary mailboxes. It
+only offers:
+
+- the email address of the Google account currently signed in to Cloud
+  Console, or
+- a Google Group managed by that account (normally a Google Workspace domain).
+
+A Hostinger mailbox such as `support@tartly.in` is not a Google account, so it
+will not appear. The current `ariyamandebnath.ad@gmail.com` value is valid and
+monitored, so this is **not a verification blocker**. To display
+`support@tartly.in` instead:
+
+1. Create a Google account **using the existing email address**:
+   - Open <https://accounts.google.com/signup>.
+   - Choose **Use my current email address instead** (or "For my personal
+     use" → use existing email).
+   - Enter `support@tartly.in` and complete the verification email sent to the
+     Hostinger mailbox.
+   This creates a Google account without creating a Gmail inbox.
+2. In Google Cloud Console → **IAM & Admin → IAM**, click **Grant access**.
+3. Add `support@tartly.in` as a principal with **Editor** (use **Owner** only if
+   Editor is rejected).
+4. Open the invitation email sent to `support@tartly.in`, sign in with the new
+   Google account, and accept the project invitation.
+5. Sign in to Cloud Console as `support@tartly.in`, open **Google Auth platform
+   → Branding** (or **APIs & Services → OAuth consent screen**), and select the
+   address in **User support email**.
+6. Save, then sign back in with the original owner account if you prefer.
+
+If Google says the address "must be associated with an active Google Account,
+Google Workspace account, or Cloud Identity account", step 1 has not completed.
+If accepting the Owner invitation returns
+`resourcemanager.projectInvites.acceptProjectOwnership`, grant **Editor**
+instead of **Owner** and accept again.
+
+Do not migrate `tartly.in` email to Google Workspace just for this field. The
+personal address is acceptable; only the branding consistency improves.
 
 ## 4. Scope justification
 
@@ -285,8 +325,9 @@ Console / external (must be done by the account owner):
 - [ ] Search Console property for `tartly.in` shows **Verified**.
 - [ ] Consent screen: homepage, authorized domain, logo, redirect URI all match
       §3 exactly. (App name and privacy/terms URLs already match.)
-- [ ] Prefer the consent screen's user support email to be
-      `support@tartly.in` rather than the personal account address.
+- [ ] Optional: make `support@tartly.in` a Google account or Google Group and
+      select it as the consent-screen support email (§3.1). The current
+      monitored address is acceptable if this is not worth the setup.
 - [ ] Scopes in the consent screen match the four Google scopes above (plus
       `openid/email/profile`). Remove `gmail.send` if it is still listed from an
       older configuration.
