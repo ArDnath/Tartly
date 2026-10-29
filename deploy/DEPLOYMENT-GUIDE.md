@@ -1172,7 +1172,11 @@ If you enable proxying, also set `trusted_proxies` in Caddy and re-check client 
    - **Authorized redirect URI:** `https://tartly.in/api/auth/callback/google`
    - If Outlook is enabled: `https://tartly.in/api/auth/callback/microsoft`
 3. Keep the old Vercel URIs until the new host is verified.
-4. **OAuth consent screen:** publish the app / add test users. Unverified apps in “Testing” expire refresh tokens after 7 days — a common “mail stopped syncing” cause.
+4. **OAuth consent screen:** set the app name to `Tartly`, homepage to
+   `https://tartly.in`, authorized domain to `tartly.in`, privacy policy to
+   `https://tartly.in/privacy`, and terms to `https://tartly.in/terms`. Publish
+   the app / add test users. Unverified apps in “Testing” expire refresh tokens
+   after 7 days — a common “mail stopped syncing” cause.
 5. Required scopes (already requested by the app): `openid`, `email`,
    `profile`, `gmail.modify`, `calendar.readonly`, `calendar.events`, and
    `https://mail.google.com/` (permanent delete). `gmail.modify` also
@@ -1195,7 +1199,9 @@ Then sign in in a browser and confirm `https://tartly.in/mail` loads live mail.
 
 ### 10.2 Gmail Pub/Sub (email operator)
 
-1. Verify `tartly.in` as a domain in Google Cloud (Search Console TXT record).
+1. Confirm `tartly.in` is a verified domain in Google Search Console. The
+   `google-site-verification` TXT record is already present; see
+   [`docs/google-oauth-verification.md`](../docs/google-oauth-verification.md) §5.
 2. Create topic `gmail-inbox`:
    ```bash
    gcloud pubsub topics create gmail-inbox

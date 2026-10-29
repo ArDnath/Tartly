@@ -6,7 +6,7 @@ import type { MetadataRoute } from "next";
  */
 export default function sitemap(): MetadataRoute.Sitemap {
   const base = (
-    process.env.NEXT_PUBLIC_BETTER_AUTH_URL ?? "https://apeemail-one.vercel.app"
+    process.env.NEXT_PUBLIC_BETTER_AUTH_URL ?? "https://tartly.in"
   ).replace(/\/$/, "");
 
   const lastModified = new Date();

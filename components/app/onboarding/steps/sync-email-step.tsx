@@ -155,8 +155,9 @@ export const SyncEmailStep = () => {
               </li>
             </ul>
             <p className="mt-3 border-t border-border/70 pt-3 text-[11px] leading-relaxed text-muted-foreground">
-              We do not sell Google user data, use it for advertising, or train
-              AI models on it. Read the{" "}
+              We do not sell Google user data, use it for advertising, or use
+              Google Workspace APIs to develop, improve, or train
+              non-personalized AI or ML models. Read the{" "}
               <Link
                 href="/privacy#google-user-data"
                 className="font-medium text-foreground underline underline-offset-2"

@@ -279,8 +279,9 @@ export function ConnectedAccounts({ accounts }: { accounts: MailAccount[] }) {
           trash&rdquo;.
         </p>
         <p className="mt-2">
-          We do not sell Google user data, use it for advertising, or train AI
-          models on it. Read the{" "}
+          We do not sell Google user data, use it for advertising, or use
+          Google Workspace APIs to develop, improve, or train non-personalized
+          AI or ML models. Read the{" "}
           <Link
             href="/privacy#google-user-data"
             className="font-medium text-foreground underline underline-offset-2"

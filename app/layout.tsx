@@ -47,8 +47,19 @@ const geist = Geist({
  * verified domain changes so every absolute URL follows automatically.
  */
 const siteUrl = (
-  process.env.NEXT_PUBLIC_BETTER_AUTH_URL ?? "https://apeemail-one.vercel.app"
+  process.env.NEXT_PUBLIC_BETTER_AUTH_URL ?? "https://tartly.in"
 ).replace(/\/$/, "");
+
+/**
+ * Public Search Console verification token for `tartly.in`.
+ *
+ * The domain-property TXT record is the primary proof of ownership. Emitting
+ * the same token as a `<meta name="google-site-verification">` tag is a
+ * belt-and-braces fallback for verification reviews and for deployments where
+ * `NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION` has not been set yet.
+ */
+const GOOGLE_SITE_VERIFICATION_FALLBACK =
+  "8-4xg5w8YO4kwdArb86nzPoIJhwzgLiQraAkhhzW4Qg";
 
 const appDescription =
   "Tartly is an AI email operator that connects to Gmail and Google Calendar (only with the permissions you approve) to triage your inbox, draft replies, schedule meetings, and handle follow-ups.";
@@ -99,10 +110,12 @@ export const metadata: Metadata = {
     googleBot: { index: true, follow: true },
   },
   verification: {
-    // Google Search Console ownership token. Set
-    // NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION in Vercel to the `content` value
-    // shown in the "HTML tag" verification method, then verify in Search Console.
-    google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION,
+    // Google Search Console ownership token. The env var wins so a rotated
+    // token only needs a redeploy; the constant keeps the tag present even if
+    // the variable is missing from an environment.
+    google:
+      process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION ??
+      GOOGLE_SITE_VERIFICATION_FALLBACK,
   },
 };
 

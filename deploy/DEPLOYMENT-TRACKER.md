@@ -318,7 +318,7 @@ release, not during an incident.
 **Owner:** user (external consoles) + agent (env/deploy) · **Procedure:**
 [`GO-LIVE-CHECKLIST.md`](./GO-LIVE-CHECKLIST.md).
 
-Verified 2026-10-26:
+Verified 2026-10-26; Google/privacy state updated 2026-10-29:
 - Dodo test key is valid against `test.dodopayments.com`; **live API returns
   401** (no live key configured).
 - Test catalogue: 2 subscription products (monthly $25, yearly $240), **no
@@ -327,8 +327,10 @@ Verified 2026-10-26:
   **0 rows**.
 - Dodo has 3 **test-mode** subscriptions; the app mirrors 2 active. They are not
   revenue and must not be treated as live customers.
-- Google DNS has SPF + Hostinger MX but **no `google-site-verification` TXT**
-  record.
+- Google DNS has SPF + Hostinger MX **and** the
+  `google-site-verification=8-4xg5w8YO4kwdArb86nzPoIJhwzgLiQraAkhhzW4Qg` TXT
+  record. Search Console must still show the `tartly.in` Domain property as
+  **Verified**; see `docs/google-oauth-verification.md` §5.
 - 5 users, 5 connected accounts; refresh tokens are still being used, so the
   consent screen may already be published — **confirm in the console**.
 - Production now refuses test-mode checkout and simulation activation (code
@@ -479,6 +481,7 @@ refund → Google domain TXT → publish/verify consent screen → monitoring UR
 | 2026-10-27 18:05 | Release `2a6ee96` build | ⚠️ → fixed | `npm ci` failed in the image (`lockfile out of sync`: missing `@emnapi/*`, `@types/react@18.3.31`, `esbuild@0.28.2`) because the lock was written by npm 11 and the image ships npm 10.9.9. Script aborts before touching containers, so no traffic moved; fixed in `6b9af7c` |
 | 2026-10-27 18:09 | Release `6b9af7c` (dual-theme landing + Lenis + perf) | ✅ | tsc clean; eslint 0 errors; 278/278 unit tests; lockfile regenerated with npm 10.9.9 and `ci --dry-run` clean; images `tartly-web:6b9af7c` / `tartly-worker:6b9af7c`; migrations complete; web-1/web-2 healthy; worker up; Caddy reloaded; ready 200; homepage 200 with theme-init + toggle + `--landing-*` tokens; `/pricing` 200; www 308 |
 | 2026-10-27 18:12 | Rollback pointer repair | ✅ | the failed build left `.deploy/previous-tag=2a6ee96` (no image); set to `44105f9`, whose images are present. `current-tag=6b9af7c` |
+| 2026-10-29 | Google OAuth privacy-policy audit | ✅ / 🟡 | `/privacy` now uses Google's exact "Google Workspace APIs … non-personalized AI and/or ML models" affirmation (§5, §9), adds sensitive-data/retention/transfer disclosures, and is linked persistently in the app sidebar. `/privacy` + `/terms` declare canonical URLs. DNS verification TXT is present; canonical fallbacks and `www` redirect hardened. Public consent page verified: app name `Tartly`, privacy/terms links correct. Remaining: confirm Search Console **Verified**, prefer `support@tartly.in` over the personal support email, record demo video, complete CASA |
 
 ### 7.1 Off-box edge smoke (2026-10-23 19:20 UTC)
 

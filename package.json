@@ -35,6 +35,7 @@
     "openapi:breaking": "tsx scripts/openapi/breaking-check.ts",
     "verify:r2": "node --env-file=.env scripts/verify-r2.mjs",
     "verify:dodo": "node --env-file=.env scripts/verify-dodo.mjs",
+    "verify:google-oauth": "node --env-file-if-exists=.env scripts/verify-google-oauth.mjs",
     "test": "npm run test:onboarding && npm run test:ai-chat && npm run test:email-operator && npm run test:agent && npm run test:agent:phase2 && npm run test:agent:phase3 && npm run test:agent:phase4 && npm run test:agent:phase5 && npm run test:agent:phase6 && npm run test:agent:phase7 && npm run test:agent:evals"
   },
   "dependencies": {

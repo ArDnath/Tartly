@@ -25,8 +25,8 @@
 | Dodo Payments | 🔴 **test mode only** — no real charge can be made |
 | Dodo webhook | 🔴 signing key empty; endpoint fails closed |
 | Dodo credit packs | 🔴 no one-time product IDs |
-| Google OAuth | 🟡 redirect URI works; publishing / verification / CASA must be confirmed |
-| Google domain ownership | 🔴 no `google-site-verification` TXT record in DNS |
+| Google OAuth | 🟡 redirect URI works; public consent page shows Tartly, the correct logo, and `/privacy` + `/terms`; publishing / verification / CASA must be confirmed |
+| Google domain ownership | 🟡 `google-site-verification` TXT record is present; confirm Search Console shows **Verified** |
 | Real-time Gmail | 🟡 Pub/Sub not configured (daily sync + on-open sync only) |
 | External monitoring | 🔴 Healthchecks/UptimeRobot URLs empty |
 | CSP | 🟡 report-only (hardening, not a purchase blocker) |
@@ -144,13 +144,17 @@ The full submission pack is in
 Google will not approve verification until it can see a verified owner of the
 homepage domain.
 
-1. Search Console → **Add property → Domain** → `tartly.in`.
-2. Add the `google-site-verification=…` TXT record at Hostinger.
-3. Verify in Search Console, then submit the OAuth consent screen.
+1. Search Console → confirm the **Domain** property for `tartly.in` exists and
+   shows **Verified**. If it is not listed, add it with **Add property →
+   Domain**; the TXT record is already present.
+2. Do not add a duplicate TXT record. The current DNS already contains:
+   `google-site-verification=8-4xg5w8YO4kwdArb86nzPoIJhwzgLiQraAkhhzW4Qg`.
+3. If Search Console needs re-verification, click **Verify**, then submit the
+   OAuth consent screen.
 
-Current DNS has SPF (`v=spf1 include:_spf.mail.hostinger.com ~all`) and
-Hostinger MX, but **no** Google verification TXT record. Do not remove SPF, MX
-or DKIM.
+Current DNS has SPF (`v=spf1 include:_spf.mail.hostinger.com ~all`), Hostinger
+MX, **and** a Google verification TXT record. Do not remove SPF, MX, DKIM or the
+verification record.
 
 ### B4. Deploy the verification-ready build
 

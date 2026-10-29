@@ -97,20 +97,21 @@ you"** until the Cloud project can see a verified owner of the homepage domain.
 Verification is per-domain, not per-URL, and must be done by a Google account
 that is an **Owner** of the Cloud project.
 
-1. Search Console → **Add property** → **Domain** → `tartly.in` (not URL-prefix).
-2. Copy the `google-site-verification=…` TXT value it gives you.
-3. Hostinger hPanel → `tartly.in` → DNS Records → add `TXT @ <value>`.
-   Leave the SPF/MX/DKIM records alone. Confirm with
-   `dig +short tartly.in TXT | grep google-site-verification`.
-4. Click **Verify** in Search Console. If the account differs from the Cloud
-   project owner, add it under Search Console → Settings → Users and
-   permissions → **Owner**.
-5. Wait 24 hours (Google's own instruction), then set the consent screen to:
+1. Search Console → confirm the **Domain** property for `tartly.in` exists and
+   shows **Verified**. If it is not listed, add it with **Add property** →
+   **Domain** (not URL-prefix); the TXT record is already present.
+2. Do **not** add a duplicate TXT record. Confirm the current value with
+   `dig +short tartly.in TXT | grep google-site-verification`; it should return
+   `8-4xg5w8YO4kwdArb86nzPoIJhwzgLiQraAkhhzW4Qg`.
+3. If Search Console asks for re-verification, click **Verify**. If the account
+   differs from the Cloud project owner, add it under Search Console → Settings
+   → Users and permissions → **Owner**.
+4. Wait 24 hours (Google's own instruction), then set the consent screen to:
    - App homepage: `https://tartly.in` — apex, never `www.` (it 308s)
    - Authorized domain: `tartly.in`
    - Privacy policy: `https://tartly.in/privacy`
    - Terms of service: `https://tartly.in/terms`
-6. Prepare for verification → Submit.
+5. Prepare for verification → Submit.
 
 Alternative (HTML tag): set `NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION` to the
 `content` value from Search Console and rebuild. It is already baked into the
