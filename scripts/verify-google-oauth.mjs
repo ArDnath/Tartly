@@ -308,7 +308,7 @@ async function checkConsentScreen() {
   } else {
     warn(
       `Consent screen support email is ${supportEmail}. This is acceptable if the address is monitored. ` +
-        "To display support@tartly.in, that address must first be a Google account or Google Group and a project Editor/Owner; see docs/google-oauth-verification.md §3.1.",
+        "To display support@tartly.in, that address must first be a Google account, Cloud Identity user, or Google Group and a project Editor/Owner; see docs/google-oauth-verification.md §3.1.",
     );
   }
 }

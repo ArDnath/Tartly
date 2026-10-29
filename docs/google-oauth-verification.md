@@ -144,6 +144,28 @@ If accepting the Owner invitation returns
 `resourcemanager.projectInvites.acceptProjectOwnership`, grant **Editor**
 instead of **Owner** and accept again.
 
+#### If the existing-email signup does not work: Cloud Identity Free
+
+Google sometimes refuses the consumer "use my current email address" flow for a
+business mailbox. Cloud Identity Free gives `support@tartly.in` a managed Google
+identity without Gmail, without changing Hostinger mail, and without a Workspace
+subscription:
+
+1. Open <https://workspace.google.com/gcpidentity/signup> (the direct Free
+   edition link — do not start a Workspace trial).
+2. Enter `tartly.in` as the domain and create the first admin user, preferably
+   `support@tartly.in` (or `admin@tartly.in` and add `support@` afterwards).
+3. Verify the domain with the TXT record Google shows, in Hostinger DNS.
+4. **Do not change the MX records.** Cloud Identity does not host email;
+   Hostinger keeps delivering `support@tartly.in`.
+5. Add the new user as **Editor** (or Owner) on the existing Google Cloud
+   project, accept the invitation from the Hostinger mailbox, then sign in to
+   Cloud Console as that user and select it in **Branding → User support email**.
+
+If Cloud Identity says the domain or account is already in use, use its
+conflicting-account transfer flow to claim the existing consumer account for
+`support@tartly.in` before continuing.
+
 Do not migrate `tartly.in` email to Google Workspace just for this field. The
 personal address is acceptable; only the branding consistency improves.
 
