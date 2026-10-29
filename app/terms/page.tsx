@@ -5,6 +5,8 @@ import { LegalPage } from "@/components/marketing/legal-page";
 export const metadata: Metadata = {
   title: "Terms of Service — Tartly",
   description: "The terms that govern your use of Tartly.",
+  // The root layout's canonical is "/". Override it here as well.
+  alternates: { canonical: "/terms" },
 };
 
 export default function TermsPage() {

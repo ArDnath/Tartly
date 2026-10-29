@@ -506,6 +506,25 @@ export function AppSidebar({
 
       <footer className="flex shrink-0 flex-col gap-1.5 border-t border-border p-2.5">
         <SidebarUserMenu user={user} />
+        {/*
+          Persistent legal links. Google OAuth verification requires the privacy
+          policy to be easy to find from inside the app, not only from the
+          account menu.
+        */}
+        <div className="flex items-center gap-3 px-2 text-[11px] text-muted-foreground">
+          <Link href="/privacy" className="transition-colors hover:text-foreground">
+            Privacy
+          </Link>
+          <Link href="/terms" className="transition-colors hover:text-foreground">
+            Terms
+          </Link>
+          <a
+            href="mailto:support@tartly.in"
+            className="ml-auto transition-colors hover:text-foreground"
+          >
+            Support
+          </a>
+        </div>
         <div className="flex items-center gap-1.5">
           <button
             type="button"

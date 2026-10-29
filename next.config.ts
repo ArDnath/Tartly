@@ -8,7 +8,7 @@ import type { NextConfig } from "next";
  * "State not found".
  */
 const CANONICAL_ORIGIN = (
-  process.env.NEXT_PUBLIC_BETTER_AUTH_URL ?? "https://apemail.ariyaman.in"
+  process.env.NEXT_PUBLIC_BETTER_AUTH_URL ?? "https://tartly.in"
 ).replace(/\/$/, "");
 
 /**
@@ -17,6 +17,9 @@ const CANONICAL_ORIGIN = (
  * left alone so preview builds stay reachable.
  */
 const LEGACY_HOSTS = [
+  // Keep the canonical OAuth origin unambiguous: `www` and every project
+  // alias 308 to the apex domain that is registered on the consent screen.
+  "www.tartly.in",
   "apeemail-one.vercel.app",
   "app-server-xi-one.vercel.app",
   "app-server-ariyamans-projects.vercel.app",

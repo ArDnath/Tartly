@@ -245,7 +245,8 @@ export default function Footer() {
             Tartly connects to Gmail and Google Calendar only to read and triage
             your inbox, draft and send replies you approve, and schedule
             meetings on your behalf. We do not sell Google user data, use it for
-            advertising, or train AI models on it. You can revoke access at any
+            advertising, or use Google Workspace APIs to develop, improve, or
+            train non-personalized AI or ML models. You can revoke access at any
             time. See our{" "}
             <Link
               href="/privacy"

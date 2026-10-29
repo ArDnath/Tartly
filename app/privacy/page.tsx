@@ -6,6 +6,9 @@ export const metadata: Metadata = {
   title: "Privacy Policy — Tartly",
   description:
     "How Tartly accesses, uses, stores, shares, and deletes Google user data and other information.",
+  // The root layout's canonical is "/". Override it here so Google sees
+  // /privacy as its own page, not a duplicate of the homepage.
+  alternates: { canonical: "/privacy" },
 };
 
 /**
@@ -17,7 +20,7 @@ export const metadata: Metadata = {
  */
 export default function PrivacyPage() {
   return (
-    <LegalPage title="Privacy Policy" updated="October 26, 2026">
+    <LegalPage title="Privacy Policy" updated="October 29, 2026">
       <p>
         This Privacy Policy explains how Tartly (&ldquo;Tartly&rdquo;,
         &ldquo;we&rdquo;, &ldquo;us&rdquo;) collects, uses, stores, shares, and
@@ -71,7 +74,8 @@ export default function PrivacyPage() {
         Google access is requested separately from sign-in. Signing in with
         Google asks only for your basic profile and email address. When you
         choose to connect a Google mailbox, we ask for the following Google
-        scopes and use them only for the purposes described:
+        scopes and access, use, store, and share Google user data only for the
+        purposes described in this policy:
       </p>
       <ul>
         <li>
@@ -109,7 +113,7 @@ export default function PrivacyPage() {
         handled under this policy in the same way as Gmail data.
       </p>
 
-      <h2>4. How we use information</h2>
+      <h2>4. How we use Google user data and other information</h2>
       <ul>
         <li>To provide, operate, and secure the Service.</li>
         <li>
@@ -141,22 +145,28 @@ export default function PrivacyPage() {
       </p>
       <p>
         <strong>
-          We do not use Google user data to develop, improve, or train
-          generalized AI or machine-learning models, and we do not authorize
-          our service providers to do so.
+          Google Workspace APIs are not used to develop, improve, or train
+          non-personalized AI and/or ML models. We do not use Google user data
+          to develop, improve, or train AI or machine-learning models of any
+          kind, and we do not authorize our service providers to do so.
         </strong>{" "}
         Model providers act on our instructions under confidentiality and
         data-processing terms, and their use of the content is limited to
         generating the output requested for your account. We do not use your
-        Google user data for advertising, retargeting, or profiling.
+        Google user data for advertising, retargeting, advertising profiles, or
+        to build a database for sale.
       </p>
 
-      <h2>6. How we share information</h2>
+      <h2>6. How we share Google user data and other information</h2>
       <p>
-        We do not sell, rent, or trade Google user data. We do not transfer
+        We do not sell, rent, trade, transfer, or disclose Google user data
+        except as described in this section. In particular, we do not transfer
         Google user data to advertising platforms, data brokers, information
-        resellers, or other third parties for their own use. We do not use it
-        to determine creditworthiness or for lending purposes.
+        resellers, or other third parties for their own use; we do not use it
+        to determine creditworthiness or for lending purposes; and we do not
+        transfer it for targeted, personalized, retargeted, or interest-based
+        advertising, to create databases for sale, or to train
+        non-personalized AI and/or ML models.
       </p>
       <p>We share information only in these limited circumstances:</p>
       <ul>
@@ -179,9 +189,9 @@ export default function PrivacyPage() {
         </li>
         <li>
           <strong>Business transfer</strong> — as part of a merger,
-          acquisition, financing, or sale of assets, with notice and any
-          consent required by law. We will require the recipient to honor this
-          policy.
+          acquisition, or sale of assets, with notice to users and any consent
+          required by law. We will require the recipient to honor this policy
+          and the Google API Services User Data Policy.
         </li>
         <li>
           <strong>At your direction</strong> — when you ask us to share
@@ -198,33 +208,38 @@ export default function PrivacyPage() {
         and used for internal operations in accordance with applicable law.
       </p>
 
-      <h2>7. Storage, security, and retention</h2>
+      <h2>7. How we store, protect, and retain Google user data</h2>
       <p>
-        We use technical and organizational measures designed to protect your
-        information, including encryption in transit, access controls, and
+        We treat Gmail and Google Calendar content as sensitive personal data.
+        We use technical and organizational measures designed to protect it and
+        other information, including encryption in transit, encryption at rest
+        at our infrastructure providers, least-privilege access controls, and
         separation of production secrets. Data is stored with our hosting,
         database, and object-storage providers. No method of transmission or
         storage is completely secure.
       </p>
       <p>
-        We keep account information and connected-account data for as long as
-        your account is active and you keep the account connected. We keep
-        operational audit records for limited periods (for example, event logs
-        for 30 days and send-idempotency records for 90 days) and retain other
-        records only as long as needed for the purposes described in this
-        policy or to meet legal, security, or accounting obligations.
+        We retain Google user data while your Tartly account is active,
+        including mailbox content we have synced so the Service can work across
+        providers and without a live Google request. We keep operational audit
+        records for limited periods (for example, event logs for 30 days and
+        send-idempotency records for 90 days) and retain other records only as
+        long as needed for the purposes described in this policy or to meet
+        legal, security, or accounting obligations.
       </p>
       <p>
         If you disconnect a Google account, we stop accessing it and delete the
-        stored OAuth tokens. If you ask us to delete your Tartly account, we
-        will delete or de-identify your account data within 30 days of
+        stored OAuth tokens for that account. Previously synced copies remain
+        until you delete them or your Tartly account, or ask us to delete them.
+        If you ask us to delete your Tartly account or the Google user data we
+        hold, we will delete or de-identify that data within 30 days of
         verifying the request, except for records we must retain for legal,
         security, or accounting reasons and copies in backups, which are
         deleted on our normal backup cycle (normally within 90 days). See
         section 8 for how to make a request.
       </p>
 
-      <h2>8. Your choices and controls</h2>
+      <h2>8. Your Google data choices and controls</h2>
       <ul>
         <li>
           <strong>Revoke Google access</strong> at any time from{" "}
@@ -274,8 +289,10 @@ export default function PrivacyPage() {
         , including the Limited Use requirements. In particular, Google user
         data is used only to provide or improve the user-facing features that
         are prominent in the Service; it is not sold or used for advertising;
-        it is not transferred except as described in section 6; and humans do
-        not read it except as described in section 6.
+        it is not transferred except as described in section 6; humans do not
+        read it except as described in section 6; and Google Workspace APIs are
+        not used to develop, improve, or train non-personalized AI and/or ML
+        models.
       </p>
 
       <h2>10. Children</h2>
@@ -295,10 +312,12 @@ export default function PrivacyPage() {
 
       <h2>12. Changes to this policy</h2>
       <p>
-        We may update this policy from time to time. If we make material
-        changes, we will provide notice as required and update the date at the
-        top of this page. Continued use of the Service after changes take
-        effect constitutes acceptance of the updated policy.
+        We may update this policy from time to time. If we change how we
+        access, use, store, or share Google user data, we will update this
+        policy and notify you by email or in-product notice before the change
+        takes effect. We also update the date at the top of this page.
+        Continued use of the Service after changes take effect constitutes
+        acceptance of the updated policy.
       </p>
 
       <h2>13. Contact</h2>
