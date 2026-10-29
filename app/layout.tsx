@@ -111,10 +111,11 @@ export const metadata: Metadata = {
   },
   verification: {
     // Google Search Console ownership token. The env var wins so a rotated
-    // token only needs a redeploy; the constant keeps the tag present even if
-    // the variable is missing from an environment.
+    // token only needs a redeploy; the constant keeps the tag present when the
+    // variable is missing *or empty* (`??` would keep "", which makes Next omit
+    // the tag entirely — deploy/.env ships the key with an empty value).
     google:
-      process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION ??
+      process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION ||
       GOOGLE_SITE_VERIFICATION_FALLBACK,
   },
 };
