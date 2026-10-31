@@ -5,10 +5,12 @@ import {
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
+import { CHECKPOINT_FORMAT } from "@tartly/flow-runtime";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import type { Database } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
+import { DatabaseCheckpointStore } from "@/lib/engine/checkpoint-store";
 import { ActivityRepository } from "@/lib/repositories/activity";
 import { AgentRunRepository } from "@/lib/repositories/agent-runs";
 import { CalendarPersistenceRepository } from "@/lib/repositories/calendar-persistence";
@@ -590,6 +592,33 @@ describe("Engine repositories", () => {
       nodeId: "n1",
       status: "ok",
       output: { value: 1 },
+    });
+    const checkpoints = await repo.listCheckpoints("run-1");
+    expect(checkpoints).toHaveLength(1);
+    expect(checkpoints[0]).toMatchObject({ nodeId: "n1", status: "ok" });
+
+    const store = new DatabaseCheckpointStore(database);
+    await store.append("run-1", {
+      format: CHECKPOINT_FORMAT,
+      seq: 2,
+      nodeId: "n2",
+      nodeType: "step",
+      status: "ok",
+      ms: 3,
+      at: "2026-10-31T12:00:00.000Z",
+      output: { ok: true },
+      state: { done: true },
+      nextNodeId: null,
+      continued: true,
+    });
+    const loaded = await store.load("run-1");
+    expect(loaded).toHaveLength(2);
+    expect(loaded[1]).toMatchObject({
+      seq: 2,
+      nodeId: "n2",
+      state: { done: true },
+      nextNodeId: null,
+      continued: true,
     });
     await repo.finishRun({
       runId: "run-1",

@@ -2,6 +2,7 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 
+import { withJobTransaction } from "@/lib/queue/transaction";
 import type { Pool, PoolClient, QueryResult, QueryResultRow } from "pg";
 
 /**
@@ -174,33 +175,28 @@ export async function claimJobs(
   pool: Pool,
   opts: ClaimOptions,
 ): Promise<JobRow[]> {
-  const client = await pool.connect();
   try {
-    await client.query("begin");
-    await client.query("select pg_advisory_xact_lock($1)", [CLAIM_LOCK_KEY]);
-    const running = await client.query<{ n: number }>(
-      "select count(*)::int as n from job_queue where status = 'running'",
-    );
-    const free = Math.min(
-      opts.batchSize ?? opts.maxConcurrency,
-      opts.maxConcurrency - (running.rows[0]?.n ?? 0),
-    );
-    if (free <= 0) {
-      await client.query("rollback");
-      return [];
-    }
-    const { rows } = await client.query<RawJobRow>(CLAIM_SQL, [
-      free,
-      opts.workerId,
-    ]);
-    await client.query("commit");
-    return rows.map(toJobRow);
+    return await withJobTransaction(pool, async (client) => {
+      // Serializes claimers so the global running-cap can never be exceeded by a race.
+      await client.query("select pg_advisory_xact_lock($1)", [CLAIM_LOCK_KEY]);
+      const running = await client.query<{ n: number }>(
+        "select count(*)::int as n from job_queue where status = 'running'",
+      );
+      const free = Math.min(
+        opts.batchSize ?? opts.maxConcurrency,
+        opts.maxConcurrency - (running.rows[0]?.n ?? 0),
+      );
+      if (free <= 0) return [] as JobRow[];
+
+      const { rows } = await client.query<RawJobRow>(CLAIM_SQL, [
+        free,
+        opts.workerId,
+      ]);
+      return rows.map(toJobRow);
+    });
   } catch (error) {
-    await rollback(client, error);
     if (isUniqueViolation(error)) return []; // residual lane race loses one round
     throw error;
-  } finally {
-    client.release();
   }
 }
 
@@ -216,9 +212,7 @@ export async function completeJob<T = void>(
   inSameCommit?: (tx: PoolClient) => Promise<T>,
   acquiredAt?: string,
 ): Promise<T> {
-  const client = await pool.connect();
-  try {
-    await client.query("begin");
+  return withJobTransaction(pool, async (client) => {
     const result = (inSameCommit ? await inSameCommit(client) : undefined) as T;
     const done = await client.query(
       `update job_queue set status = 'done', locked_by = null, locked_at = null
@@ -231,14 +225,8 @@ export async function completeJob<T = void>(
         `lease for job ${jobId} was lost before completion — effects discarded`,
       );
     }
-    await client.query("commit");
     return result;
-  } catch (error) {
-    await rollback(client, error);
-    throw error;
-  } finally {
-    client.release();
-  }
+  });
 }
 
 /**
@@ -346,17 +334,6 @@ export async function countDeadJobs(
 function normalizeError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   return (message.split("\n", 1)[0] ?? "").slice(0, 300);
-}
-
-async function rollback(client: PoolClient, cause: unknown): Promise<void> {
-  try {
-    await client.query("rollback");
-  } catch (rollbackError) {
-    throw new AggregateError(
-      [cause, rollbackError],
-      "rollback failed after an error in the queue transaction",
-    );
-  }
 }
 
 function isUniqueViolation(error: unknown): boolean {

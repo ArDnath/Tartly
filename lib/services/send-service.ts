@@ -11,9 +11,11 @@ import {
   buildHtmlWithImages,
   resolveOutboundAssets,
 } from "@/lib/assets/outbound";
+import { connectedMailProviders } from "@/lib/mail/accounts";
 import { allowMailSend } from "@/lib/mail/rate-limit";
 import { profile } from "@/lib/mail/service";
-import { gmailEmailProvider } from "@/lib/providers/email/gmail-provider";
+import { sendOutlookEmail } from "@/lib/outlook/send";
+import { unifiedEmailProvider } from "@/lib/providers/email/unified-provider";
 import type { EmailDetail, EmailProvider } from "@/lib/providers/email/types";
 import {
   extractEmail,
@@ -43,6 +45,8 @@ export const MAX_SEND_BODY_CHARS = MAX_DRAFT_BODY_CHARS;
 export interface SendResult {
   gmailMessageId: string | null;
   gmailThreadId: string | null;
+  /** Which mailbox produced the message. */
+  provider: "gmail" | "outlook";
   /** True when the ledger had already accepted this key — nothing was sent. */
   deduped: boolean;
   to: string[];
@@ -54,8 +58,12 @@ export interface SendServiceOptions {
   provider?: Pick<EmailProvider, "getMessage">;
   /** The single outbound path (injectable so tests never touch Google). */
   send?: typeof sendEmail;
+  /** Outlook outbound path (injectable so tests never touch Graph). */
+  sendOutlook?: typeof sendOutlookEmail;
   /** The signed-in mailbox address. */
   getProfile?: (userId: string) => Promise<{ emailAddress: string }>;
+  /** Which mailboxes are connected; determines the default sender. */
+  getProviders?: (userId: string) => Promise<Array<"google" | "microsoft">>;
   /** Per-user send throttle. */
   allowSend?: (userId: string) => Promise<boolean>;
 }
@@ -63,13 +71,25 @@ export interface SendServiceOptions {
 export class SendService {
   private readonly provider: Pick<EmailProvider, "getMessage">;
   private readonly send: typeof sendEmail;
+  private readonly sendOutlook: typeof sendOutlookEmail;
   private readonly getProfile: (userId: string) => Promise<{ emailAddress: string }>;
+  private readonly getProviders: (
+    userId: string,
+  ) => Promise<Array<"google" | "microsoft">>;
   private readonly allowSend: (userId: string) => Promise<boolean>;
 
   constructor(options: SendServiceOptions = {}) {
-    this.provider = options.provider ?? gmailEmailProvider;
+    this.provider = options.provider ?? unifiedEmailProvider;
     this.send = options.send ?? sendEmail;
+    this.sendOutlook = options.sendOutlook ?? sendOutlookEmail;
     this.getProfile = options.getProfile ?? profile;
+    // Tests inject a fake Gmail send path and no directory; treat that as a
+    // single connected Gmail account rather than querying the database.
+    this.getProviders =
+      options.getProviders ??
+      (options.send
+        ? async () => ["google"] as Array<"google" | "microsoft">
+        : connectedMailProviders);
     this.allowSend = options.allowSend ?? allowMailSend;
   }
 
@@ -81,6 +101,8 @@ export class SendService {
     bcc?: string[];
     subject?: string;
     body: string;
+    /** Which connected account to send from; defaults to Gmail if live. */
+    account?: "gmail" | "outlook";
     /** Phase 6: asset ids attached, and images rendered inline. */
     assetIds?: string[];
     inlineImageIds?: string[];
@@ -101,6 +123,7 @@ export class SendService {
       bcc,
       subject,
       body,
+      ...(input.account ? { account: input.account } : {}),
       ...(input.assetIds?.length ? { assetIds: input.assetIds } : {}),
       ...(input.inlineImageIds?.length
         ? { inlineImageIds: input.inlineImageIds }
@@ -133,6 +156,7 @@ export class SendService {
       subject,
       body,
       threadId: original.threadId,
+      ...(original.provider ? { account: original.provider } : {}),
       ...(original.inReplyTo ? { inReplyTo: original.inReplyTo } : {}),
     });
   }
@@ -175,6 +199,7 @@ export class SendService {
       bcc: [],
       subject,
       body,
+      ...(original.provider ? { account: original.provider } : {}),
     });
   }
 
@@ -187,6 +212,7 @@ export class SendService {
     subject: string;
     body: string;
     threadId?: string;
+    account?: "gmail" | "outlook";
     inReplyTo?: string;
     assetIds?: string[];
     inlineImageIds?: string[];
@@ -197,10 +223,21 @@ export class SendService {
       );
     }
 
-    const account = await this.getProfile(input.userId);
-    if (!account.emailAddress) {
+    const providers = await this.getProviders(input.userId);
+    const target: "gmail" | "outlook" =
+      input.account ??
+      (providers.includes("google") || !providers.includes("microsoft")
+        ? "gmail"
+        : "outlook");
+
+    if (target === "gmail" && !providers.includes("google")) {
       throw new AuthorizationError(
         "Your Google account is not connected. Reconnect it and try again.",
+      );
+    }
+    if (target === "outlook" && !providers.includes("microsoft")) {
+      throw new AuthorizationError(
+        "Your Outlook account is not connected. Reconnect it and try again.",
       );
     }
 
@@ -214,6 +251,46 @@ export class SendService {
           })
         : null;
     const html = assets ? buildHtmlWithImages(input.body, assets.htmlImages) : null;
+
+    if (target === "outlook") {
+      const result = await this.sendOutlook({
+        userId: input.userId,
+        idempotencyKey: input.idempotencyKey,
+        email: {
+          from: "",
+          to: input.to,
+          ...(input.cc.length ? { cc: input.cc } : {}),
+          ...(input.bcc.length ? { bcc: input.bcc } : {}),
+          subject: input.subject,
+          text: input.body,
+          ...(html ? { html } : {}),
+          ...(assets?.inlineImages.length
+            ? { inlineImages: assets.inlineImages }
+            : {}),
+          ...(assets?.attachments.length
+            ? { attachments: assets.attachments }
+            : {}),
+          ...(input.inReplyTo
+            ? { inReplyTo: input.inReplyTo, references: [input.inReplyTo] }
+            : {}),
+        },
+      });
+      return {
+        gmailMessageId: result.outlookMessageId,
+        gmailThreadId: null,
+        provider: "outlook",
+        deduped: result.deduped,
+        to: input.to,
+        subject: input.subject,
+      };
+    }
+
+    const account = await this.getProfile(input.userId);
+    if (!account.emailAddress) {
+      throw new AuthorizationError(
+        "Your Google account is not connected. Reconnect it and try again.",
+      );
+    }
 
     const result = await this.send({
       userId: input.userId,
@@ -242,6 +319,7 @@ export class SendService {
     return {
       gmailMessageId: result.gmailMessageId,
       gmailThreadId: result.gmailThreadId,
+      provider: "gmail",
       deduped: result.deduped,
       to: input.to,
       subject: input.subject,
