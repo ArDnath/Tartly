@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Inter, Roboto_Flex } from "next/font/google";
-import Script from "next/script";
 import type { ReactNode } from "react";
+import { THEME_INIT_SCRIPT } from "@/lib/theme-init";
 import { SafePointerCapture } from "@/components/shared/safe-pointer-capture";
 import { ThemeSync } from "@/components/shared/theme/theme-sync";
 import { TARTLY_LOGO_URL } from "@/components/shared/brand/brand-assets";
@@ -111,11 +111,10 @@ export const metadata: Metadata = {
   },
   verification: {
     // Google Search Console ownership token. The env var wins so a rotated
-    // token only needs a redeploy; the constant keeps the tag present when the
-    // variable is missing *or empty* (`??` would keep "", which makes Next omit
-    // the tag entirely — deploy/.env ships the key with an empty value).
+    // token only needs a redeploy; the constant keeps the tag present even if
+    // the variable is missing from an environment.
     google:
-      process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION ||
+      process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION ??
       GOOGLE_SITE_VERIFICATION_FALLBACK,
   },
 };
@@ -162,13 +161,16 @@ const structuredData = {
  * Pre-hydration theme bootstrap. Runs before first paint: applies the user's
  * stored choice, else the OS preference, else the brand-default dark — by
  * toggling the `dark` class the light palette in `:root` / dark in `.dark`
- * (globals.css) keys off. Mirrors lib/theme.ts; keep the storage key in sync.
+ * (globals.css) keys off.
  *
- * Rendered through `next/script` `beforeInteractive` so the per-request CSP
- * nonce minted in proxy.ts is stamped automatically (a raw inline `<script>`
- * would be blocked by the app's strict CSP on authed routes).
+ * Rendered as a plain inline `<script>` rather than through `next/script`'s
+ * `beforeInteractive` strategy. The latter inherits the CSP nonce from React
+ * context on the server (`""` on pages without a CSP) but has no nonce during
+ * client hydration (`undefined`), so React reports an attribute mismatch on
+ * every page. Instead, the script's exact text is pinned by a SHA-256 hash in
+ * `lib/security/csp.ts`, which authorizes it under the strict nonce policy on
+ * authenticated routes while keeping static marketing pages nonce-free.
  */
-const themeInitScript = `(function(){try{var t=window.localStorage.getItem("theme");if(t!=="light"&&t!=="dark"){t=window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";}document.documentElement.classList.toggle("dark",t==="dark");}catch(e){}})();`;
 
 export default function RootLayout({
   children,
@@ -181,10 +183,12 @@ export default function RootLayout({
       className={`dark h-full ${inter.className} ${inter.variable} ${robotoFlex.variable} ${geist.variable}`}
     >
       <body className="min-h-full" suppressHydrationWarning>
-        {/* Injected into <head> and executed during parsing, before paint. */}
-        <Script id="theme-init" strategy="beforeInteractive">
-          {themeInitScript}
-        </Script>
+        {/* Executed during parsing, before paint. Content is hash-pinned in the
+            CSP (lib/security/csp.ts); no per-request nonce attribute here. */}
+        <script
+          id="theme-init"
+          dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }}
+        />
         {/* Re-applies the theme after React's dev Strict-Mode remount (which
             resets `<html>` attributes the boot script set) and keeps tabs in
             sync via the storage event. A no-op in production. */}

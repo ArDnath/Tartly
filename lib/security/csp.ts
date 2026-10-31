@@ -1,5 +1,9 @@
 import "server-only";
 
+import { createHash } from "node:crypto";
+
+import { THEME_INIT_SCRIPT } from "@/lib/theme-init";
+
 /**
  * Content Security Policy (Phase C6, SKILL §4.3).
  *
@@ -26,6 +30,11 @@ import "server-only";
  *    `'unsafe-inline'`, and dev injects styles at runtime (React style hoisting,
  *    the Next dev overlay, font loaders) with no nonce to attach.
  *  - `'wasm-unsafe-eval'` — Rive (`@rive-app/react-webgl2`) compiles WebAssembly.
+ *  - A SHA-256 hash pins the pre-paint theme bootstrap (lib/theme-init.ts). It
+ *    is a static inline script, so it cannot carry the per-request nonce
+ *    without reintroducing a hydration mismatch; a hash-source keeps it
+ *    allowed under `'strict-dynamic'` while every other inline script stays
+ *    blocked.
  *  - `worker-src blob:` — Rive/worker bundles create object URLs.
  */
 
@@ -64,6 +73,20 @@ const BLOB_HOSTS = [
 
 /** Google account avatars. */
 const IMAGE_HOSTS = ["https://*.googleusercontent.com"];
+
+/**
+ * SHA-256 hash of the pre-paint theme bootstrap (lib/theme-init.ts), which the
+ * root layout renders as a plain inline `<script>` so it hydrates cleanly.
+ *
+ * On authenticated routes the strict `script-src` is nonce-bound; a static
+ * inline script cannot carry a per-request nonce without recreating the
+ * `nonce=""` vs `nonce={undefined}` hydration mismatch. CSP3 keeps honoring
+ * hash-sources alongside `'strict-dynamic'`, so pinning these exact bytes lets
+ * the policy authorize it while still refusing every other inline script.
+ */
+const THEME_INIT_HASH = `'sha256-${createHash("sha256")
+  .update(THEME_INIT_SCRIPT, "utf8")
+  .digest("base64")}'`;
 
 /**
  * ImageKit's default CDN. Images, video and HLS manifests are loaded directly
@@ -109,6 +132,8 @@ export function buildCsp({
     // CSP3: trust scripts that a nonced script injects, not host allowlists.
     "'strict-dynamic'",
     "'wasm-unsafe-eval'",
+    // The theme bootstrap cannot carry the request nonce (see THEME_INIT_HASH).
+    THEME_INIT_HASH,
   ];
   if (isDev) scriptSrc.push("'unsafe-eval'");
 

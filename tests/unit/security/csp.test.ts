@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
 
+import { THEME_INIT_SCRIPT } from "@/lib/theme-init";
 import {
   buildCsp,
   CSP_HEADER,
@@ -53,6 +55,19 @@ describe("buildCsp", () => {
     expect(csp["frame-ancestors"]).toBe("'none'");
     expect(csp["form-action"]).toBe("'self'");
     expect(csp["worker-src"]).toBe("'self' blob:");
+  });
+
+  it("hash-pins the pre-paint theme bootstrap instead of noncing it", () => {
+    const csp = directives(buildCsp({ nonce: NONCE, isDev: false }));
+    const hash = createHash("sha256")
+      .update(THEME_INIT_SCRIPT, "utf8")
+      .digest("base64");
+
+    // The root layout renders THEME_INIT_SCRIPT verbatim; the policy must
+    // authorize exactly those bytes even though the element has no nonce.
+    expect(csp["script-src"]).toContain(`'sha256-${hash}'`);
+    // The hash is narrow: inline scripts are still not blanket-allowed.
+    expect(csp["script-src"]).not.toContain("'unsafe-inline'");
   });
 
   it("allows the object-storage and avatar origins the browser hits directly", () => {

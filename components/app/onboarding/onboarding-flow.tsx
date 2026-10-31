@@ -19,6 +19,7 @@ export const OnboardingFlow = () => {
     <OnboardingLayout
       onBack={hasPreviousStep ? () => void goBack() : undefined}
       isBackDisabled={isNavigating}
+      isSignOutDisabled={isNavigating}
     >
       <OnboardingTransitionOutlet
         stepKey={state.status}

@@ -39,7 +39,7 @@ for the policy is Google's [Verification requirements](https://support.google.co
 | Appropriate app type | ✅ / 🟡 Narrative | Productivity: an email client plus an AI operator for triage, drafting, scheduling and follow-ups. Scope justification in §4. |
 | Demonstration video | ❌ External | Must be recorded and linked in the verification form. Script in §6. |
 | Narrowest scopes | 🟡 Reviewer judgement | Four Google scopes are requested. See §4 for justifications, including why `mail.google.com` is used only for permanent delete. |
-| Restricted-scope security assessment (CASA) | ❌ External | Required because `gmail.modify` and `https://mail.google.com/` are restricted. See §7. |
+| Restricted-scope security assessment (CASA) | ❌ External | Required because `gmail.modify` and `https://mail.google.com/` are restricted. AL1 due 28 Jan 2027. See §7 and `docs/casa-evidence.md`. |
 | Annual recertification | ❌ External | Required after approval. |
 
 Legend: ✅ satisfied in the repository · 🟡 needs a console/account action or
@@ -309,18 +309,45 @@ match the submission.
 
 `gmail.modify` and `https://mail.google.com/` are **restricted** Gmail scopes.
 Google's policy therefore requires an annual security assessment by a Google-
-empanelled assessor (CASA), not just OAuth brand verification. Budget for it
-and start early; it is usually the longest part of the process.
+empanelled assessor (CASA), not just OAuth brand verification. This is the
+item the email of 31 October 2026 asks for, with a deadline of **28 January
+2027**.
 
-- Scope: the assessment covers the app and the restricted data it stores or
-  transmits.
+- **Level assigned:** AL1 (formerly Tier 2) — developer self-assessment with
+  evidence, reviewed by an ADA-authorized lab. AL2 (lab-tested) is optional and
+  only adds value for a Google Workspace Marketplace listing; Tartly is not
+  listed there, so stay at AL1.
+- **Duration:** 2–6 weeks once the lab starts. Start contacting labs now; do
+  not wait for the deadline.
+- **Scope:** the app plus the restricted data it stores or transmits.
 - The app already follows several assessor-friendly practices: OAuth tokens are
   held by Better Auth rather than in application tables, Google calls are
-  centralized, logs are designed not to contain message bodies/tokens, and
-  retention jobs delete event/send-ledger records on a schedule.
-- Be ready to provide architecture diagrams, data-flow diagrams, retention and
-  deletion evidence, access-control evidence, and incident-response runbooks.
-- After approval, recertify annually.
+  centralized, logs are designed not to contain message bodies/tokens (redacting
+  logger in `lib/observability/logger.ts`), and retention jobs delete
+  event/send-ledger records on a schedule (`lib/email-operator/retention.ts`).
+- **Labs (ADA-authorized):** TAC Security is Google's preferred partner with a
+  negotiated discounted rate — https://tacsecurity.com/google-casa-cloud-application-security-assessment/
+  Published TAC rates for AL1: **$675** (Basic, one-time, 2–3 weeks) or **$855**
+  (Premium, unlimited revalidations). AL2 is $5,400. Other options: Bishop Fox,
+  Leviathan Security, NCC Group, Netsentries, Prescient Security, ValueMentor,
+  DEKRA. Full list: https://appdefensealliance.dev/casa/casa-assessors
+- **Process:** (1) finish the other outstanding verification items first
+  (demo video, in-app testing, domain verification, scope justifications,
+  project contacts) — CASA is the final step; (2) request quotes from 2–3 labs;
+  (3) hand over the evidence bundle + architecture/data-flow diagrams; (4) lab
+  reviews and issues a Letter of Validation (LOV); (5) reply to the Google
+  email thread attaching the LOV and quoting the assessment ID and completion
+  date.
+- **Replying to Google:** the email says to reply only after the issue is
+  addressed. Do not reply "will do" — reply once the LOV is in hand. If you
+  want to acknowledge receipt, a short note with the lab name and expected
+  completion date is fine, but it does not satisfy the requirement.
+- **Accelerator:** if you hold any current certification (SOC 2, ISO 27001,
+  PCI-DSS, etc.), hand it to the lab first — it can reduce the required checks.
+- **Evidence map and gap list:** `docs/casa-evidence.md` maps every CASA
+  requirement (auth, session, access control, communications, validation,
+  configuration) to concrete files in this repo and lists the gaps to close.
+- **After approval:** recertify annually (next due around late 2027).
 
 ## 8. Submission checklist
 
@@ -356,7 +383,8 @@ Console / external (must be done by the account owner):
 - [ ] Project technical and billing contacts are current.
 - [ ] Demo video recorded and link ready (§6).
 - [ ] Scope justifications pasted into the verification form (§4).
-- [ ] CASA assessment booked/completed (§7).
+- [ ] CASA AL1 assessment completed by 28 Jan 2027; LOV attached to the Google
+      email reply (§7, `docs/casa-evidence.md`).
 - [ ] Test user flow exercised end-to-end on `https://tartly.in` (sign-in,
       mailbox consent, read, draft, send, calendar, permanent delete).
 - [ ] Submit for verification.

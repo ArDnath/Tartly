@@ -7,13 +7,26 @@ import { createAuthClient } from "better-auth/react";
  * Use `authClient.signIn.social({ provider: "google" })`,
  * `authClient.signOut()`, and `authClient.useSession()`.
  */
-// Use the explicitly configured auth origin when one is supplied. Without a
-// public URL, Better Auth resolves the browser origin and `/api/auth` path at
-// runtime; never silently fall back to localhost on another deployment.
-const authBaseURL = process.env.NEXT_PUBLIC_BETTER_AUTH_URL;
+const configuredBaseURL = process.env.NEXT_PUBLIC_BETTER_AUTH_URL;
+
+/**
+ * The auth API is served by this same app (`app/api/auth/[...all]`), so the
+ * browser must always call the origin that served the page.
+ *
+ * Pointing the client at a build-time absolute URL (e.g. production
+ * `https://tartly.in`) breaks every non-production origin: `localhost` and
+ * preview deployments would POST cross-origin to production, where the browser
+ * blocks the response (`Access-Control-Allow-Origin` missing) and the OAuth
+ * state cookie is written on the wrong host. The server still pins OAuth
+ * `redirect_uri` to `BETTER_AUTH_URL`; only the browser request target follows
+ * the page origin. On the server (SSR of a client component) fall back to the
+ * configured URL.
+ */
+const baseURL =
+  typeof window !== "undefined" ? window.location.origin : configuredBaseURL;
 
 export const authClient = createAuthClient(
-  authBaseURL ? { baseURL: authBaseURL } : undefined,
+  baseURL ? { baseURL } : undefined,
 );
 
 export const { signIn, signOut, useSession } = authClient;

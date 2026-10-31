@@ -18,7 +18,8 @@ function reportRedisError(operation: string, error: unknown) {
 }
 
 /**
- * Better Auth server instance — Google OAuth only.
+ * Better Auth server instance — Google OAuth, plus Microsoft OAuth when the
+ * Entra ID credentials are configured.
  *
  * Storage model:
  *   - PostgreSQL: user + account records, and a mirrored session row.
