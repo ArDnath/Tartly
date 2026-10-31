@@ -5,7 +5,7 @@
 
 | Field | Value |
 | --- | --- |
-| Last updated | **2026-10-27 18:13 UTC** |
+| Last updated | **2026-10-31 18:53 UTC** |
 | Environment | Production (first node) |
 | Canonical origin | `https://tartly.in` |
 | Host | `srv2076028.hstgr.cloud` · `201.18.197.194` · Mumbai 2 |
@@ -151,6 +151,18 @@ curl -sSI https://www.tartly.in | grep -i '^location'                       # 30
 ---
 
 ## 4. Next actions (ordered, critical path first)
+
+### A0 — Verify merged Gmail Pub/Sub identity hardening 🟡
+**Source state:** branches `fix/pubsub-push-identity` and
+`chore/ignore-firecrawl-scratch` were pushed and merged to `main` at
+`830c699` on 2026-10-31. Local unit tests, typecheck, lint, OpenAPI check, and
+production build passed. GitHub Actions and any resulting deployment were not
+verified because the GitHub API credential is invalid; no server was touched.
+**Next:** confirm the CI run for `830c699` and inspect the resulting release
+before treating production as updated. Before enabling Gmail push delivery,
+set `GOOGLE_PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL` to the exact subscription
+identity and grant the Pub/Sub service agent token-creation permission. Pub/Sub
+remains deferred per D19 until configured.
 
 ### A1 — Start TLS after DNS ✅
 **Owner:** agent · **Done:** 2026-10-23 09:44 UTC. DNS returned `201.18.197.194` for apex and www, Caddy started, ACME issued both certificates on the first attempt.
@@ -408,6 +420,7 @@ refund → Google domain TXT → publish/verify consent screen → monitoring UR
 
 | UTC time | Action | Result | Evidence |
 | --- | --- | --- | --- |
+| 2026-10-31 18:53 | Merge Gmail Pub/Sub identity hardening + scratch ignore | 🟡 | Branches pushed and merged at `830c699`; 49 unit files / 339 tests, typecheck, lint, OpenAPI check, and production build passed locally; GitHub CI/deploy status not verified (invalid GitHub API credential); production server untouched |
 | 2026-10-23 07:38 | Host bootstrap | ✅ | UFW active; Docker 29.9.2; 4 GB swap; fail2ban active |
 | 2026-10-23 07:41 | First release (`a14f782-dirty-20261023074103`) | ✅ | web-1/web-2 healthy; worker started |
 | 2026-10-23 07:44 | Ready probe | ✅ | `200 {"status":"ready","postgres":"up","redis":"up"}` |
