@@ -18,7 +18,7 @@ import { promoteLazyImages, rewriteInlineImages } from "@/lib/mail/render-email"
  * every call here reads or writes Gmail directly — Gmail stays the source of
  * truth, so a message archived in Gmail proper is archived here on the next
  * load. Ported from topple's `apps/api/src/services/gmail.service.ts`, keeping
- * app-server's `(userId, …)` + `gmailJson` transport instead of `(token, …)`.
+ * Tartly's `(userId, …)` + `gmailJson` transport instead of `(token, …)`.
  */
 
 /**

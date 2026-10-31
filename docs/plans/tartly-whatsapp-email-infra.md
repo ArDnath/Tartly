@@ -62,10 +62,10 @@ Optional simplification (if cross-service auth feels heavy): co-locate the Next.
 
 ---
 
-## 2. Repo layout (inside `app-server`)
+## 2. Repo layout (inside `tartly`)
 
 ```
-app-server/
+tartly/
 ├─ app/
 │  ├─ api/
 │  │  ├─ realtime/token/route.ts              # mint short-lived JWT

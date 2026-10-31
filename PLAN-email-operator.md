@@ -1,4 +1,4 @@
-# Ultra-detailed build plan — AI Email Operator in `efforts/app-server`
+# Ultra-detailed build plan — AI Email Operator in `efforts/tartly`
 
 Status: **implemented (shipped)** · Target: **Vercel Hobby now, Pro later** (no code changes on upgrade)
 Scope: **Intelligent inbox · Meeting scheduling · Follow-ups.** (No voice feature.)

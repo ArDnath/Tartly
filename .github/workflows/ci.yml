@@ -197,7 +197,7 @@ jobs:
           context: .
           target: runner
           push: false
-          tags: app-server:${{ github.sha }}
+          tags: tartly:${{ github.sha }}
           cache-from: type=gha,scope=web
           cache-to: type=gha,mode=max,scope=web
 
@@ -207,6 +207,6 @@ jobs:
           context: .
           target: worker
           push: false
-          tags: app-server-worker:${{ github.sha }}
+          tags: tartly-worker:${{ github.sha }}
           cache-from: type=gha,scope=worker
           cache-to: type=gha,mode=max,scope=worker

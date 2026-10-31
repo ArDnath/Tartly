@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import HomeContent from "@/components/marketing/landing/home-content";
 import { LandingSmoothScroll } from "@/components/marketing/landing/landing-smooth-scroll";
 import { Navbar } from "@/components/marketing/navbar";
+import { isMicrosoftConnectEnabled } from "@/lib/env";
 
 /**
  * Public landing page.
@@ -41,7 +42,7 @@ export default function Page() {
       <link rel="dns-prefetch" href="https://www.google.com" />
       <LandingSmoothScroll />
       <Navbar active="Features" themeToggle />
-      <HomeContent />
+      <HomeContent outlookAvailable={isMicrosoftConnectEnabled()} />
     </div>
   );
 }
