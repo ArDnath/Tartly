@@ -11,9 +11,12 @@ import {
   findThreadForUser,
   loadThreadMessages,
 } from "@/lib/ai/chat-service";
+import { isBudgetDisabled, tryConsumeAiBudget } from "@/lib/ai/budget";
 import { buildFallbackChatResponse } from "@/lib/ai/fallback-response";
+import { extractUsage } from "@/lib/ai/generate";
 import { GENERAL_CHAT_SYSTEM_PROMPT } from "@/lib/ai/prompts";
 import { createAssistantReplyStream } from "@/lib/ai/stream-reply";
+import { recordAiUsage } from "@/lib/ai/usage";
 import { agentRateLimitPerMin } from "@/lib/env";
 import { getSession } from "@/lib/session";
 
@@ -76,6 +79,13 @@ export async function POST(request: Request, { params }: RouteContext) {
 
   const userText = parsed.data.message.trim();
 
+  // General thread chat is a model invocation just like the agent endpoint.
+  // Reserve its daily allowance before persisting the user turn so a rejected
+  // request cannot leave a message waiting for a reply that will not run.
+  if (!isBudgetDisabled() && !(await tryConsumeAiBudget({ userId: session.user.id }))) {
+    return jsonError("rate_limited", "Daily AI limit reached. Try again tomorrow.", 429);
+  }
+
   await appendMessage({ threadId, role: "user", text: userText });
   await ensureChatThreadTitle(session.user.id, threadId, userText);
 
@@ -85,6 +95,7 @@ export async function POST(request: Request, { params }: RouteContext) {
     content: entry.text,
   }));
 
+  const startedAt = Date.now();
   const stream = createAssistantReplyStream({
     threadId,
     systemPrompt: GENERAL_CHAT_SYSTEM_PROMPT,
@@ -94,6 +105,20 @@ export async function POST(request: Request, { params }: RouteContext) {
         userName: session.user.name ?? null,
         userMessage: userText,
       }),
+    onUsage: (usage) => {
+      // The stream deliberately isolates metering failures from the reply. The
+      // ledger also charges successful model tokens against the credit wallet.
+      void recordAiUsage({
+        userId: session.user.id,
+        feature: "ai-chat",
+        provider: "opencode",
+        model: process.env.AI_MODEL_ID ?? "unknown",
+        role: "standard",
+        ...extractUsage(usage),
+        latencyMs: Date.now() - startedAt,
+        ok: true,
+      });
+    },
   });
 
   return new Response(stream, {
