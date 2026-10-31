@@ -11,7 +11,7 @@ import {
 } from "drizzle-orm/pg-core";
 
 /**
- * Better Auth core tables (Google OAuth only).
+ * Better Auth core tables (Google, and Microsoft when configured).
  * Field names match Better Auth's default expectations so no
  * `fields` mapping is needed in the auth config.
  */
@@ -230,11 +230,27 @@ export type ChatBriefingPart = {
   actions: Array<"send" | "edit" | "tomorrow" | "ignore" | "view_brief">;
 };
 
+/**
+ * A file the user attached to a chat turn. Only a reference is stored; bytes
+ * live in the asset library and are re-read (and, for PDFs, re-extracted) when
+ * the model context is rebuilt. Keeping the raw bytes out of `jsonb` is what
+ * lets a transcript rehydrate without carrying megabytes of base64.
+ */
+export type ChatAttachmentPart = {
+  type: "attachment";
+  assetId: string;
+  kind: AssetKind;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+};
+
 export type ChatMessagePart =
   | ChatTextPart
   | ChatReasoningPart
   | ChatToolPart
-  | ChatBriefingPart;
+  | ChatBriefingPart
+  | ChatAttachmentPart;
 
 export const agentChatMessage = pgTable(
   "agent_chat_message",

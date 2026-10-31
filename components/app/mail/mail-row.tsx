@@ -94,6 +94,12 @@ function MailRowComponent({
   const deleteForever = useMailStore((state) => state.deleteForever);
   const snooze = useMailStore((state) => state.snooze);
   const filter = useMailStore((state) => state.filter);
+  const multiAccount = useMailStore(
+    (state) =>
+      state.accounts.filter(
+        (account) => account.connected && account.mailboxAccess,
+      ).length > 1,
+  );
   const inTrash = isTrashView(filter);
 
   const ids = React.useMemo(
@@ -196,8 +202,8 @@ function MailRowComponent({
 
       <div className="flex w-[112px] shrink-0 items-center gap-1 lg:w-[140px] xl:w-[168px]">
         <MailAccountBadge
-          provider={conversation.provider}
-          accountEmail={accountEmail}
+          provider={multiAccount ? conversation.provider : undefined}
+          accountEmail={multiAccount ? accountEmail : undefined}
           className="mr-0.5"
         />
         <span

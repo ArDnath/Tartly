@@ -127,9 +127,11 @@ export const MICROSOFT_EMAIL_PROVIDER = "microsoft";
 
 /**
  * Where Better Auth lands after Outlook grants access during *onboarding*.
- * Resuming onboarding is enough — the linked `account` row is the record.
+ * The route verifies the mailbox scope was actually granted, records the
+ * provider on the onboarding row and advances the state machine.
  */
-export const MICROSOFT_CONNECT_CALLBACK_PATH = "/onboarding";
+export const MICROSOFT_CONNECT_CALLBACK_PATH =
+  "/api/onboarding/sync-email/outlook/complete";
 
 /** Where Better Auth sends the user when the onboarding Outlook flow fails. */
 export const MICROSOFT_CONNECT_ERROR_CALLBACK_PATH =

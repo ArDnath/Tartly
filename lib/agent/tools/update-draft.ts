@@ -49,7 +49,7 @@ const patchSchema = z.object({
     .string()
     .max(256)
     .optional()
-    .describe("Set or change the Gmail conversation this draft replies into."),
+    .describe("Set or change the conversation this draft replies into."),
   inReplyTo: z
     .string()
     .max(998)

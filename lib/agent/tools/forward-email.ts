@@ -66,6 +66,7 @@ function buildForwardEmailTool(sender: SendService): AnyToolDefinition {
       return {
         sent: !result.deduped,
         deduped: result.deduped,
+        provider: result.provider,
         to: result.to,
         subject: result.subject,
         gmailMessageId: result.gmailMessageId,

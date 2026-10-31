@@ -116,18 +116,23 @@ export const defaultOutlookTransport: OutlookTransport = async (
   path,
   init,
 ) => {
-  const token = await getMicrosoftAccessToken(userId);
-  const response = await fetch(`${GRAPH_API_BASE}${path}`, {
+  // Upload-session URLs are absolute and pre-authenticated; Graph's API base
+  // must not be prepended and the bearer token is not needed.
+  const absolute = /^https?:\/\//i.test(path);
+  const token = absolute ? null : await getMicrosoftAccessToken(userId);
+  const response = await fetch(absolute ? path : `${GRAPH_API_BASE}${path}`, {
     ...init,
     signal: init?.signal ?? AbortSignal.timeout(GRAPH_REQUEST_TIMEOUT_MS),
     headers: {
-      Authorization: `Bearer ${token}`,
-      ...(init?.body ? { "Content-Type": "application/json" } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(init?.body && !init?.headers
+        ? { "Content-Type": "application/json" }
+        : {}),
       ...init?.headers,
     },
   });
 
-  if (response.status === 401 || response.status === 403) {
+  if (!absolute && (response.status === 401 || response.status === 403)) {
     // A 403 on Graph is almost always a missing/revoked scope; reconnect helps.
     await forgetMicrosoftAccessToken(userId).catch(() => {});
     throw new OutlookAuthError(

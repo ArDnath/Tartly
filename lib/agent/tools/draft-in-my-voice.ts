@@ -79,6 +79,9 @@ function buildDraftInMyVoiceTool(drafts: DraftService): AnyToolDefinition {
       let recipient: string | null = input.to?.[0] ?? null;
       let subject = input.subject?.trim() ?? "";
       let incomingText = "";
+      // The provider's own thread id (Gmail raw, Outlook `outlook:`-prefixed).
+      // The input may be the internal mirror id, which no provider understands.
+      let providerThreadId: string | null = null;
 
       if (input.threadId) {
         const context = await loadThreadContext({
@@ -98,6 +101,7 @@ function buildDraftInMyVoiceTool(drafts: DraftService): AnyToolDefinition {
             : `Re: ${threadSubject}`;
         }
         incomingText = context.latestInbound?.bodyText ?? "";
+        providerThreadId = context.thread.gmailThreadId ?? null;
       }
 
       if (!recipient) {
@@ -158,7 +162,7 @@ function buildDraftInMyVoiceTool(drafts: DraftService): AnyToolDefinition {
         to: [recipient],
         ...(subject ? { subject } : {}),
         body,
-        ...(input.threadId ? { threadId: input.threadId } : {}),
+        ...(providerThreadId ? { threadId: providerThreadId } : {}),
       });
 
       const preview = truncate(draft.body, DRAFT_BODY_PREVIEW_CHARS);

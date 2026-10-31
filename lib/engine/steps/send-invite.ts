@@ -3,7 +3,7 @@ import "server-only";
 import { z } from "zod";
 
 import { defineStep } from "@/lib/engine/step";
-import { sendEmail } from "@/lib/gmail/send";
+import { sendFromMirroredMailbox } from "@/lib/mail/send";
 import { meetingRepository } from "@/lib/repositories/meetings";
 import { threadRepository } from "@/lib/repositories/threads";
 import { mailboxRepository } from "@/lib/repositories/mailboxes";
@@ -44,15 +44,17 @@ export const sendInviteStep = defineStep({
     ];
     if (meeting.meetLink) lines.push(`Meet: ${meeting.meetLink}`);
 
-    const result = await sendEmail({
+    const result = await sendFromMirroredMailbox({
       userId: ctx.userId,
+      provider: mailbox.provider,
+      from: mailbox.email,
+      threadId: thread.gmailThreadId,
       email: {
         from: mailbox.email,
         to: [latest.from],
         subject: thread.subject ? `Re: ${thread.subject}` : "Meeting confirmed",
         text: lines.join("\n"),
       },
-      gmailThreadId: thread.gmailThreadId,
       idempotencyKey: `invite:${meeting.id}`,
     });
 

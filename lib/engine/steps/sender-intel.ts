@@ -34,7 +34,10 @@ import {
   isSenderIntelligenceEnabled,
 } from "@/lib/env";
 import { loadThreadContext } from "@/lib/email-operator/thread-context";
-import { applyLabel, archive } from "@/lib/mail/service";
+import {
+  applyLabelUnified,
+  setArchivedUnified,
+} from "@/lib/mail/unified";
 import { mailboxRepository } from "@/lib/repositories/mailboxes";
 import { messageRepository } from "@/lib/repositories/messages";
 import { requireThreadId } from "./helpers";
@@ -210,12 +213,12 @@ export const senderIntelStep = defineStep({
       const ids = await messageRepository.listGmailIdsByThread(threadId);
       try {
         if (cold.isCold && settings.coldEmailAction === "label" && ids.length) {
-          await applyLabel(ctx.userId, ids, "Cold Email");
+          await applyLabelUnified(ctx.userId, ids, "Cold Email");
         } else if (
           (cold.isCold && settings.coldEmailAction === "archive") ||
           (isNoiseCategory(category) && settings.autoArchiveNoise)
         ) {
-          if (ids.length) await archive(ctx.userId, ids);
+          if (ids.length) await setArchivedUnified(ctx.userId, ids, true);
         }
       } catch (error) {
         ctx.log("sender-intel:action-failed", {

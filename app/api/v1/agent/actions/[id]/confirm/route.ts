@@ -7,7 +7,7 @@ import { createLoggingEventSink } from "@/lib/agent/events";
 import { createDefaultToolRegistry } from "@/lib/agent/tools";
 import { confirmActionBody as bodySchema } from "@/lib/api/contracts/agent";
 import { apiError, apiErrorFrom, ok, withUser } from "@/lib/api/http";
-import { emailService } from "@/lib/services/email-service";
+import { connectedMailProviders } from "@/lib/mail/accounts";
 import { actionService, toActionDto } from "@/lib/services/action-service";
 
 /**
@@ -39,15 +39,21 @@ export const POST = withUser<{ params: Promise<{ id: string }> }>(
       return apiErrorFrom(error);
     }
 
-    // The action's provider must still be connected. This is a cheap check
-    // (the Gmail profile is briefly cached) and it keeps a dead grant from
-    // burning the one-shot PENDING → EXECUTING transition.
-    if (action.provider === "gmail" && !(await emailService.isConnected(userId))) {
-      return apiError(
-        "forbidden",
-        "Reconnect your Google account before confirming this action.",
-        403,
-      );
+    // The action's provider must still be connected. This is a cheap check and
+    // keeps a revoked grant from burning the one-shot PENDING → EXECUTING
+    // transition.
+    if (action.provider === "gmail" || action.provider === "outlook") {
+      const providers = await connectedMailProviders(userId);
+      const required = action.provider === "gmail" ? "google" : "microsoft";
+      if (!providers.includes(required)) {
+        return apiError(
+          "forbidden",
+          action.provider === "gmail"
+            ? "Reconnect your Google account before confirming this action."
+            : "Reconnect your Outlook account before confirming this action.",
+          403,
+        );
+      }
     }
 
     const ctx = await buildAgentContext({

@@ -3,6 +3,7 @@
 import { create } from "zustand";
 
 import { openPaywall, usePaywallStore } from "@/components/app/paywall/paywall-store";
+import { MAX_OUTBOUND_ASSETS } from "@/lib/assets/limits";
 import * as mailApi from "@/lib/mail/client";
 import { errorMessage, MailApiError } from "@/lib/mail/client";
 import { conversationKey } from "@/lib/mail/conversations";
@@ -10,6 +11,7 @@ import { parseAddressList } from "@/lib/mail/format";
 import {
   EMPTY_MAIL_QUERY,
   type InitialMailbox,
+  type MailAccount,
   type MailAddress,
   type MailBox,
   type MailDraft,
@@ -19,6 +21,9 @@ import {
   type MailThread,
   type MailView,
 } from "@/lib/mail/types";
+
+/** Which connected account the top-level filter is scoped to. */
+export type MailAccountFilter = "all" | "gmail" | "outlook";
 
 /** One reversible batch, kept so the toast can put the messages back. */
 interface MailUndo {
@@ -47,26 +52,42 @@ const VIEW_BOX: Record<MailView, mailApi.MailboxBox | null> = {
   spam: "spam",
 };
 
-/** Cache identity of a page: one per sidebar destination. */
-function keyFor(filter: MailFilter): string {
-  return `${filter.kind}:${filter.value}`;
+/**
+ * Cache identity of a page: one per sidebar destination *and* account scope,
+ * so switching between All/Gmail/Outlook never shows another scope's page.
+ */
+function keyFor(
+  filter: MailFilter,
+  account: MailAccountFilter = "all",
+): string {
+  const base = `${filter.kind}:${filter.value}`;
+  // The all-accounts scope keeps the historical key, so existing prefetch and
+  // tests do not need a second spelling of the same page.
+  return account === "all" ? base : `${base}:${account}`;
 }
 
 /** Public alias so the list can ask whether the current view has a next page. */
 export { keyFor as mailFilterKey };
 
 /** What to ask the BFF for, or null when the view is local-only. */
-function requestFor(filter: MailFilter): mailApi.MailboxRequest | null {
+function requestFor(
+  filter: MailFilter,
+  account: MailAccountFilter = "all",
+): mailApi.MailboxRequest | null {
   if (filter.kind === "label") {
     // Quotes delimit the label name in Gmail search syntax, so a name
-    // containing one would end the term early.
+    // containing one would end the term early. Outlook maps the same query to
+    // a category of that name.
     return {
       box: "active",
       search: `label:"${filter.value.replace(/"/g, "")}"`,
+      ...(account !== "all" ? { account } : {}),
     };
   }
   const box = VIEW_BOX[filter.value];
-  return box ? { box } : null;
+  return box
+    ? { box, ...(account !== "all" ? { account } : {}) }
+    : null;
 }
 
 /**
@@ -201,6 +222,10 @@ interface MailState {
   errorCode: string | null;
   labels: string[];
   account: MailAddress | null;
+  /** Every connected mail account, for the shared-inbox filter/badges. */
+  accounts: MailAccount[];
+  /** Top-level "All mail / Gmail / Outlook" scope. */
+  accountFilter: MailAccountFilter;
 
   filter: MailFilter;
   query: MailQuery;
@@ -228,6 +253,8 @@ interface MailState {
   settlePrefetch: () => void;
 
   setFilter: (filter: MailFilter) => void;
+  /** Scope every list read to all accounts, Gmail only, or Outlook only. */
+  setAccountFilter: (account: MailAccountFilter) => void;
   setQuery: (patch: Partial<MailQuery>) => void;
   resetQuery: () => void;
   setSearchOpen: (open: boolean) => void;
@@ -301,6 +328,63 @@ function toOutgoing(draft: MailDraft): mailApi.OutgoingMail {
   };
 }
 
+/**
+ * Turn forwarded provider attachments into library asset ids just before a
+ * send/save. A forward is only materialized when the user commits to it, so
+ * opening and discarding the composer leaves no storage behind.
+ */
+async function materializeSourceAttachments(
+  draft: MailDraft,
+): Promise<MailDraft> {
+  const source = draft.sourceAttachments ?? [];
+  if (source.length === 0) return draft;
+
+  const existing = draft.assetIds ?? [];
+  const capacity = Math.max(
+    0,
+    MAX_OUTBOUND_ASSETS -
+      existing.length -
+      (draft.inlineImageIds?.length ?? 0),
+  );
+  if (capacity === 0) {
+    throw new Error(
+      `A message can carry at most ${MAX_OUTBOUND_ASSETS} files. Remove one before sending.`,
+    );
+  }
+
+  const unique = new Map<string, (typeof source)[number]>();
+  for (const attachment of source) {
+    const key = `${attachment.messageId}:${attachment.attachmentId}`;
+    if (!unique.has(key)) unique.set(key, attachment);
+  }
+
+  if (unique.size > capacity) {
+    throw new Error(
+      `This message would carry ${unique.size + existing.length + (draft.inlineImageIds?.length ?? 0)} files. The limit is ${MAX_OUTBOUND_ASSETS}; remove one before sending.`,
+    );
+  }
+
+  const queue = [...unique.values()];
+  const imported: string[] = [];
+  // A forward can have a dozen files; bounded parallelism keeps latency down
+  // without overflowing the asset rate limit.
+  const workers = Array.from(
+    { length: Math.min(3, queue.length) },
+    async () => {
+      for (;;) {
+        const next = queue.shift();
+        if (!next) return;
+        const asset = await mailApi.importMailAttachment(next);
+        imported.push(asset.id);
+      }
+    },
+  );
+  await Promise.all(workers);
+
+  const assetIds = [...new Set([...existing, ...imported])];
+  return { ...draft, assetIds };
+}
+
 export const useMailStore = create<MailState>((set, get) => {
   /**
    * Gmail is authoritative, but waiting on a round trip before a row moves
@@ -364,17 +448,24 @@ export const useMailStore = create<MailState>((set, get) => {
     }));
   };
 
-  /** Forget cached pages so the next visit refetches them. */
-  const invalidate = (...keys: string[]) =>
+  /**
+   * Forget cached pages so the next visit refetches them. Keys are matched by
+   * prefix as well as exactly, because a destination now has one cache entry
+   * per account scope (`view:sent:gmail`, `view:sent:outlook`, …).
+   */
+  const invalidate = (...keys: string[]) => {
+    const matches = (key: string) =>
+      keys.some((candidate) => key === candidate || key.startsWith(`${candidate}:`));
     set((state) => ({
       pages: Object.fromEntries(
-        Object.entries(state.pages).filter(([key]) => !keys.includes(key)),
+        Object.entries(state.pages).filter(([key]) => !matches(key)),
       ),
       // Drop the page walk too: a refetched destination starts at page one.
       pagers: Object.fromEntries(
-        Object.entries(state.pagers).filter(([key]) => !keys.includes(key)),
+        Object.entries(state.pagers).filter(([key]) => !matches(key)),
       ),
     }));
+  };
 
   /**
    * Apply a fetched conversation to the union and, when it is the thread on
@@ -450,6 +541,8 @@ export const useMailStore = create<MailState>((set, get) => {
     errorCode: null,
     labels: [],
     account: null,
+    accounts: [],
+    accountFilter: "all",
     prefetchSettled: false,
 
     filter: { kind: "view", value: "all" },
@@ -466,8 +559,9 @@ export const useMailStore = create<MailState>((set, get) => {
     /** Fetch the destination currently on screen, unless it is already held. */
     load: async (force = false) => {
       const filter = get().filter;
-      const key = keyFor(filter);
-      const request = requestFor(filter);
+      const account = get().accountFilter;
+      const key = keyFor(filter, account);
+      const request = requestFor(filter, account);
 
       // Local-only views have nothing to fetch; they read off the union.
       if (!request || (!force && key in get().pages)) {
@@ -480,12 +574,18 @@ export const useMailStore = create<MailState>((set, get) => {
 
       set({ status: "loading", error: null, errorCode: null });
       try {
-        const { messages, labels, account, nextPageToken } =
-          await mailApi.fetchMailbox(request);
+        const {
+          messages,
+          labels,
+          account: accountProfile,
+          accounts: accountList = [],
+          nextPageToken,
+        } = await mailApi.fetchMailbox(request);
         // The user may have moved on while this was in flight. The page is
         // still worth keeping, but it must not clear the spinner belonging to
         // whichever view they are now looking at.
-        const stillShowing = keyFor(get().filter) === key;
+        const stillShowing =
+          keyFor(get().filter, get().accountFilter) === key;
         set((state) => ({
           ...absorb(state.messages, state.pages, key, messages),
           // A refresh restarts the walk at page one, so its cursor becomes the
@@ -499,7 +599,8 @@ export const useMailStore = create<MailState>((set, get) => {
             },
           },
           labels,
-          account,
+          account: accountProfile,
+          accounts: accountList.length ? accountList : state.accounts,
           ...(stillShowing ? { status: "ready" as const } : {}),
         }));
       } catch (error) {
@@ -521,8 +622,9 @@ export const useMailStore = create<MailState>((set, get) => {
      */
     nextPage: async () => {
       const filter = get().filter;
-      const key = keyFor(filter);
-      const request = requestFor(filter);
+      const account = get().accountFilter;
+      const key = keyFor(filter, account);
+      const request = requestFor(filter, account);
       const pager = get().pagers[key];
 
       if (!request || !pager || loadMoreInFlight.has(key)) return;
@@ -579,7 +681,7 @@ export const useMailStore = create<MailState>((set, get) => {
 
     /** Step back one page from the cache. No network, no spinner. */
     prevPage: () => {
-      const key = keyFor(get().filter);
+      const key = keyFor(get().filter, get().accountFilter);
       const pager = get().pagers[key];
       if (!pager || pager.index === 0) return;
       set((state) => ({
@@ -599,11 +701,13 @@ export const useMailStore = create<MailState>((set, get) => {
       if (get().status !== "idle" || Object.keys(get().pages).length > 0) {
         return;
       }
-      const key = keyFor({ kind: "view", value: "all" });
+      const key = keyFor({ kind: "view", value: "all" }, "all");
       set({
         messages: mailbox.messages,
         labels: mailbox.labels,
         account: mailbox.account,
+        accounts: mailbox.accounts ?? [],
+        accountFilter: "all",
         pages: { [key]: mailbox.messages.map((message) => message.id) },
         // A one-page walk, carrying the prefetch's cursor so Next works before
         // any refresh.
@@ -626,6 +730,17 @@ export const useMailStore = create<MailState>((set, get) => {
     setFilter: (filter) => {
       set({
         filter,
+        selectedIds: [],
+        openThreadId: null,
+        thread: null,
+        threadStatus: "idle",
+        undo: null,
+      });
+      void get().load();
+    },
+    setAccountFilter: (accountFilter) => {
+      set({
+        accountFilter,
         selectedIds: [],
         openThreadId: null,
         thread: null,
@@ -924,9 +1039,12 @@ export const useMailStore = create<MailState>((set, get) => {
         return;
       }
 
+      // Close immediately so a second click cannot send twice. Any failure
+      // reopens the composer from the same draft.
       set({ composeOpen: false, composeInitial: null });
       try {
-        await mailApi.sendMail(toOutgoing(draft));
+        const outgoing = await materializeSourceAttachments(draft);
+        await mailApi.sendMail(toOutgoing(outgoing));
         set({ undo: { label: "Message sent", snapshot: [] } });
         // Sent now holds one more message than the cached page does; drop it so
         // opening Sent fetches rather than showing a stale list.
@@ -937,35 +1055,59 @@ export const useMailStore = create<MailState>((set, get) => {
         if (mailApi.isPaymentRequired(error)) {
           openPaywall("mail_send");
           void usePaywallStore.getState().refresh();
+          set({ composeOpen: true, composeInitial: draft });
           return;
         }
-        set({ error: errorMessage(error, "Couldn't send that message") });
+        set({
+          error: errorMessage(error, "Couldn't send that message"),
+          composeOpen: true,
+          composeInitial: draft,
+        });
       }
     },
 
     saveDraft: async (draft) => {
-      // Drafts live in Gmail; an Outlook reply has no Graph draft path here, so
-      // keep the composer open and say so rather than silently filing a Gmail
-      // draft the user never asked for.
-      if (draft.account === "outlook") {
-        set({
-          error: "Saving Outlook drafts isn't supported yet — send the message instead.",
-        });
-        return;
-      }
+      // Drafts route to the account the composer is replying from, so an
+      // Outlook reply is filed in Outlook (Graph), never in Gmail.
       set({ composeOpen: false, composeInitial: null });
       try {
-        await mailApi.saveDraft(toOutgoing(draft));
+        const outgoing = await materializeSourceAttachments(draft);
+        await mailApi.saveDraft(toOutgoing(outgoing));
         set({ undo: { label: "Draft saved", snapshot: [] } });
         invalidate("view:drafts");
         await get().load(true);
       } catch (error) {
-        set({ error: errorMessage(error, "Couldn't save that draft") });
+        set({
+          error: errorMessage(error, "Couldn't save that draft"),
+          composeOpen: true,
+          composeInitial: draft,
+        });
       }
     },
 
     openCompose: (initial) =>
-      set({ composeOpen: true, composeInitial: initial ?? null }),
+      set((state) => {
+        const draft = initial ?? {};
+        if (draft.account || draft.threadId) {
+          return { composeOpen: true, composeInitial: draft };
+        }
+        const live = state.accounts.filter(
+          (account) => account.connected && account.mailboxAccess,
+        );
+        const hasGmail = live.some((account) => account.provider === "gmail");
+        const hasOutlook = live.some(
+          (account) => account.provider === "outlook",
+        );
+        return {
+          composeOpen: true,
+          composeInitial: {
+            ...draft,
+            ...(hasGmail || !hasOutlook
+              ? { account: "gmail" as const }
+              : { account: "outlook" as const }),
+          },
+        };
+      }),
     closeCompose: () => set({ composeOpen: false, composeInitial: null }),
 
     undoLast: () => {

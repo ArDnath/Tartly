@@ -12,7 +12,7 @@ const inputSchema = z.object({
     .max(512)
     .optional()
     .describe(
-      "Gmail search query (same syntax as Gmail search, e.g. 'from:jane@acme.com newer_than:7d', 'subject:pricing', 'has:attachment'). Omit to list the mailbox view.",
+      "Search query using familiar Gmail-style terms (e.g. 'from:jane@acme.com newer_than:7d', 'subject:pricing', 'has:attachment'). Both Gmail and Outlook are searched. Omit to list the mailbox view.",
     ),
   box: z
     .enum(["inbox", "sent", "archive", "drafts", "trash", "spam", "all"])
@@ -33,7 +33,7 @@ function buildSearchEmailsTool(email: EmailService): AnyToolDefinition {
   return defineTool({
     name: "search_emails",
     description:
-      "Search the user's mailbox and return compact message rows (sender, subject, snippet, date). Use Gmail query syntax. This returns metadata only — call get_email or get_thread for bodies.",
+      "Search every connected mailbox (Gmail and Outlook) and return compact message rows (sender, subject, snippet, date). Gmail-style query terms such as from:, subject:, has:attachment and newer_than: are accepted. This returns metadata only — call get_email or get_thread for bodies.",
     risk: "READ",
     inputSchema,
     authorize(ctx) {

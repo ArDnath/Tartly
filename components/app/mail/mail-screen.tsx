@@ -52,6 +52,7 @@ export function MailScreen({
   const errorCode = useMailStore((state) => state.errorCode);
   const filter = useMailStore((state) => state.filter);
   const query = useMailStore((state) => state.query);
+  const accountFilter = useMailStore((state) => state.accountFilter);
   const openThreadId = useMailStore((state) => state.openThreadId);
   const thread = useMailStore((state) => state.thread);
   const threadStatus = useMailStore((state) => state.threadStatus);
@@ -63,7 +64,9 @@ export function MailScreen({
   const loadingMore = useMailStore((state) => state.loadingMore);
   // The pager for the on-screen destination. Stable reference from the store,
   // so the derived flags below don't churn.
-  const pager = useMailStore((state) => state.pagers[mailFilterKey(state.filter)]);
+  const pager = useMailStore(
+    (state) => state.pagers[mailFilterKey(state.filter, state.accountFilter)],
+  );
 
   const [focusedThreadId, setFocusedThreadId] = React.useState<string | null>(
     null,
@@ -75,7 +78,7 @@ export function MailScreen({
   const pageIndex = pager?.index ?? 0;
   React.useEffect(() => {
     listRef.current?.scrollTo({ top: 0 });
-  }, [pageIndex, filter, loadingMore]);
+  }, [pageIndex, filter, accountFilter, loadingMore]);
 
   React.useEffect(() => {
     // When a server prefetch is in flight, wait for it to settle: if it seeded
@@ -122,8 +125,9 @@ export function MailScreen({
         query,
         pageScope,
         account?.email,
+        accountFilter,
       ),
-    [messages, filter, query, pageScope, account?.email],
+    [messages, filter, query, pageScope, account?.email, accountFilter],
   );
 
   const hasPrev = Boolean(pager && pager.index > 0);

@@ -31,7 +31,7 @@ import { isTrashView } from "@/lib/mail/filter";
 import { LabelAction } from "@/components/app/mail/mail-toolbar";
 import { MailTagBadge } from "@/components/app/mail/mail-tag-badge";
 import { MailHtmlBody } from "@/components/app/mail/mail-html-body";
-import type { MailMessage } from "@/lib/mail/types";
+import type { MailMessage, MailSourceAttachment } from "@/lib/mail/types";
 
 function ReaderAction({
   label,
@@ -66,6 +66,21 @@ function quoted(message: MailMessage): string {
     .split("\n")
     .map((line) => `> ${line}`)
     .join("\n")}`;
+}
+
+/**
+ * Forwarding carries the original files. They stay provider references until
+ * the composer sends/saves, when the store imports them into the asset library
+ * (owner-scoped, scanned, deduped).
+ */
+function forwardAttachments(message: MailMessage): MailSourceAttachment[] {
+  return (message.attachments ?? []).map((attachment) => ({
+    messageId: message.id,
+    attachmentId: attachment.id,
+    filename: attachment.name,
+    ...(attachment.mimeType ? { mimeType: attachment.mimeType } : {}),
+    ...(attachment.sizeBytes ? { sizeBytes: attachment.sizeBytes } : {}),
+  }));
 }
 
 /** One message inside the conversation, Gmail-style: the newest is open, the
@@ -463,6 +478,11 @@ export function MailReader({
                       : `Fwd: ${subject}`,
                     body: quoted(latest),
                     ...(latest.provider ? { account: latest.provider } : {}),
+                    ...(latest.attachments?.length
+                      ? {
+                          sourceAttachments: forwardAttachments(latest),
+                        }
+                      : {}),
                   })
                 }
                 className="flex items-center gap-2 rounded-full border border-border px-4 py-2 text-[13px] font-medium text-mail-strong transition-colors hover:bg-mail-row-hover"

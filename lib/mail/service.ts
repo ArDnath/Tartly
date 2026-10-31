@@ -3,7 +3,11 @@ import "server-only";
 import { createHash } from "node:crypto";
 
 import { defaultGmailTransport, gmailJson, GmailApiError, type GmailTransport } from "@/lib/gmail/client";
-import { buildRawMessage } from "@/lib/gmail/mime";
+import {
+  buildRawMessage,
+  type Attachment,
+  type InlineImage,
+} from "@/lib/gmail/mime";
 import { decodeBase64Url, decodeRfc2047, parseUnsubscribeHeaders } from "@/lib/gmail/parse";
 import { promoteLazyImages, rewriteInlineImages } from "@/lib/mail/render-email";
 
@@ -69,6 +73,8 @@ export interface MailAttachment {
   id: string;
   name: string;
   size: string;
+  mimeType?: string;
+  sizeBytes?: number;
 }
 
 /** The shape the mail UI renders. Mirrors `MailMessage` in `lib/mail/types.ts`. */
@@ -94,6 +100,7 @@ export interface MailMessage {
   replied?: boolean;
   /** The RFC 2822 Message-ID this message replies to, when present. */
   inReplyTo?: string;
+  hasAttachments?: boolean;
   attachments?: MailAttachment[];
   unsubscribe?: {
     url?: string;
@@ -278,6 +285,10 @@ function collectAttachments(
         id: part.body.attachmentId,
         name: part.filename,
         size: formatBytes(part.body.size ?? 0),
+        ...(part.mimeType ? { mimeType: part.mimeType } : {}),
+        ...(typeof part.body.size === "number"
+          ? { sizeBytes: part.body.size }
+          : {}),
       });
     }
     part.parts?.forEach(walk);
@@ -375,7 +386,9 @@ function toMailMessage(
           inReplyTo: headerValue(headers, "In-Reply-To"),
         }
       : {}),
-    ...(attachments.length > 0 ? { attachments } : {}),
+    ...(attachments.length > 0
+      ? { attachments, hasAttachments: true }
+      : {}),
     ...(() => {
       const parsed = parseUnsubscribeHeaders(headers);
       if (!parsed) return {};
@@ -912,6 +925,12 @@ export interface OutgoingMail {
   bcc?: string[];
   subject: string;
   body: string;
+  /** HTML alternative, required when inline images are present. */
+  html?: string;
+  /** Inline images referenced as `cid:` from the HTML body. */
+  inlineImages?: InlineImage[];
+  /** Regular file attachments. */
+  attachments?: Attachment[];
   /** Set when replying, so Gmail threads the message correctly. */
   threadId?: string;
   inReplyTo?: string;
@@ -992,6 +1011,11 @@ function toOutboundMessage(from: string, mail: OutgoingMail) {
     ...(mail.bcc?.length ? { bcc: mail.bcc } : {}),
     subject: mail.subject,
     text: mail.body,
+    ...(mail.html ? { html: mail.html } : {}),
+    ...(mail.inlineImages?.length
+      ? { inlineImages: mail.inlineImages }
+      : {}),
+    ...(mail.attachments?.length ? { attachments: mail.attachments } : {}),
     ...(mail.inReplyTo
       ? { inReplyTo: mail.inReplyTo, references: [mail.inReplyTo] }
       : {}),

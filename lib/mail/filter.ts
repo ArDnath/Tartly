@@ -8,9 +8,19 @@ import type {
   MailConversation,
   MailFilter,
   MailMessage,
+  MailProvider,
   MailQuery,
   MailView,
 } from "@/lib/mail/types";
+
+/** The top-level shared-inbox scope: everything, or one provider. */
+export type AccountScope = "all" | MailProvider;
+
+function matchesAccount(message: MailMessage, account: AccountScope): boolean {
+  if (account === "all") return true;
+  // Messages read before the provider field existed came from Gmail.
+  return (message.provider ?? "gmail") === account;
+}
 
 const byNewest = (a: MailMessage, b: MailMessage) =>
   new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime();
@@ -57,7 +67,13 @@ export function isTrashView(filter: MailFilter): boolean {
 function matchesQuery(message: MailMessage, query: MailQuery): boolean {
   if (query.unreadOnly && !message.unread) return false;
   if (query.starredOnly && !message.starred) return false;
-  if (query.withAttachments && !message.attachments?.length) return false;
+  if (
+    query.withAttachments &&
+    !message.hasAttachments &&
+    !message.attachments?.length
+  ) {
+    return false;
+  }
   if (query.tag && message.tag !== query.tag) return false;
   const term = query.search.trim().toLowerCase();
   if (term) {
@@ -87,11 +103,13 @@ export function selectMessages(
   filter: MailFilter,
   query: MailQuery,
   scope?: ReadonlySet<string> | null,
+  account: AccountScope = "all",
 ): MailMessage[] {
   return messages
     .filter(
       (message) =>
         (!scope || scope.has(message.id)) &&
+        matchesAccount(message, account) &&
         matchesFilter(message, filter) &&
         matchesQuery(message, query),
     )
@@ -109,10 +127,12 @@ export function selectConversations(
   query: MailQuery,
   scope?: ReadonlySet<string> | null,
   selfEmail?: string | null,
+  account: AccountScope = "all",
 ): MailConversation[] {
-  return groupConversations(selectMessages(messages, filter, query, scope), {
-    selfEmail,
-  });
+  return groupConversations(
+    selectMessages(messages, filter, query, scope, account),
+    { selfEmail },
+  );
 }
 
 /** Count of messages a sidebar destination (view or label) holds. */

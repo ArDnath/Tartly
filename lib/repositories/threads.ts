@@ -184,6 +184,28 @@ export class ThreadRepository {
     return inserted[0];
   }
 
+  /**
+   * Refresh the cheap display state of an already-mirrored thread. Used by the
+   * Outlook window sync, which skips re-reading bodies but still needs the
+   * inbox badge to reflect read/unread and category changes.
+   */
+  async updateMirrorState(input: {
+    gmailThreadId: string;
+    subject: string | null;
+    labels: string[];
+    isUnread: boolean;
+  }): Promise<void> {
+    await this.database
+      .update(threads)
+      .set({
+        subject: input.subject,
+        labels: input.labels,
+        isUnread: input.isUnread,
+        updatedAt: new Date(),
+      })
+      .where(eq(threads.gmailThreadId, input.gmailThreadId));
+  }
+
   /** Monotonic cursor advance: only moves `lastMessageAt` forward. */
   async updateLastMessageAt(
     threadId: string,

@@ -64,8 +64,26 @@ export interface MailAddress {
 export interface MailAttachment {
   id: string;
   name: string;
-  /** Human-readable, e.g. "2.4 MB" — attachments here are never really fetched. */
+  /** Human-readable, e.g. "2.4 MB" — attachments are fetched on demand. */
   size: string;
+  /** Provider MIME type, when the mailbox exposes it. */
+  mimeType?: string;
+  /** Exact byte length, when the mailbox exposes it. */
+  sizeBytes?: number;
+}
+
+/**
+ * An attachment that lives on an existing message, carried into the composer
+ * when forwarding. It is not an asset yet: the store imports it into the asset
+ * library (owner-scoped and scanned) only when the user actually sends/saves,
+ * so a discarded forward leaves no storage behind.
+ */
+export interface MailSourceAttachment {
+  messageId: string;
+  attachmentId: string;
+  filename: string;
+  mimeType?: string;
+  sizeBytes?: number;
 }
 
 export interface MailMessage {
@@ -115,6 +133,13 @@ export interface MailMessage {
   replied?: boolean;
   /** Renders the red "Draft N" marker beside the sender. */
   draftCount?: number;
+  /**
+   * Auto-reply/bounce marker read from the provider's headers. Internal: used
+   * by the triage mirror so autopilot never replies to a robot.
+   */
+  autoSubmitted?: boolean;
+  /** True when the provider reports attachments even if metadata wasn't expanded. */
+  hasAttachments?: boolean;
   attachments?: MailAttachment[];
   /**
    * Bulk-mail unsubscribe headers on the message (Phase 2). Present only when
@@ -157,6 +182,8 @@ export interface MailDraft {
   assetIds?: string[];
   /** Phase 6: library images to render inline. */
   inlineImageIds?: string[];
+  /** Original attachments carried from a forwarded message. */
+  sourceAttachments?: MailSourceAttachment[];
   /** The account to send from when replying in the shared inbox. */
   account?: MailProvider;
   /** The conversation the reply belongs to (`outlook:`-prefixed for Outlook). */
@@ -168,6 +195,8 @@ export interface InitialMailbox {
   messages: MailMessage[];
   labels: string[];
   account: MailAddress;
+  /** Connected accounts, used by the shared-inbox account filter. */
+  accounts?: MailAccount[];
   /** Cursor for the page after this one, so “load more” works before a refetch. */
   nextPageToken?: string;
 }

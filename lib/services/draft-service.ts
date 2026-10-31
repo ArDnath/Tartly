@@ -5,7 +5,7 @@ import {
   ConflictError,
   ValidationError,
 } from "@/lib/agent/errors";
-import { gmailEmailProvider } from "@/lib/providers/email/gmail-provider";
+import { unifiedEmailProvider } from "@/lib/providers/email/unified-provider";
 import type {
   EmailDraft,
   EmailDraftInput,
@@ -57,7 +57,7 @@ export interface DraftPatch {
 
 export class DraftService {
   constructor(
-    private readonly provider: EmailDraftProvider = gmailEmailProvider,
+    private readonly provider: EmailDraftProvider = unifiedEmailProvider,
   ) {}
 
   async getDraft(input: {
@@ -83,6 +83,7 @@ export class DraftService {
     bcc?: string[];
     subject?: string;
     body: string;
+    account?: "gmail" | "outlook";
     threadId?: string;
     inReplyTo?: string;
   }): Promise<EmailDraft> {
@@ -94,6 +95,7 @@ export class DraftService {
       bcc: this.normalizeAddresses(input.bcc ?? [], "bcc"),
       subject: this.normalizeSubject(input.subject ?? ""),
       body: this.normalizeBody(input.body),
+      ...(input.account ? { account: input.account } : {}),
       ...(input.threadId ? { threadId: input.threadId.trim() } : {}),
       ...(input.inReplyTo
         ? { inReplyTo: input.inReplyTo.trim().slice(0, MAX_IN_REPLY_TO_CHARS) }

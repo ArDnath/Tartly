@@ -106,7 +106,9 @@ export function groupConversations(
       unread: threadMessages.some((message) => message.unread),
       starred: threadMessages.some((message) => message.starred),
       hasAttachments: threadMessages.some(
-        (message) => (message.attachments?.length ?? 0) > 0,
+        (message) =>
+          message.hasAttachments === true ||
+          (message.attachments?.length ?? 0) > 0,
       ),
       messageCount: threadMessages.length,
       participants,

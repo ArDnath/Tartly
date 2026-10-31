@@ -27,14 +27,19 @@ import {
 import { MICROSOFT_MAIL_SCOPES } from "@/lib/outlook/scopes";
 
 export const SyncEmailStep = () => {
-  const { isNavigating, syncEmailError, syncEmailErrorDetail, user } =
-    useOnboarding();
+  const {
+    isNavigating,
+    syncEmailError,
+    syncEmailErrorDetail,
+    user,
+    outlookAvailable,
+  } = useOnboarding();
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnectingOutlook, setIsConnectingOutlook] = useState(false);
   const [connectError, setConnectError] = useState(false);
 
-  const outlookEnabled =
-    process.env.NEXT_PUBLIC_MICROSOFT_CONNECT_ENABLED === "true";
+  // Server truth: real credentials AND the display flag.
+  const outlookEnabled = outlookAvailable;
 
   const showError = connectError || syncEmailError;
 
@@ -140,6 +145,11 @@ export const SyncEmailStep = () => {
                 or mail that passes the Autopilot rules you opt into.
               </li>
               <li>
+                <strong className="font-medium text-foreground">Outlook</strong>{" "}
+                — read messages and conversations, search, apply categories,
+                archive, move to trash, save drafts, and send mail you approve.
+              </li>
+              <li>
                 <strong className="font-medium text-foreground">
                   Google Calendar
                 </strong>{" "}
@@ -238,7 +248,7 @@ export const SyncEmailStep = () => {
                     : "Continue with Outlook"}
                 </span>
                 <span className="text-xs text-muted-foreground transition-colors group-hover:text-neutral-500">
-                  Outlook Mail &amp; Calendar
+                  Outlook Mail
                 </span>
               </span>
               <ArrowRight className="size-4 shrink-0 text-muted-foreground transition-colors group-hover:text-neutral-500" />
@@ -259,7 +269,7 @@ export const SyncEmailStep = () => {
                   Outlook
                 </span>
                 <span className="text-xs text-muted-foreground">
-                  Outlook Mail &amp; Calendar
+                  Outlook Mail
                 </span>
               </span>
               <span className="shrink-0 rounded-full border border-border/70 bg-gradient-to-r from-muted/80 to-transparent px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
@@ -269,9 +279,10 @@ export const SyncEmailStep = () => {
           )}
 
           <p className="pt-1 text-center text-xs text-muted-foreground">
-            You&apos;ll grant Gmail read/send, Google Calendar, and
-            permanent-delete access. You can change this later in Settings →
-            Connected accounts or at{" "}
+            Connecting Google grants Gmail read/send, Google Calendar, and
+            permanent-delete access. Connecting Outlook grants Microsoft Graph
+            mail read/send. You can disconnect either one later in Settings →
+            Connected accounts, or revoke Google access at{" "}
             <a
               href="https://myaccount.google.com/permissions"
               target="_blank"
@@ -285,7 +296,7 @@ export const SyncEmailStep = () => {
 
           {showError ? (
             <p role="alert" className="text-center text-xs text-destructive">
-              We couldn&apos;t connect your Google account. Please try again.
+              We couldn&apos;t connect that mailbox. Please try again.
             </p>
           ) : null}
 

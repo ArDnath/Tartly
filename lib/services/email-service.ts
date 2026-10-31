@@ -1,7 +1,7 @@
 import "server-only";
 
 import { AuthenticationError, ValidationError } from "@/lib/agent/errors";
-import { gmailEmailProvider } from "@/lib/providers/email/gmail-provider";
+import { unifiedEmailProvider } from "@/lib/providers/email/unified-provider";
 import type {
   EmailDetail,
   EmailMailboxProvider,
@@ -30,7 +30,7 @@ export const MAX_LABEL_NAME_CHARS = 100;
 
 export class EmailService {
   constructor(
-    private readonly provider: EmailMailboxProvider = gmailEmailProvider,
+    private readonly provider: EmailMailboxProvider = unifiedEmailProvider,
   ) {}
 
   get kind() {

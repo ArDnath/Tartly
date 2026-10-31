@@ -9,7 +9,7 @@
  * phases as a separate, explicitly-risky interface extension.
  */
 
-export type EmailProviderKind = "gmail" | "outlook" | "imap";
+export type EmailProviderKind = "gmail" | "outlook" | "imap" | "unified";
 
 export interface EmailAddress {
   name: string;
@@ -27,6 +27,8 @@ export interface EmailAttachmentSummary {
 export interface EmailSummary {
   id: string;
   threadId: string;
+  /** Which connected account holds the message. */
+  provider?: "gmail" | "outlook";
   from: EmailAddress;
   to: EmailAddress[];
   cc?: EmailAddress[];
@@ -127,6 +129,8 @@ export interface EmailDraftInput {
   bcc: string[];
   subject: string;
   body: string;
+  /** Which connected account should hold a brand-new draft. */
+  account?: "gmail" | "outlook";
   /** Set when the draft is a reply, so the provider threads it correctly. */
   threadId?: string;
   inReplyTo?: string;

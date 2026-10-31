@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { OnboardingFlow } from "@/components/app/onboarding/onboarding-flow";
 import { OnboardingProvider } from "@/components/app/onboarding/onboarding-provider";
+import { isMicrosoftConnectEnabled } from "@/lib/env";
 import { splitDisplayName } from "@/lib/onboarding/profile";
 import { getOrCreateOnboardingState } from "@/lib/onboarding/server";
 import { ONBOARDING_STATUS } from "@/lib/onboarding/types";
@@ -39,6 +40,7 @@ export default async function OnboardingPage({
       syncEmailErrorDetail={
         error ? (errorDescription ? `${error}: ${errorDescription}` : error) : undefined
       }
+      outlookAvailable={isMicrosoftConnectEnabled()}
       user={{
         name: session.user.name,
         firstName,

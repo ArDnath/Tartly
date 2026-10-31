@@ -2,7 +2,10 @@ import "server-only";
 
 import { getEntitlement } from "@/lib/billing/entitlements";
 import { freeMailViewLimit } from "@/lib/env";
-import { resolveProviderEmails } from "@/lib/mail/accounts";
+import {
+  listConnectedAccounts,
+  resolveProviderEmails,
+} from "@/lib/mail/accounts";
 import { listUnifiedMessages } from "@/lib/mail/unified";
 import type { InitialMailbox } from "@/lib/mail/types";
 
@@ -30,9 +33,10 @@ export async function loadInitialMailbox(
     const limit = entitlement.isSubscriber
       ? INITIAL_MAILBOX_LIMIT
       : freeMailViewLimit();
-    const [mailbox, emails] = await Promise.all([
+    const [mailbox, emails, accounts] = await Promise.all([
       listUnifiedMessages(userId, { box: "inbox", limit }),
       resolveProviderEmails(userId),
+      listConnectedAccounts(userId).catch(() => []),
     ]);
 
     const address = emails.gmail ?? emails.outlook ?? "";
@@ -44,6 +48,7 @@ export async function loadInitialMailbox(
         name: address.split("@")[0] || "Me",
         email: address,
       },
+      accounts,
       ...(entitlement.isSubscriber && mailbox.nextPageToken
         ? { nextPageToken: mailbox.nextPageToken }
         : {}),

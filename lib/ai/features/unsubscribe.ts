@@ -2,7 +2,7 @@ import "server-only";
 
 import { nanoid } from "nanoid";
 
-import { archive } from "@/lib/mail/service";
+import { setArchivedUnified } from "@/lib/mail/unified";
 import { messageRepository } from "@/lib/repositories/messages";
 import { senderProfileRepository } from "@/lib/repositories/sender-profiles";
 import { unsubscribeAttemptRepository } from "@/lib/repositories/unsubscribe-attempts";
@@ -113,7 +113,7 @@ async function archiveThreadMessages({
   });
   if (ids.length === 0) return 0;
   try {
-    await archive(userId, ids);
+    await setArchivedUnified(userId, ids, true);
     return ids.length;
   } catch (error) {
     console.warn("[ai/unsubscribe] archive failed", error);

@@ -2,14 +2,16 @@ import type {
   MailAccount,
   MailAddress,
   MailMessage,
+  MailSourceAttachment,
   MailThread,
 } from "@/lib/mail/types";
 
 /**
- * The mail feature talks to the signed-in user's real Gmail through the BFF
- * (`/api/v1/mail`), which holds the OAuth token. Nothing is cached here —
- * Gmail is the source of truth. Browser-side fetch wrapper only; the Gmail
- * client itself lives in `lib/mail/service.ts` on the server.
+ * The mail feature talks to the signed-in user's real mailboxes (Gmail and/or
+ * Outlook) through the BFF (`/api/v1/mail`), which holds the OAuth tokens.
+ * Nothing is cached here — the providers remain the source of truth.
+ * Browser-side fetch wrapper only; the server clients live in
+ * `lib/mail/service.ts` and `lib/outlook/service.ts`.
  */
 
 interface ApiEnvelope<T> {
@@ -65,6 +67,8 @@ export interface Mailbox {
   messages: MailMessage[];
   labels: string[];
   account: MailAddress;
+  /** Every connected mail account, so the shared-inbox filter can render. */
+  accounts: MailAccount[];
   /**
    * Opaque Gmail cursor for the slice after this page. Absent on the last page.
    * The client only ever holds it in memory to fetch the *next* page on demand —
@@ -98,8 +102,8 @@ export interface MailboxRequest {
   pageToken?: string;
   /**
    * Which connected account to read. Defaults to `all` — the shared inbox — so
-   * Gmail and Outlook merge into one list. A label search is always Gmail-only
-   * on the server.
+   * Gmail and Outlook merge into one list. Label searches run against Gmail
+   * labels and Outlook categories.
    */
   account?: "all" | "gmail" | "outlook";
 }
@@ -145,9 +149,10 @@ export async function fetchMailboxPage(
 export async function fetchMailbox(
   request_: MailboxRequest = { box: "inbox" },
 ): Promise<Mailbox> {
-  const [page, account] = await Promise.all([
+  const [page, account, accounts] = await Promise.all([
     fetchMailboxPage(request_),
     request<{ emailAddress: string }>("/api/v1/mail/profile"),
+    fetchMailAccounts().catch(() => []),
   ]);
 
   return {
@@ -157,6 +162,7 @@ export async function fetchMailbox(
       name: account.emailAddress.split("@")[0] ?? "Me",
       email: account.emailAddress,
     },
+    accounts,
     ...(page.nextPageToken ? { nextPageToken: page.nextPageToken } : {}),
   };
 }
@@ -190,7 +196,7 @@ export async function fetchMailAccounts(): Promise<MailAccount[]> {
 }
 
 // --------------------------------------------------------------------------
-// Mutations — each mirrors one Gmail label operation
+// Mutations — each mirrors one mailbox operation on either provider
 // --------------------------------------------------------------------------
 export function setRead(ids: string[], read: boolean) {
   return request("/api/v1/mail/messages/read", {
@@ -288,6 +294,36 @@ export async function saveDraft(mail: OutgoingMail): Promise<string> {
     body: JSON.stringify(mail),
   });
   return result.id;
+}
+
+/**
+ * Copy an attachment from a received message into the asset library. Used when
+ * forwarding so the original file can ride along without asking the user to
+ * download and re-upload it.
+ */
+export async function importMailAttachment(
+  attachment: MailSourceAttachment,
+): Promise<{ id: string; filename: string; mimeType: string; kind: string }> {
+  const result = await request<{
+    asset: {
+      id: string;
+      filename: string;
+      mimeType: string;
+      kind: string;
+    };
+  }>("/api/v1/mail/attachments/import", {
+    method: "POST",
+    body: JSON.stringify({
+      messageId: attachment.messageId,
+      attachmentId: attachment.attachmentId,
+      filename: attachment.filename,
+      ...(attachment.mimeType ? { mimeType: attachment.mimeType } : {}),
+      ...(attachment.sizeBytes
+        ? { sizeBytes: attachment.sizeBytes }
+        : {}),
+    }),
+  });
+  return result.asset;
 }
 
 // --------------------------------------------------------------------------

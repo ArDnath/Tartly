@@ -15,9 +15,9 @@ import { requireWritePermission } from "./shared";
  * can be paused or stopped), so it runs without confirmation, and it never
  * sends anything by itself: the cadence produces a draft the user approves.
  *
- * Follow-ups live on the mirrored thread model, so this resolves the Gmail
- * thread id to its mirror row; an unsynced thread returns a clear result
- * instead of a half-created enrollment.
+ * Follow-ups live on the mirrored thread model, so this resolves the provider
+ * thread id (Gmail or `outlook:`-prefixed) to its mirror row; an unsynced
+ * thread returns a clear result instead of a half-created enrollment.
  */
 
 const inputSchema = z.object({
@@ -25,7 +25,7 @@ const inputSchema = z.object({
     .string()
     .min(1)
     .max(256)
-    .describe("The Gmail thread id from search_emails or get_thread."),
+    .describe("The thread id from search_emails or get_thread."),
   afterDays: z
     .number()
     .int()

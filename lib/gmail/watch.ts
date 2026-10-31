@@ -130,6 +130,9 @@ export async function getUnhealthyWatches({
 } = {}): Promise<WatchHealth[]> {
   const rows = await mailboxRepository.listWatchHealth();
   return rows
+    // Outlook mailboxes are synced through Graph and have no Gmail watch; they
+    // would otherwise look permanently lapsed in this Google-specific view.
+    .filter((row) => row.provider === "google")
     .map((row) => ({
       mailboxId: row.id,
       userId: row.userId,

@@ -111,6 +111,16 @@ export class MessageRepository {
     return rows[0];
   }
 
+  /** Which of these provider message ids are already mirrored. */
+  async existingGmailMessageIds(ids: string[]): Promise<Set<string>> {
+    if (ids.length === 0) return new Set();
+    const rows = await this.database
+      .select({ id: messages.gmailMessageId })
+      .from(messages)
+      .where(inArray(messages.gmailMessageId, ids));
+    return new Set(rows.map((row) => row.id));
+  }
+
   /** Idempotent mirror insert keyed on the Gmail message id. */
   async insert(values: NewMessage): Promise<void> {
     await this.database

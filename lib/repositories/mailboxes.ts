@@ -73,6 +73,14 @@ export class MailboxRepository {
     return rows[0];
   }
 
+  /** Every connected mailbox for a user (Gmail and Outlook can both exist). */
+  async listByUser(userId: string): Promise<Mailbox[]> {
+    return this.database
+      .select()
+      .from(mailboxes)
+      .where(eq(mailboxes.userId, userId));
+  }
+
   async findByIdForUser(
     userId: string,
     mailboxId: string,
@@ -116,9 +124,13 @@ export class MailboxRepository {
   /** Bounded set for the daily backfill: at most `limit` mailboxes. */
   async listForBackfill(
     limit: number,
-  ): Promise<Array<{ id: string; userId: string }>> {
+  ): Promise<Array<{ id: string; userId: string; provider: string }>> {
     return this.database
-      .select({ id: mailboxes.id, userId: mailboxes.userId })
+      .select({
+        id: mailboxes.id,
+        userId: mailboxes.userId,
+        provider: mailboxes.provider,
+      })
       .from(mailboxes)
       .limit(limit);
   }
@@ -131,9 +143,14 @@ export class MailboxRepository {
       .select({ id: mailboxes.id, userId: mailboxes.userId })
       .from(mailboxes)
       .where(
-        or(
-          isNull(mailboxes.watchExpiration),
-          lt(mailboxes.watchExpiration, cutoff),
+        and(
+          // Graph uses subscriptions, not Gmail watches; only Google mailboxes
+          // are renewed by the Gmail watch cron.
+          eq(mailboxes.provider, "google"),
+          or(
+            isNull(mailboxes.watchExpiration),
+            lt(mailboxes.watchExpiration, cutoff),
+          ),
         ),
       );
   }
@@ -147,6 +164,7 @@ export class MailboxRepository {
       id: string;
       userId: string;
       email: string;
+      provider: string;
       watchExpiration: Date | null;
       lastSyncedAt: Date | null;
       syncError: string | null;
@@ -157,6 +175,7 @@ export class MailboxRepository {
         id: mailboxes.id,
         userId: mailboxes.userId,
         email: mailboxes.email,
+        provider: mailboxes.provider,
         watchExpiration: mailboxes.watchExpiration,
         lastSyncedAt: mailboxes.lastSyncedAt,
         syncError: mailboxes.syncError,

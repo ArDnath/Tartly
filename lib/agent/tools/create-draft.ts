@@ -42,12 +42,18 @@ const inputSchema = z.object({
     .min(1)
     .max(MAX_DRAFT_BODY_CHARS)
     .describe("The plain-text body of the draft."),
+  account: z
+    .enum(["gmail", "outlook"])
+    .optional()
+    .describe(
+      "Which connected mailbox should hold a new draft. Omit to use the default (Gmail when connected); a reply is routed by threadId.",
+    ),
   threadId: z
     .string()
     .max(256)
     .optional()
     .describe(
-      "Set when the draft is a reply, so it lands in the existing Gmail conversation.",
+      "Set when the draft is a reply, so it lands in the existing conversation.",
     ),
   inReplyTo: z
     .string()
@@ -76,6 +82,7 @@ function buildCreateDraftTool(drafts: DraftService): AnyToolDefinition {
         ...(input.bcc?.length ? { bcc: input.bcc } : {}),
         ...(input.subject !== undefined ? { subject: input.subject } : {}),
         body: input.body,
+        ...(input.account ? { account: input.account } : {}),
         ...(input.threadId ? { threadId: input.threadId } : {}),
         ...(input.inReplyTo ? { inReplyTo: input.inReplyTo } : {}),
       });

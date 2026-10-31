@@ -47,6 +47,12 @@ const inputSchema = z.object({
     .min(1)
     .max(MAX_SEND_BODY_CHARS)
     .describe("The plain-text body of the email."),
+  account: z
+    .enum(["gmail", "outlook"])
+    .optional()
+    .describe(
+      "Which connected account to send from. Omit to use the default mailbox (Gmail when connected).",
+    ),
   assetIds: z
     .array(z.string())
     .max(20)
@@ -69,7 +75,7 @@ function buildSendEmailTool(sender: SendService): AnyToolDefinition {
   return defineTool({
     name: "send_email",
     description:
-      "Prepare an email to send. Calling this does NOT send anything: it creates a confirmation card the user must approve. Use it for a new message. Only use recipient addresses that came from a tool result or from the user; never invent one.",
+      "Prepare an email to send from Gmail or Outlook. Calling this does NOT send anything: it creates a confirmation card the user must approve. Use it for a new message (pass account when the user names a mailbox). Only use recipient addresses that came from a tool result or from the user; never invent one.",
     risk: "EXTERNAL_SIDE_EFFECT",
     inputSchema,
     authorize(ctx) {
@@ -84,6 +90,7 @@ function buildSendEmailTool(sender: SendService): AnyToolDefinition {
         ...(input.bcc?.length ? { bcc: input.bcc } : {}),
         ...(input.subject !== undefined ? { subject: input.subject } : {}),
         body: input.body,
+        ...(input.account ? { account: input.account } : {}),
         ...(input.assetIds?.length ? { assetIds: input.assetIds } : {}),
         ...(input.inlineImageIds?.length
           ? { inlineImageIds: input.inlineImageIds }
@@ -93,6 +100,7 @@ function buildSendEmailTool(sender: SendService): AnyToolDefinition {
       return {
         sent: !result.deduped,
         deduped: result.deduped,
+        provider: result.provider,
         to: result.to,
         subject: result.subject,
         gmailMessageId: result.gmailMessageId,

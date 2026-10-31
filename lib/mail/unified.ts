@@ -6,6 +6,7 @@ import {
   type MailProviderId,
 } from "@/lib/mail/accounts";
 import {
+  applyLabel,
   archive,
   deleteMessages,
   emptyTrash,
@@ -13,6 +14,7 @@ import {
   getMessage,
   getThread,
   listMessages,
+  removeLabel,
   setRead,
   setSpam,
   setStarred,
@@ -21,12 +23,15 @@ import {
   untrash,
 } from "@/lib/mail/service";
 import {
+  addOutlookLabel,
   deleteOutlookMessages,
   emptyOutlookTrash,
   getOutlookAttachment,
   getOutlookMessage,
   getOutlookThread,
+  listOutlookCategories,
   listOutlookMessages,
+  removeOutlookLabel,
   setOutlookArchived,
   setOutlookRead,
   setOutlookSpam,
@@ -141,19 +146,22 @@ export async function listUnifiedMessages(
     });
   }
 
-  let providers = providersFor(connected, options.account);
+  const providers = providersFor(connected, options.account);
 
-  // Gmail's label syntax has no Graph equivalent; a label view is Gmail-only.
-  const labelSearch = options.search?.includes("label:") ?? false;
-  if (labelSearch) {
-    providers = providers.filter((p) => p === "google");
-    if (providers.length === 0) return { messages: [], labels: [] };
-  }
+  // A scope the user selected but has since disconnected is an empty view, not
+  // an upstream failure.
+  if (providers.length === 0) return { messages: [], labels: [] };
+
+  // A label search runs on both providers: Gmail matches labels, Outlook
+  // matches the category of the same name (see `listOutlookMessages`).
 
   // A cursor belongs to one provider; we only ever emit one for single-provider
   // views, so ignore it if the scope widened.
-  const [emails, gmailResult, outlookResult] = await Promise.all([
+  const [emails, outlookLabels, gmailResult, outlookResult] = await Promise.all([
     resolveProviderEmails(userId),
+    providers.includes("microsoft")
+      ? listOutlookCategories(userId).catch(() => [])
+      : Promise.resolve([]),
     providers.includes("google")
       ? listMessages(userId, {
           ...(options.box ? { box: options.box } : {}),
@@ -217,7 +225,12 @@ export async function listUnifiedMessages(
 
   return {
     messages: options.limit ? merged.slice(0, options.limit) : merged,
-    labels: gmailResult?.ok ? gmailResult.value.labels : [],
+    labels: [
+      ...new Set([
+        ...(gmailResult?.ok ? gmailResult.value.labels : []),
+        ...outlookLabels,
+      ]),
+    ].sort(),
     ...(singleToken ? { nextPageToken: singleToken } : {}),
   };
 }
@@ -350,6 +363,38 @@ export async function setSpamUnified(
 }
 
 /**
+ * Apply a label across providers. Gmail gets a real label; Outlook gets the
+ * same name as a category, which is its closest equivalent and remains visible
+ * in Outlook proper.
+ */
+export async function applyLabelUnified(
+  userId: string,
+  ids: string[],
+  label: string,
+): Promise<void> {
+  const { gmail, outlook } = partition(ids);
+  await Promise.all([
+    gmail.length ? applyLabel(userId, gmail, label) : Promise.resolve(),
+    outlook.length ? addOutlookLabel(userId, outlook, label) : Promise.resolve(),
+  ]);
+}
+
+/** Remove a label/category across providers. */
+export async function removeLabelUnified(
+  userId: string,
+  ids: string[],
+  label: string,
+): Promise<void> {
+  const { gmail, outlook } = partition(ids);
+  await Promise.all([
+    gmail.length ? removeLabel(userId, gmail, label) : Promise.resolve(),
+    outlook.length
+      ? removeOutlookLabel(userId, outlook, label)
+      : Promise.resolve(),
+  ]);
+}
+
+/**
  * Permanently delete messages across providers. Irreversible: on Gmail it
  * bypasses the trash and needs the restricted full-mailbox scope; on Outlook it
  * is Graph's `permanentDelete`.
@@ -367,9 +412,10 @@ export async function deleteMessagesUnified(
 
 /** Permanently delete every trashed message across providers. Returns the count. */
 export async function emptyTrashUnified(userId: string): Promise<number> {
+  const providers = await connectedMailProviders(userId);
   const [gmailCount, outlookCount] = await Promise.all([
-    emptyTrash(userId),
-    emptyOutlookTrash(userId),
+    providers.includes("google") ? emptyTrash(userId) : Promise.resolve(0),
+    providers.includes("microsoft") ? emptyOutlookTrash(userId) : Promise.resolve(0),
   ]);
   return gmailCount + outlookCount;
 }

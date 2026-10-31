@@ -14,7 +14,7 @@ import {
 } from "drizzle-orm";
 
 import { db, type Database } from "@/lib/db";
-import { drafts, messages } from "@/lib/db/schema";
+import { drafts, mailboxes, messages, threads } from "@/lib/db/schema";
 
 /** Persistence for AI/user `drafts`, plus the count queries the metrics board reads. */
 
@@ -68,6 +68,20 @@ export class DraftRepository {
                   eq(messages.threadId, drafts.threadId),
                   eq(messages.direction, "outbound"),
                   sql`${messages.sentAt} between ${drafts.decidedAt} - interval '15 minutes' and ${drafts.decidedAt} + interval '15 minutes'`,
+                ),
+              ),
+          ),
+          // Outlook sends do not return a message id to mirror, so this drift
+          // check is Gmail-only rather than reporting every Outlook send.
+          notExists(
+            this.database
+              .select({ one: sql`1` })
+              .from(threads)
+              .innerJoin(mailboxes, eq(mailboxes.id, threads.mailboxId))
+              .where(
+                and(
+                  eq(threads.id, drafts.threadId),
+                  eq(mailboxes.provider, "microsoft"),
                 ),
               ),
           ),

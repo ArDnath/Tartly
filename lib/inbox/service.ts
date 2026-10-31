@@ -492,19 +492,21 @@ export async function approveDraft({
   const recipient = inbound?.fromAddr;
   if (!recipient) throw new Error("Thread has no inbound sender to reply to.");
 
-  const { sendEmail } = await import("@/lib/gmail/send");
+  const { sendFromMirroredMailbox } = await import("@/lib/mail/send");
 
-  const result = await sendEmail({
+  const result = await sendFromMirroredMailbox({
     userId,
+    provider: mailbox.provider,
+    from: mailbox.email,
+    threadId: thread.gmailThreadId,
+    idempotencyKey: `draft:${draft.id}`,
+    ...(transport ? { transport } : {}),
     email: {
       from: mailbox.email,
       to: [recipient],
       subject: thread.subject ? `Re: ${thread.subject}` : "Re:",
       text: body,
     },
-    gmailThreadId: thread.gmailThreadId,
-    idempotencyKey: `draft:${draft.id}`,
-    transport,
   });
 
   if (result.gmailMessageId) {
@@ -631,8 +633,8 @@ export async function syncInbox(userId: string): Promise<{
   accepted: boolean;
   mailboxId: string | null;
 }> {
-  const mailbox = await mailboxRepository.findFirstIdForUser(userId);
-  if (!mailbox) return { accepted: false, mailboxId: null };
+  const mailboxes = await mailboxRepository.listByUser(userId);
+  if (mailboxes.length === 0) return { accepted: false, mailboxId: null };
 
   const [{ enqueueJob }, { JOB_KIND_MAILBOX_SYNC }, { kickDrain }] =
     await Promise.all([
@@ -642,19 +644,28 @@ export async function syncInbox(userId: string): Promise<{
     ]);
 
   // `mailbox_sync` first pulls new mail into the mirror, then enqueues the
-  // triage pass. Enqueuing `inbound_email` directly (as this used to) only
-  // re-processed threads that a previous sync had already mirrored.
-  await enqueueJob(pool, userId, {
-    kind: JOB_KIND_MAILBOX_SYNC,
-    laneKey: `mailbox:${mailbox.id}`,
-    payload: { mailboxId: mailbox.id },
-    sourceEventId: `manual:${mailbox.id}:${Date.now()}`,
-  });
+  // triage pass. Every connected account syncs, so Gmail and Outlook triage
+  // land in the same inbox.
+  await Promise.all(
+    mailboxes.map((mailbox) =>
+      enqueueJob(pool, userId, {
+        kind: JOB_KIND_MAILBOX_SYNC,
+        laneKey: `mailbox:${mailbox.id}`,
+        payload: { mailboxId: mailbox.id },
+        sourceEventId: `manual:${mailbox.id}:${Date.now()}`,
+      }),
+    ),
+  );
 
   // Best-effort immediate drain; the daily cron is the safety net.
   await kickDrain("manual-sync").catch((error) => {
     console.warn("[inbox/sync] kick drain failed", error);
   });
 
-  return { accepted: true, mailboxId: mailbox.id };
+  return {
+    accepted: true,
+    mailboxId:
+      mailboxes.find((mailbox) => mailbox.provider === "google")?.id ??
+      mailboxes[0]!.id,
+  };
 }

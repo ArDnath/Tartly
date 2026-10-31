@@ -2,7 +2,7 @@ import "server-only";
 
 import { AuthenticationError, ValidationError } from "@/lib/agent/errors";
 import { isUnreachable } from "@/lib/mail/service";
-import { gmailEmailProvider } from "@/lib/providers/email/gmail-provider";
+import { unifiedEmailProvider } from "@/lib/providers/email/unified-provider";
 import type {
   EmailCorrespondent,
   EmailProvider,
@@ -70,7 +70,7 @@ function normalizeEmail(value: string | undefined): string | null {
 export class ContactService {
   constructor(
     private readonly provider: Pick<EmailProvider, "listCorrespondents"> =
-      gmailEmailProvider,
+      unifiedEmailProvider,
   ) {}
 
   /** Free-text search over name and address, most recent first. */

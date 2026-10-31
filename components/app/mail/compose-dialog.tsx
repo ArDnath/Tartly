@@ -28,8 +28,10 @@ import {
   openPaywall,
   usePaywallStore,
 } from "@/components/app/paywall/paywall-store";
+import { MAX_OUTBOUND_ASSETS } from "@/lib/assets/limits";
+import { uploadAsset } from "@/lib/assets/client";
 import { mailInitials, parseAddressList } from "@/lib/mail/format";
-import type { MailDraft } from "@/lib/mail/types";
+import type { MailDraft, MailSourceAttachment } from "@/lib/mail/types";
 import type { ComposerDraft } from "@/lib/agent/tools/deliver-composer-draft";
 
 /**
@@ -201,6 +203,20 @@ function ComposeForm({
   onSend: (draft: MailDraft) => Promise<void> | void;
   onSaveDraft: (draft: MailDraft) => Promise<void> | void;
 }) {
+  const accounts = useMailStore((state) => state.accounts);
+  const liveAccounts = accounts.filter(
+    (account) => account.connected && account.mailboxAccess,
+  );
+  const gmailLive = liveAccounts.some((account) => account.provider === "gmail");
+  const outlookLive = liveAccounts.some(
+    (account) => account.provider === "outlook",
+  );
+  const [account, setAccount] = React.useState<"gmail" | "outlook">(
+    () =>
+      initial?.account ??
+      (gmailLive || !outlookLive ? "gmail" : "outlook"),
+  );
+
   const [to, setTo] = React.useState<string[]>(() =>
     parseAddressList(initial?.to ?? ""),
   );
@@ -215,7 +231,17 @@ function ComposeForm({
   const [bccDraft, setBccDraft] = React.useState("");
   const [subject, setSubject] = React.useState(initial?.subject ?? "");
   const [body, setBody] = React.useState(initial?.body ?? "");
-  const [files, setFiles] = React.useState<string[]>([]);
+  /**
+   * Files kept on the original message when forwarding. They are imported into
+   * the asset library only on send/save, so opening a forward and discarding it
+   * does not copy anything into storage.
+   */
+  const [sourceAttachments, setSourceAttachments] = React.useState<
+    MailSourceAttachment[]
+  >(() => initial?.sourceAttachments ?? []);
+  const [uploading, setUploading] = React.useState(0);
+  const [uploadError, setUploadError] = React.useState<string | null>(null);
+  const [assetsEnabled, setAssetsEnabled] = React.useState(true);
   const [showCc, setShowCc] = React.useState(Boolean(initial?.cc));
   const [showBcc, setShowBcc] = React.useState(Boolean(initial?.bcc));
   const [expanded, setExpanded] = React.useState(false);
@@ -278,7 +304,7 @@ function ComposeForm({
   });
 
   const [assets, setAssets] = React.useState<
-    Array<{ id: string; filename: string; kind: string }>
+    Array<{ id: string; filename: string; kind: string; mimeType?: string }>
   >([]);
   const [showAssets, setShowAssets] = React.useState(false);
   const [attachedIds, setAttachedIds] = React.useState<string[]>(
@@ -292,8 +318,22 @@ function ComposeForm({
     let active = true;
     fetch("/api/v1/assets", { cache: "no-store" })
       .then((response) => response.json())
-      .then((payload: { data?: { assets?: Array<{ id: string; filename: string; kind: string }> } }) => {
-        if (active && payload.data?.assets) setAssets(payload.data.assets);
+      .then((payload: {
+        data?: {
+          assets?: Array<{
+            id: string;
+            filename: string;
+            kind: string;
+            mimeType?: string;
+          }>;
+          enabled?: boolean;
+        };
+      }) => {
+        if (!active || !payload.data) return;
+        if (payload.data.assets) setAssets(payload.data.assets);
+        if (typeof payload.data.enabled === "boolean") {
+          setAssetsEnabled(payload.data.enabled);
+        }
       })
       .catch(() => undefined);
     return () => {
@@ -310,6 +350,91 @@ function ComposeForm({
         ? current.filter((value) => value !== id)
         : [...current, id],
     );
+
+  /**
+   * An asset is either an attachment or an inline image, never both. Moving it
+   * between the two lists keeps the chips truthful and avoids a duplicate MIME
+   * part on the wire.
+   */
+  const togglePlacement = (id: string, target: "attach" | "inline") => {
+    if (target === "attach") {
+      setInlineIds((current) => current.filter((value) => value !== id));
+      toggleId(id, setAttachedIds);
+    } else {
+      setAttachedIds((current) => current.filter((value) => value !== id));
+      toggleId(id, setInlineIds);
+    }
+  };
+
+  /**
+   * Upload selected files through the same ticket-based asset flow as Settings
+   * → Assets and the chat composer. The composer only ever holds asset ids; the
+   * bytes go straight to storage and are scanned by the server.
+   */
+  const uploadFiles = async (selected: FileList) => {
+    const files = Array.from(selected);
+    if (files.length === 0) return;
+
+    const capacity = Math.max(
+      0,
+      MAX_OUTBOUND_ASSETS -
+        attachedIds.length -
+        inlineIds.length -
+        sourceAttachments.length,
+    );
+    if (capacity === 0) {
+      setUploadError(
+        `A message can carry at most ${MAX_OUTBOUND_ASSETS} files. Remove one before adding another.`,
+      );
+      return;
+    }
+
+    const accepted = files.slice(0, capacity);
+    if (files.length > capacity) {
+      setUploadError(
+        `Only ${capacity} more file${capacity === 1 ? "" : "s"} can be added to this message.`,
+      );
+    } else {
+      setUploadError(null);
+    }
+
+    setUploading((count) => count + accepted.length);
+    for (const file of accepted) {
+      try {
+        const asset = await uploadAsset({
+          blob: file,
+          filename: file.name || "file",
+          mimeType: file.type,
+        });
+        setAssets((current) =>
+          current.some((item) => item.id === asset.id)
+            ? current
+            : [
+                {
+                  id: asset.id,
+                  filename: asset.filename,
+                  kind: asset.kind,
+                  mimeType: asset.mimeType,
+                },
+                ...current,
+              ],
+        );
+        // Images default to attachments, matching a paperclip; the Assets
+        // picker can promote one to an inline image afterwards.
+        setAttachedIds((current) =>
+          current.includes(asset.id) ? current : [...current, asset.id],
+        );
+      } catch (caught) {
+        setUploadError(
+          caught instanceof Error
+            ? caught.message
+            : `Couldn't upload ${file.name}.`,
+        );
+      } finally {
+        setUploading((count) => count - 1);
+      }
+    }
+  };
 
   const commit = (
     draft: string,
@@ -331,13 +456,17 @@ function ComposeForm({
     body,
     ...(attachedIds.length ? { assetIds: attachedIds } : {}),
     ...(inlineIds.length ? { inlineImageIds: inlineIds } : {}),
+    ...(sourceAttachments.length
+      ? { sourceAttachments }
+      : {}),
     // Preserve the reply context seeded when the composer opened, so an
     // Outlook reply is still sent from Outlook rather than defaulting to Gmail.
-    ...(initial?.account ? { account: initial.account } : {}),
+    account,
     ...(initial?.threadId ? { threadId: initial.threadId } : {}),
   });
 
-  const canSend = to.length > 0 || parseAddressList(toDraft).length > 0;
+  const canSend =
+    (to.length > 0 || parseAddressList(toDraft).length > 0) && uploading === 0;
 
   /** Fill the form from the agent's delivered draft and close the thread. */
   function applyComposeDraft(draft: ComposerDraft) {
@@ -452,6 +581,31 @@ function ComposeForm({
       >
         <div className="scrollbar-none flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 pt-4">
           <div className="flex flex-col gap-2.5">
+            {gmailLive && outlookLive ? (
+              <div className="flex items-center gap-3">
+                <span className="shrink-0 text-[13px] font-medium text-foreground">
+                  From
+                </span>
+                <select
+                  value={account}
+                  onChange={(event) =>
+                    setAccount(event.target.value as "gmail" | "outlook")
+                  }
+                  aria-label="Send from account"
+                  className="h-8 rounded-md border border-border bg-card px-2 text-[13px] text-foreground outline-none"
+                >
+                  <option value="gmail">
+                    {liveAccounts.find((item) => item.provider === "gmail")
+                      ?.email ?? "Gmail"}
+                  </option>
+                  <option value="outlook">
+                    {liveAccounts.find((item) => item.provider === "outlook")
+                      ?.email ?? "Outlook"}
+                  </option>
+                </select>
+              </div>
+            ) : null}
+
             <RecipientField
               label="To"
               values={to}
@@ -641,20 +795,25 @@ function ComposeForm({
           )}
         </div>
 
-        {files.length > 0 && (
+        {sourceAttachments.length > 0 && (
           <div className="flex shrink-0 flex-wrap gap-2 px-5 pb-2">
-            {files.map((name, index) => (
+            {sourceAttachments.map((attachment) => (
               <span
-                key={`${name}-${index}`}
+                key={`${attachment.messageId}:${attachment.attachmentId}`}
                 className="flex items-center gap-1.5 rounded-md bg-mail-chip px-2 py-1 text-[12px] text-mail-chip-foreground"
               >
-                {name}
+                <Paperclip className="size-3" aria-hidden />
+                {attachment.filename}
                 <button
                   type="button"
-                  aria-label={`Remove ${name}`}
+                  aria-label={`Remove ${attachment.filename}`}
                   onClick={() =>
-                    setFiles((current) =>
-                      current.filter((_, position) => position !== index),
+                    setSourceAttachments((current) =>
+                      current.filter(
+                        (item) =>
+                          item.messageId !== attachment.messageId ||
+                          item.attachmentId !== attachment.attachmentId,
+                      ),
                     )
                   }
                 >
@@ -662,6 +821,22 @@ function ComposeForm({
                 </button>
               </span>
             ))}
+          </div>
+        )}
+
+        {(uploading > 0 || uploadError) && (
+          <div className="flex shrink-0 flex-wrap items-center gap-2 px-5 pb-2">
+            {uploading > 0 ? (
+              <span className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
+                <LoaderCircle className="size-3 animate-spin" aria-hidden />
+                Uploading {uploading} file{uploading === 1 ? "" : "s"}…
+              </span>
+            ) : null}
+            {uploadError ? (
+              <p role="alert" className="text-[12px] text-destructive">
+                {uploadError}
+              </p>
+            ) : null}
           </div>
         )}
 
@@ -728,7 +903,7 @@ function ComposeForm({
                       {asset.kind === "image" ? (
                         <button
                           type="button"
-                          onClick={() => toggleId(asset.id, setInlineIds)}
+                          onClick={() => togglePlacement(asset.id, "inline")}
                           className={cn(
                             "rounded-md border border-border px-2 py-0.5 text-[11px]",
                             inline && "border-mail-recipient text-mail-recipient",
@@ -739,7 +914,7 @@ function ComposeForm({
                       ) : null}
                       <button
                         type="button"
-                        onClick={() => toggleId(asset.id, setAttachedIds)}
+                        onClick={() => togglePlacement(asset.id, "attach")}
                         className={cn(
                           "rounded-md border border-border px-2 py-0.5 text-[11px]",
                           attached && "border-mail-recipient text-mail-recipient",
@@ -784,18 +959,34 @@ function ComposeForm({
               </button>
             )}
 
-            <label className="flex h-9 cursor-pointer items-center justify-center gap-2 rounded-lg px-3 text-[13px] font-medium text-foreground transition-colors hover:bg-accent">
-              <Paperclip className="size-4" aria-hidden />
-              Attach a file
+            <label
+              title={
+                assetsEnabled
+                  ? "Upload a PDF or image"
+                  : "Attachments are unavailable in this workspace"
+              }
+              className={cn(
+                "flex h-9 items-center justify-center gap-2 rounded-lg px-3 text-[13px] font-medium text-foreground transition-colors",
+                assetsEnabled && uploading === 0
+                  ? "cursor-pointer hover:bg-accent"
+                  : "cursor-not-allowed opacity-50",
+              )}
+            >
+              {uploading > 0 ? (
+                <LoaderCircle className="size-4 animate-spin" aria-hidden />
+              ) : (
+                <Paperclip className="size-4" aria-hidden />
+              )}
+              {uploading > 0 ? "Uploading…" : "Attach a file"}
               <input
                 type="file"
                 multiple
+                disabled={!assetsEnabled || uploading > 0}
                 className="hidden"
                 onChange={(event) => {
-                  const names = Array.from(event.target.files ?? []).map(
-                    (file) => file.name,
-                  );
-                  setFiles((current) => [...current, ...names]);
+                  if (event.target.files?.length) {
+                    void uploadFiles(event.target.files);
+                  }
                   event.target.value = "";
                 }}
               />
@@ -817,7 +1008,8 @@ function ComposeForm({
             <button
               type="button"
               onClick={() => onSaveDraft(asDraft())}
-              className="h-9 rounded-lg px-3 text-[13px] font-medium text-foreground transition-colors hover:bg-accent"
+              disabled={uploading > 0}
+              className="h-9 rounded-lg px-3 text-[13px] font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-50"
             >
               Save draft
             </button>

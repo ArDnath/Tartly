@@ -22,12 +22,12 @@ import {
   type RuleSource,
 } from "@/lib/db/schema";
 import {
-  applyLabel,
-  archive,
-  setRead,
-  setSpam,
-  setStarred,
-} from "@/lib/mail/service";
+  applyLabelUnified,
+  setArchivedUnified,
+  setReadUnified,
+  setSpamUnified,
+  setStarredUnified,
+} from "@/lib/mail/unified";
 
 /**
  * Plain-English rules engine (Phase 3).
@@ -454,37 +454,37 @@ export async function applyRuleActions({
       switch (action.type) {
         case "LABEL":
           if (action.fields.label && ids.length) {
-            await applyLabel(userId, ids, action.fields.label);
+            await applyLabelUnified(userId, ids, action.fields.label);
             applied.push(`LABEL:${action.fields.label}`);
           }
           break;
         case "MOVE_FOLDER":
           if (action.fields.folder && ids.length) {
-            await applyLabel(userId, ids, action.fields.folder);
+            await applyLabelUnified(userId, ids, action.fields.folder);
             applied.push(`MOVE_FOLDER:${action.fields.folder}`);
           }
           break;
         case "ARCHIVE":
           if (ids.length) {
-            await archive(userId, ids);
+            await setArchivedUnified(userId, ids, true);
             applied.push("ARCHIVE");
           }
           break;
         case "MARK_READ":
           if (ids.length) {
-            await setRead(userId, ids, true);
+            await setReadUnified(userId, ids, true);
             applied.push("MARK_READ");
           }
           break;
         case "STAR":
           if (ids.length) {
-            await setStarred(userId, ids, true);
+            await setStarredUnified(userId, ids, true);
             applied.push("STAR");
           }
           break;
         case "MARK_SPAM":
           if (ids.length) {
-            await setSpam(userId, ids, true);
+            await setSpamUnified(userId, ids, true);
             applied.push("MARK_SPAM");
           }
           break;

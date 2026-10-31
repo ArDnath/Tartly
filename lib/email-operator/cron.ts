@@ -9,6 +9,7 @@ import { pool } from "@/lib/db";
 import { JOB_KIND_INBOUND_EMAIL } from "@/lib/email-operator/job-kinds";
 import { getUnhealthyWatches, renewExpiringWatches } from "@/lib/gmail/watch";
 import { syncMailbox } from "@/lib/gmail/sync";
+import { syncOutlookMailbox } from "@/lib/outlook/sync";
 import { drainQueue } from "@/lib/email-operator/drain";
 import { reconcileForUser } from "@/lib/email-operator/reconcile";
 import { runRetentionJobs } from "@/lib/email-operator/retention";
@@ -82,7 +83,11 @@ export async function runDailyMaintenance(): Promise<DailyMaintenanceSummary> {
 
   for (const mailbox of rows) {
     try {
-      await syncMailbox(mailbox.userId, mailbox.id);
+      if (mailbox.provider === "microsoft") {
+        await syncOutlookMailbox(mailbox.userId, mailbox.id);
+      } else {
+        await syncMailbox(mailbox.userId, mailbox.id);
+      }
       summary.mailboxesBackfilled += 1;
 
       // Hand the backfilled mail to triage. Deduped per mailbox per day so a

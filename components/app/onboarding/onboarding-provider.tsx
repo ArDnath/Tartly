@@ -39,6 +39,8 @@ type OnboardingContextValue = {
   syncEmailError: boolean;
   /** Raw provider error code/description from the failed connect, if any. */
   syncEmailErrorDetail?: string;
+  /** Server truth: Entra ID credentials are configured on this deployment. */
+  outlookAvailable: boolean;
   advance: (input?: AdvanceStepInput) => Promise<void>;
   goBack: () => Promise<void>;
 };
@@ -58,12 +60,14 @@ export function OnboardingProvider({
   user: initialUser,
   syncEmailError: initialSyncEmailError = false,
   syncEmailErrorDetail,
+  outlookAvailable = false,
   children,
 }: {
   initialState: OnboardingSnapshot;
   user: OnboardingUser;
   syncEmailError?: boolean;
   syncEmailErrorDetail?: string;
+  outlookAvailable?: boolean;
   children: ReactNode;
 }) {
   const router = useRouter();
@@ -160,6 +164,7 @@ export function OnboardingProvider({
       isNavigating,
       syncEmailError: initialSyncEmailError,
       syncEmailErrorDetail,
+      outlookAvailable,
       advance,
       goBack,
     }),
@@ -169,6 +174,7 @@ export function OnboardingProvider({
       isNavigating,
       initialSyncEmailError,
       syncEmailErrorDetail,
+      outlookAvailable,
       advance,
       goBack,
     ],

@@ -4,7 +4,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { defineStep } from "@/lib/engine/step";
-import { sendEmail } from "@/lib/gmail/send";
+import { sendFromMirroredMailbox } from "@/lib/mail/send";
 import { draftRepository } from "@/lib/repositories/drafts";
 import { threadRepository } from "@/lib/repositories/threads";
 import { mailboxRepository } from "@/lib/repositories/mailboxes";
@@ -43,15 +43,17 @@ export const sendEmailStep = defineStep({
       throw new Error("send-email is missing a recipient or body.");
     }
 
-    const result = await sendEmail({
+    const result = await sendFromMirroredMailbox({
       userId: ctx.userId,
+      provider: mailbox.provider,
+      from: mailbox.email,
+      threadId: thread.gmailThreadId,
       email: {
         from: mailbox.email,
         to: [recipient],
         subject: thread.subject ? `Re: ${thread.subject}` : "Re:",
         text: body,
       },
-      gmailThreadId: thread.gmailThreadId,
       idempotencyKey:
         ctx.input.idempotencyKey ?? `run:${ctx.runId}:thread:${threadId}`,
     });

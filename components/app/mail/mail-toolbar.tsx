@@ -37,8 +37,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useMailStore } from "@/components/app/mail/mail-store";
+import { useMailStore, type MailAccountFilter } from "@/components/app/mail/mail-store";
 import { MailCheckbox } from "@/components/app/mail/mail-checkbox";
+import { GoogleIcon } from "@/components/icons/google-icon";
+import { OutlookIcon } from "@/components/icons/outlook-icon";
 import { conversationCount } from "@/lib/mail/filter";
 import { conversationMessageIds } from "@/lib/mail/conversations";
 import type {
@@ -61,10 +63,15 @@ const VIEW_TITLES: Record<string, string> = {
 
 const TAGS: MailTag[] = ["important", "newsletter", "calendar", "other"];
 
-export function mailListTitle(filter: MailFilter): string {
-  return filter.kind === "label"
-    ? filter.value
-    : (VIEW_TITLES[filter.value] ?? "Mail");
+export function mailListTitle(
+  filter: MailFilter,
+  account: MailAccountFilter = "all",
+): string {
+  if (filter.kind === "label") return filter.value;
+  if (filter.value === "all" && account !== "all") {
+    return account === "gmail" ? "Gmail" : "Outlook";
+  }
+  return VIEW_TITLES[filter.value] ?? "Mail";
 }
 
 /** Relative snooze targets, mirroring Gmail's default set. */
@@ -263,6 +270,66 @@ function FilterPopover() {
   );
 }
 
+const ACCOUNT_OPTIONS: Array<{
+  value: MailAccountFilter;
+  label: string;
+  icon?: React.ComponentType<{ className?: string }>;
+}> = [
+  { value: "all", label: "All" },
+  { value: "gmail", label: "Gmail", icon: GoogleIcon },
+  { value: "outlook", label: "Outlook", icon: OutlookIcon },
+];
+
+/**
+ * The shared-inbox scope switcher: every connected account, or one provider.
+ * Rendered only when at least two mailboxes are actually live — a single-account
+ * inbox has nothing to switch between.
+ */
+function AccountFilter() {
+  const accounts = useMailStore((state) => state.accounts);
+  const accountFilter = useMailStore((state) => state.accountFilter);
+  const setAccountFilter = useMailStore((state) => state.setAccountFilter);
+
+  const live = new Set(
+    accounts
+      .filter((account) => account.connected && account.mailboxAccess)
+      .map((account) => account.provider),
+  );
+  if (live.size < 2) return null;
+
+  return (
+    <div
+      role="group"
+      aria-label="Filter by account"
+      className="flex items-center rounded-lg border border-border bg-card p-0.5"
+    >
+      {ACCOUNT_OPTIONS.filter(
+        (option) => option.value === "all" || live.has(option.value),
+      ).map((option) => {
+        const Icon = option.icon;
+        const active = accountFilter === option.value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            aria-pressed={active}
+            onClick={() => setAccountFilter(option.value)}
+            className={cn(
+              "flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12px] font-medium transition-colors",
+              active
+                ? "bg-mail-chip text-mail-chip-foreground shadow-sm"
+                : "text-mail-muted hover:text-mail-strong",
+            )}
+          >
+            {Icon ? <Icon className="size-3.5" /> : null}
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 interface MailToolbarProps {
   /** Conversations currently rendered — drives the select-all checkbox. */
   visible: MailConversation[];
@@ -270,6 +337,7 @@ interface MailToolbarProps {
 
 export function MailToolbar({ visible }: MailToolbarProps) {
   const filter = useMailStore((state) => state.filter);
+  const accountFilter = useMailStore((state) => state.accountFilter);
   const query = useMailStore((state) => state.query);
   const setQuery = useMailStore((state) => state.setQuery);
   const messages = useMailStore((state) => state.messages);
@@ -426,7 +494,7 @@ export function MailToolbar({ visible }: MailToolbarProps) {
       ) : (
         <>
           <h2 className="min-w-0 truncate text-[20px] font-bold text-mail-strong">
-            {mailListTitle(filter)}
+            {mailListTitle(filter, accountFilter)}
           </h2>
           <div className="flex shrink-0 items-center gap-4">
             {inTrash ? (
@@ -439,6 +507,7 @@ export function MailToolbar({ visible }: MailToolbarProps) {
                 Empty trash
               </Button>
             ) : null}
+            <AccountFilter />
             <FilterPopover />
             <button
               type="button"

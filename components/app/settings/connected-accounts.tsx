@@ -38,7 +38,7 @@ const PROVIDER_META: Record<
   },
   outlook: {
     label: "Outlook",
-    detail: "Outlook Mail & Calendar",
+    detail: "Outlook Mail (Microsoft Graph)",
     icon: OutlookIcon,
   },
 };
@@ -195,7 +195,7 @@ function AccountRow({
         </div>
       </div>
 
-      {!account.available ? (
+      {!account.available && !account.connected ? (
         <p className="text-[12px] text-muted-foreground">
           Outlook isn&apos;t configured on this deployment yet.
         </p>
@@ -298,6 +298,12 @@ export function ConnectedAccounts({ accounts }: { accounts: MailAccount[] }) {
             Google Account permissions
           </a>{" "}
           or by disconnecting below.
+        </p>
+        <p className="mt-2">
+          Outlook access covers Microsoft Graph mail read/send only: messages,
+          conversations, categories, drafts, attachments and mail you approve.
+          It is used for the same shared inbox and AI features and is revoked
+          when you disconnect the account.
         </p>
       </div>
     </div>

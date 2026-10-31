@@ -58,6 +58,7 @@ function toSummary(message: MailMessage): EmailSummary {
   return {
     id: message.id,
     threadId: message.threadId ?? message.id,
+    provider: "gmail",
     from: message.from,
     to: message.to,
     ...(message.cc?.length ? { cc: message.cc } : {}),
@@ -68,7 +69,8 @@ function toSummary(message: MailMessage): EmailSummary {
     unread: message.unread,
     starred: message.starred,
     labels: message.labels,
-    hasAttachments: (message.attachments?.length ?? 0) > 0,
+    hasAttachments:
+      message.hasAttachments === true || (message.attachments?.length ?? 0) > 0,
   };
 }
 

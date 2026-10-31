@@ -9,6 +9,7 @@ import {
 import type { JobHandler } from "@/lib/email-operator/jobs";
 import { getMailboxForUserById } from "@/lib/email-operator/mailbox";
 import { syncMailbox } from "@/lib/gmail/sync";
+import { syncOutlookMailbox } from "@/lib/outlook/sync";
 import { enqueueJob, type JobRow } from "@/lib/queue/queue";
 
 /**
@@ -25,8 +26,13 @@ async function handleMailboxSync(job: JobRow): Promise<void> {
   const mailbox = await getMailboxForUserById(job.userId, mailboxId);
   if (!mailbox) return;
 
-  // 1) Pull new mail from Gmail into the mirror (the step that was missing).
-  await syncMailbox(job.userId, mailboxId);
+  // 1) Pull new mail into the mirror. Gmail uses its history cursor; Outlook
+  // uses a bounded Graph window. Both write the same thread/message tables.
+  if (mailbox.provider === "microsoft") {
+    await syncOutlookMailbox(job.userId, mailboxId);
+  } else {
+    await syncMailbox(job.userId, mailboxId);
+  }
 
   // Analyze the writing voice once after connect (and monthly after that). This
   // runs after the sync so sent mail exists to learn from. Best-effort.
