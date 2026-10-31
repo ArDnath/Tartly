@@ -6,9 +6,9 @@ import { createPublicKey, createVerify, type JsonWebKey } from "node:crypto";
  * Google Pub/Sub push authentication + payload decoding.
  *
  * The push endpoint is public, so it fails closed: an OIDC token is verified
- * against Google's JWKS, with issuer/audience/expiry checks, before the payload
- * is trusted. Implemented with Node's crypto (RS256) so no extra dependency is
- * needed.
+ * against Google's JWKS, with issuer/audience/expiry checks plus an exact,
+ * verified push-service-account identity, before the payload is trusted.
+ * Implemented with Node's crypto (RS256) so no extra dependency is needed.
  */
 
 const GOOGLE_JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs";
@@ -67,17 +67,26 @@ export type PubSubClaims = {
   aud?: string;
   exp?: number;
   email?: string;
+  /** Google emits this as a boolean in ID tokens and as a string in tokeninfo. */
+  email_verified?: boolean | string;
   sub?: string;
+};
+
+export type GoogleOidcVerificationOptions = {
+  audience: string;
+  /** The exact service account configured on the Pub/Sub push subscription. */
+  serviceAccountEmail: string;
 };
 
 /**
  * Verifies the OIDC token and returns its claims. Throws {@link PubSubAuthError}
- * when the token is malformed, expired, has the wrong audience/issuer, or is
- * not signed by a Google key.
+ * when the token is malformed, expired, has the wrong audience/issuer or
+ * push identity, lacks a verified email claim, or is not signed by a Google
+ * key.
  */
 export async function verifyGoogleOidcToken(
   token: string,
-  audience: string,
+  { audience, serviceAccountEmail }: GoogleOidcVerificationOptions,
   now = new Date(),
 ): Promise<PubSubClaims> {
   const segments = token.split(".");
@@ -96,7 +105,7 @@ export async function verifyGoogleOidcToken(
   if (!claims.iss || !GOOGLE_ISSUERS.has(claims.iss)) {
     throw new PubSubAuthError("Unexpected OIDC issuer.");
   }
-  if (audience && claims.aud !== audience) {
+  if (claims.aud !== audience) {
     throw new PubSubAuthError("OIDC audience mismatch.");
   }
   if (!claims.exp || claims.exp * 1000 <= now.getTime()) {
@@ -115,7 +124,32 @@ export async function verifyGoogleOidcToken(
     }
   }
 
+  // Google verifies the signer, issuer, audience and expiry, but Pub/Sub's
+  // own guidance requires the receiver to also pin the service account chosen
+  // on the push subscription and to require a verified email claim. Without
+  // this, another Google-signed identity with the same audience could invoke
+  // the public webhook.
+  if (!hasVerifiedEmail(claims.email_verified)) {
+    throw new PubSubAuthError("OIDC push identity is not email-verified.");
+  }
+  if (!sameEmail(claims.email, serviceAccountEmail)) {
+    throw new PubSubAuthError("Unexpected OIDC push identity.");
+  }
+
   return claims;
+}
+
+function hasVerifiedEmail(value: PubSubClaims["email_verified"]): boolean {
+  // `tokeninfo` renders this claim as the string "true", while an ID-token
+  // payload normally carries a boolean. Both mean the same signed assertion.
+  return value === true || value === "true";
+}
+
+function sameEmail(actual: string | undefined, expected: string): boolean {
+  return (
+    actual !== undefined &&
+    actual.trim().toLowerCase() === expected.trim().toLowerCase()
+  );
 }
 
 /**

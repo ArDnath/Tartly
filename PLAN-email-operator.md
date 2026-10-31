@@ -501,6 +501,7 @@ returns `{ data }` or `{ error: { code, message } }`. `userId` never comes from 
 CRON_SECRET=                       # Vercel cron auth (required once crons are added)
 GOOGLE_PUBSUB_TOPIC=projects/…/topics/gmail-inbox
 GOOGLE_PUBSUB_AUDIENCE=            # push endpoint URL used as the OIDC audience
+GOOGLE_PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL=  # exact --push-auth-service-account identity
 NEXT_PUBLIC_BOOKING_URL=           # optional booking fallback
 AI_MODEL_CLASSIFIER_ID=            # cheap model for triage/classification
 AI_MODEL_DRAFT_ID=                 # drafting model

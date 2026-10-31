@@ -246,7 +246,7 @@ Future deploys are `git pull --ff-only && bash deploy/scripts/deploy.sh`. The ho
 | ~~`BETTER_AUTH_SECRET` 19 chars~~ **rotated to 32 chars** | root `.env` → render | security | ✅ done |
 | `DODO_PAYMENTS_WEBHOOK_KEY` empty | root `.env` | paid orders → entitlements | user (Dodo dashboard) |
 | ~~`S3_*` / `ASSET_STORAGE_DRIVER`~~ **wired** | root `.env` | uploads | ✅ done (UI smoke test pending) |
-| `GOOGLE_PUBSUB_TOPIC`, `GOOGLE_PUBSUB_AUDIENCE` | root `.env` | real-time Gmail/Outlook sync | user (Google Cloud) |
+| `GOOGLE_PUBSUB_TOPIC`, `GOOGLE_PUBSUB_AUDIENCE`, `GOOGLE_PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL` | root `.env` | real-time Gmail sync | user (Google Cloud) |
 | `AI_GLOBAL_DAILY_BUDGET`, `AI_DAILY_BUDGET`, `AGENT_MAX_TOKENS_PER_RUN` | root `.env` | platform cost ceiling | ✅ global 2,000/day; per-user default 500; 200k tokens/run |
 | `DODO_PRODUCT_CREDITS_STARTER/PLUS/PRO` | root `.env` | credit packs | user (Dodo) |
 | `MICROSOFT_CLIENT_ID/SECRET/TENANT_ID` + `NEXT_PUBLIC_MICROSOFT_CONNECT_ENABLED` | root `.env` + `deploy/.env` (build) | Outlook | user (Entra) |

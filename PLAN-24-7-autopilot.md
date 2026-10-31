@@ -107,7 +107,7 @@ Legend: **P** = priority (P0 = must ship with the feature, P1 = ship before GA, 
 
 | ID | Threat / leak | Impact | Control | Priority | Test |
 |---|---|---|---|---|---|
-| T-01 | Forged Gmail Pub/Sub push drives processing | Cross-tenant abuse, DoS | OIDC/JWKS verification already fails closed (`verifyGoogleOidcToken`); audience + issuer + expiry + RS256 | P0 | forged/malformed/expired token tests |
+| T-01 | Forged Gmail Pub/Sub push drives processing | Cross-tenant abuse, DoS | OIDC/JWKS verification fails closed (`verifyGoogleOidcToken`): audience + issuer + expiry + RS256 + exact configured service-account email + `email_verified` | P0 | forged/malformed/expired/identity token tests |
 | T-02 | Webhook replay | Duplicate work / sends | `event_log (user_id, external_id)` unique + `job_queue.source_event_id` + `send_ledger` | P0 | replay test asserts one send |
 | T-03 | Unauthenticated cron trigger | Data mutation / cost | `isCronAuthorized` constant-time, fails closed when secret unset | P0 | missing/wrong/empty secret tests |
 | T-04 | IDOR on new autopilot routes | Cross-user data leak/mutation | All routes use `withUser`; repository `findByIdForUser`; never trust body/query `userId` | P0 | cross-user route tests |

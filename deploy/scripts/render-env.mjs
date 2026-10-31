@@ -181,3 +181,9 @@ console.log(`  asset driver          ${app.ASSET_STORAGE_DRIVER}`);
 if (optionalMissing.length) {
   console.log(`  optional, unset       ${optionalMissing.join(", ")}`);
 }
+if (app.GOOGLE_PUBSUB_TOPIC && !app.GOOGLE_PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL) {
+  console.warn(
+    "⚠ Gmail Pub/Sub is enabled but GOOGLE_PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL is unset; " +
+      "the webhook will fail closed until it matches the push subscription identity.",
+  );
+}

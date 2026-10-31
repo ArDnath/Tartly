@@ -195,6 +195,11 @@ gcloud pubsub subscriptions create gmail-push \
   --topic=gmail-inbox \
   --push-endpoint=https://tartly.in/api/webhooks/gmail \
   --push-auth-service-account=<push-sa>@<project>.iam.gserviceaccount.com
+
+gcloud iam service-accounts add-iam-policy-binding \
+  <push-sa>@<project>.iam.gserviceaccount.com \
+  --member=serviceAccount:service-<project-number>@gcp-sa-pubsub.iam.gserviceaccount.com \
+  --role=roles/iam.serviceAccountTokenCreator
 ```
 
 Then set:
@@ -202,6 +207,7 @@ Then set:
 ```dotenv
 GOOGLE_PUBSUB_TOPIC=projects/<project>/topics/gmail-inbox
 GOOGLE_PUBSUB_AUDIENCE=https://tartly.in/api/webhooks/gmail
+GOOGLE_PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL=<push-sa>@<project>.iam.gserviceaccount.com
 ```
 
 Re-render, copy, recreate web/worker, and send a test email.
@@ -261,6 +267,7 @@ R2, AI, cron secret, `BETTER_AUTH_SECRET`, R2, Postgres) is already configured.
 | `ALLOW_TEST_CHECKOUT_IN_PRODUCTION` | `false` | root `.env` |
 | `GOOGLE_PUBSUB_TOPIC` | optional, real-time | root `.env` |
 | `GOOGLE_PUBSUB_AUDIENCE` | optional, real-time | root `.env` |
+| `GOOGLE_PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL` | required with Pub/Sub; must match the push subscription identity | root `.env` |
 | `CSP_MODE` | `enforce` after smoke test | root `.env` |
 | `NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION` | optional meta-tag fallback | build-time |
 

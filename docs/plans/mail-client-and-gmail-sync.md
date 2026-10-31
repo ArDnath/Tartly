@@ -368,6 +368,7 @@ lightweight `in:unread` count), or reuse the triage `counts.unread`.
    ```
    GOOGLE_PUBSUB_TOPIC="projects/<project-id>/topics/gmail-inbox"
    GOOGLE_PUBSUB_AUDIENCE="https://<your-domain>/api/webhooks/gmail"
+   GOOGLE_PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL="<push-sa>@<project>.iam.gserviceaccount.com"
    CRON_SECRET="$(openssl rand -base64 32)"
    ```
    Pub/Sub needs a **billing account** even on free tier.
@@ -411,35 +412,39 @@ node -e 'require("dotenv").config();const{Client}=require("pg");(async()=>{const
 
 ## Phase checklist
 
+Source implementation status was reconciled on 2026-11-01. Phases A–D and E1–E2
+are implemented in the current tree; the optional unread-only badge and the
+credential-backed / database verification tasks remain open.
+
 ### Phase A — Sync fix (unblocks data)
-- [ ] A1 mailbox bootstrap in `sync-email/complete`
-- [ ] A2 `mailbox_sync` kind + handler + registration
-- [ ] A3 `syncInbox` enqueues `mailbox_sync`
-- [ ] A4 `ensureMailboxForUser` self-heal in inbox/mail layouts (+ optional cron)
-- [ ] A5 cron triage enqueue after backfill
-- [ ] A6 phase1 test extension
+- [x] A1 mailbox bootstrap in `sync-email/complete`
+- [x] A2 `mailbox_sync` kind + handler + registration
+- [x] A3 `syncInbox` enqueues `mailbox_sync`
+- [x] A4 `ensureMailboxForUser` self-heal in inbox/mail layouts (+ optional cron)
+- [x] A5 cron triage enqueue after backfill
+- [x] A6 phase1 test extension
 
 ### Phase B — Live Gmail API
-- [ ] B1 `gmailJson` 204 handling
-- [ ] B2 `lib/mail/service.ts` port
-- [ ] B3 `bcc` in `mime.ts`; `/send` via `sendEmail`; `/drafts`
-- [ ] B4 `POST /api/v1/mail/draft` (AI)
-- [ ] B5 routes under `app/api/v1/mail/**`
+- [x] B1 `gmailJson` 204 handling
+- [x] B2 `lib/mail/service.ts` port
+- [x] B3 `bcc` in `mime.ts`; `/send` via `sendEmail`; `/drafts`
+- [x] B4 `POST /api/v1/mail/draft` (AI)
+- [x] B5 routes under `app/api/v1/mail/**`
 
 ### Phase C — UI port
-- [ ] C1 add `zustand` + `components/ui/skeleton.tsx`
-- [ ] C2 store + `lib/mail/client.ts`
-- [ ] C3 components under `components/mail/**`
-- [ ] C4 compose + AI draft wiring
+- [x] C1 add `zustand` + `components/ui/skeleton.tsx`
+- [x] C2 store + `lib/mail/client.ts`
+- [x] C3 components under `components/app/mail/**`
+- [x] C4 compose + AI draft wiring
 
 ### Phase D — Theme
-- [ ] D1 `mail-*` tokens + `@theme inline`
-- [ ] D2 utilities (`scrollbar-none`, gradients, shadows)
-- [ ] D3 class adaptations
+- [x] D1 `mail-*` tokens + `@theme inline`
+- [x] D2 utilities (`scrollbar-none`, gradients, shadows)
+- [x] D3 class adaptations
 
 ### Phase E — Route/shell
-- [ ] E1 `app/mail/{layout,page}.tsx`
-- [ ] E2 nav + command palette
+- [x] E1 `app/mail/{layout,page}.tsx`
+- [x] E2 nav + command palette
 - [ ] E3 unread badge
 
 ### Phase F — Env
