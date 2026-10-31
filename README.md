@@ -1,23 +1,37 @@
-# Tartly — AI Email Client
+# Tartly — Durable Flow Runtime + AI Email Operator
 
-**Tartly is a web email client with an AI operator built in.** It connects to
-your Gmail and Google Calendar and works inside your inbox: it triages incoming
-mail, drafts replies in your voice, proposes and books meeting times, and chases
-the threads that have gone quiet. Nothing leaves your mailbox without your
-review — Tartly drafts and proposes, you approve and send.
+**The primary artifact in this repository is the Tartly Flow Runtime
+(`packages/flow-runtime`): a framework-free, deterministic step-graph runtime
+with a durable checkpoint journal, resume/replay, guarded edges, and
+cycle/step-ceiling guards.** The email operator is its reference application —
+a full web mail client whose inbound automation is a production graph executed
+by the core.
+
+> **Core, not a feature.** Every node outcome is journaled with its post-node
+> state and the edge actually chosen, **before** the next node starts. A restart
+> resumes at that recorded edge and never re-invokes a completed step. Start
+> with [`CORE.md`](CORE.md); the formal model is in
+> [`packages/flow-runtime/SPEC.md`](packages/flow-runtime/SPEC.md).
+
+The application connects to Gmail, Outlook and Google Calendar and works inside
+your inbox: it triages incoming mail, drafts replies in your voice, proposes and
+books meeting times, and chases the threads that have gone quiet. Nothing leaves
+your mailbox without your review — Tartly drafts and proposes, you approve and
+send.
 
 > **A full email client, not just an assistant.** `/mail` is a complete
 > Gmail-style client (folders, labels, search, compose, read/star/archive/trash)
 > that reads live from Gmail. An AI layer rides on top: `/inbox` is the triage
 > view, and the `/assistant` chat can operate your mailbox through tools.
 
-This repository is the Next.js application server for Tartly (mirrored here as
-`Tartly-Scratch`).
+This repository is the Next.js application server and the runtime it consumes
+(mirrored here as `Tartly-Scratch`).
 
 ---
 
 ## Table of contents
 
+- [Core runtime](#core-runtime)
 - [What it does](#what-it-does)
 - [Screens](#screens)
 - [Architecture](#architecture)
@@ -33,6 +47,50 @@ This repository is the Next.js application server for Tartly (mirrored here as
 - [Collaborating](#collaborating)
 - [Security & privacy](#security--privacy)
 - [License](#license)
+
+---
+
+## Core runtime
+
+[`packages/flow-runtime`](packages/flow-runtime) is a reusable execution core.
+It has no imports from Next.js, React, Postgres, Redis, Zod, mail, or auth. A
+host supplies a **step resolver** and a **checkpoint store**; the runtime owns
+validation, routing, journaling, resume, and termination.
+
+| Guarantee | Mechanism |
+| --- | --- |
+| Valid graph before side effects | Duplicate ids, missing edge targets, malformed guards/configs rejected up front |
+| Deterministic routing | First matching edge in authored order; pure predicates over state |
+| Durable progress | One journal record per node, committed before the next node starts |
+| Versioned wire format | `tartly.flow-runtime/1` records are self-describing and legacy `{ value }` rows still replay |
+| Resume without repetition | Journal stores post-node state + chosen `nextNodeId`; replay invokes no steps |
+| Historical honesty | Resume follows the edge the run actually took, even if the graph changed |
+| Failure policy | `critical` stops and retries on resume; `best_effort` records and continues |
+| No runaway runs | 256-step ceiling (including replayed steps) + repeated-node cycle guard |
+
+```ts
+import { executeFlow } from "@tartly/flow-runtime";
+
+const result = await executeFlow({
+  runId,
+  graph, // { nodes: [{ id, type, config? }], edges: [{ from, to, when? }] }
+  initialState: { trigger },
+  store, // host-provided durable CheckpointStore
+  resolveStep, // host-owned StepResolver
+});
+// → { status, state, trace, checkpoints, error? }
+```
+
+The reference application implements the ports in
+[`lib/engine/runtime-adapter.ts`](lib/engine/runtime-adapter.ts) (Postgres
+journal + registered Zod steps) and calls the core from
+[`lib/engine/run.ts`](lib/engine/run.ts). The 16-node `inbound-email` graph is
+in [`lib/engine/flow.ts`](lib/engine/flow.ts).
+
+**Why this is the core:** the runtime defines the semantics a caller inherits —
+replay safety, routing determinism, failure policy, and bounded execution. The
+email product is one consumer; the same package can run billing, onboarding, or
+incident workflows. See [`CORE.md`](CORE.md) for the boundary and evidence.
 
 ---
 
@@ -111,14 +169,24 @@ Upgrading to Vercel Pro is a **config-only** change (add the `drain` and
 
 ### The flow engine
 
-Mail automation is modelled as **steps → flows → runs**:
+Mail automation is modelled as **steps → flows → runs**, executed by the core
+described above:
 
+- **Runtime** (`packages/flow-runtime`) — the framework-free loop: graph
+  validation, deterministic guarded routing, the checkpoint journal,
+  resume/replay, and cycle/step guards.
 - **Step** (`lib/engine/step.ts`) — a typed unit of work with a Zod config
   schema, a `run()` function, and a policy (`critical` or `best_effort`).
-- **Flow** (`lib/engine/flow.ts`) — a JSON graph of steps and edges, seeded per
+- **Flow** (`lib/engine/flow.ts`) — the application's JSON graph, seeded per
   user (e.g. `inbound-email`).
-- **Run** (`lib/engine/run.ts`) — one execution; every node is checkpointed to
-  `flow_checkpoints` and traced into `flow_runs.trace`.
+- **Run** (`lib/engine/run.ts`) — binds the runtime to Postgres and the step
+  registry. Every node appends a journal record to `flow_checkpoints` and the
+  terminal trace is written to `flow_runs.trace`.
+
+The journal stores the post-node state and the edge actually chosen, so a run
+resumed after a restart continues at the recorded branch instead of recomputing
+it against a possibly changed graph. Replay rebuilds state and trace without
+invoking any step.
 
 Steps include `triage`, `classify-intent`, `load-context`, `draft-reply`,
 `guardrails`, `egress`, `send-email`, `detect-meeting-intent`, `find-free-slots`,
@@ -144,10 +212,16 @@ mailbox autonomy and per-contact override, and only allows an automatic send in
 - **Gmail** (`lib/gmail/`) — token access via Better Auth's `account` table;
   MIME parse/build, `history.list` incremental sync, `users.watch`, idempotent
   send.
+- **Outlook** (`lib/outlook/`) — Microsoft Graph read/write, drafts, categories,
+  attachments, idempotent send, and a bounded mirror sync for the AI triage
+  inbox. Gmail and Outlook share one provider contract
+  (`lib/providers/email/unified-provider.ts`), so the assistant's read, draft,
+  label, archive, delete, reply and forward tools work on either mailbox.
 - **Google Calendar** (`lib/calendar/`) — free/busy, events, Meet links,
   timezone-aware slot math.
-- **Better Auth** (`lib/auth.ts`) — Google OAuth only; sessions in Postgres
-  (source of truth) with Upstash Redis as a speed layer and JWE cookie cache.
+- **Better Auth** (`lib/auth.ts`) — Google OAuth plus optional Microsoft OAuth;
+  sessions in Postgres (source of truth) with Upstash Redis as a speed layer and
+  JWE cookie cache.
 - **Agent runtime** (`lib/agent/`) — tool registry, risk/permission model, and a
   server-verified confirmation flow (`pending_actions`) for external side
   effects.
@@ -164,7 +238,7 @@ mailbox autonomy and per-contact override, and only allows an automatic send in
 | --- | --- |
 | Framework | Next.js 16 (App Router, Proxy guard) · React 19 · TypeScript |
 | Styling | Tailwind CSS v4 · Base UI / shadcn-style primitives · Motion |
-| Auth | Better Auth (Google OAuth) · Upstash Redis secondary storage |
+| Auth | Better Auth (Google + optional Microsoft OAuth) · Upstash Redis secondary storage |
 | Database | PostgreSQL · Drizzle ORM / Drizzle Kit |
 | AI | Vercel AI SDK v7 · OpenAI-compatible OpenCode endpoint |
 | Agent UI | `@assistant-ui/react` · `streamdown` · AI Elements |
@@ -231,11 +305,25 @@ cp .env.example .env.local
 Fill in the **required** block (database, auth secret, Google OAuth, Upstash).
 Everything else is optional — see [Environment variables](#environment-variables).
 
+If your `.env` / shared config points `BETTER_AUTH_URL` at a deployed origin,
+override it locally (`.env.local` wins in `next dev`, so secrets stay in `.env`):
+
+```bash
+BETTER_AUTH_URL="http://localhost:3000"
+NEXT_PUBLIC_BETTER_AUTH_URL="http://localhost:3000"
+```
+
+Otherwise the dev browser would call the production auth endpoint cross-origin
+and both `redirect_uri` and the OAuth state cookie would land on the wrong host.
+
 In Google Cloud Console, add this authorized redirect URI to your OAuth client:
 
 ```
 ${BETTER_AUTH_URL}/api/auth/callback/google
 ```
+
+For local development that is `http://localhost:3000/api/auth/callback/google`
+(add it alongside the production URI, not instead of it).
 
 ### 3. Create the database schema
 
@@ -295,8 +383,26 @@ the mail client locally. On Vercel, add values in
 
 ### Testing
 
-The suite is a set of `tsx` harnesses under `scripts/`, run without a live
-Google account by shimming `server-only` (`scripts/onboarding-test-shims`).
+Two layers run without external services:
+
+- **Runtime core** — `npm run test:unit` includes 26 tests covering graph
+  validation, deterministic branches, journaling, resume/replay, legacy
+  journals, policy failures, cycles, step ceilings, checkpoint errors, and the
+  journal wire format (`tests/unit/engine/`).
+- **Pure domain modules** — the rest of `tests/unit/` (guardrails, queue
+  worker, contracts, calendar, billing, and more).
+
+```bash
+npm run test:unit
+npm run test:core
+npx vitest run tests/unit/engine/flow-runtime.test.ts
+```
+
+DB-backed integration tests use Testcontainers: `npm run test:integration`.
+
+The application smoke/eval suite is a set of `tsx` harnesses under `scripts/`,
+run without a live Google account by shimming `server-only`
+(`scripts/onboarding-test-shims`).
 
 ```bash
 npm run test:onboarding
@@ -315,6 +421,9 @@ npm run test:agent:evals
 ## Project structure
 
 ```
+packages/
+  flow-runtime/        THE CORE: graph validation, deterministic routing,
+                       checkpoint journal, replay/resume, termination guards
 app/
   (pages)              landing, auth, onboarding, mail, inbox, calendar,
                        followups, activity, runs, settings, assistant, legal
@@ -337,15 +446,18 @@ lib/
   agent/               tool registry, loop, permissions, persistence
   ai/                  provider, streaming, chat service, fallbacks
   calendar/ gmail/     Google integrations
-  engine/              step / flow / run engine + steps
+  outlook/             Microsoft Graph mail, drafts, sync, send
+  providers/email/     Gmail + Outlook adapters and the unified provider
+  engine/              host adapters for the core + reference step registry
   queue/               Postgres job queue
-  email-operator/      handlers, drain, cron, jobs
+  email-operator/      reference application: handlers, drain, cron, jobs
   followup/ guardrails/ inbox/ mail/ metrics/ services/
   db/                  Drizzle schema, client, migrations runner
   onboarding/ auth.ts env.ts redis.ts session.ts
 drizzle/               generated SQL migrations + metadata
 scripts/               smoke tests, agent phases, evals
 docs/plans/            architecture and build plans
+CORE.md                core boundary, execution model, evidence map
 ```
 
 ---

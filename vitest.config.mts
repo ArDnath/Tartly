@@ -15,6 +15,7 @@ const root = fileURLToPath(new URL(".", import.meta.url));
 export default defineConfig({
   resolve: {
     alias: {
+      "@tartly/flow-runtime": `${root}packages/flow-runtime/src/index.ts`,
       "@": root,
       // Next aliases these marker packages at build time; mirror that in Node.
       "server-only": `${root}tests/shims/server-only.ts`,
@@ -35,6 +36,8 @@ export default defineConfig({
       // widens as coverage grows. Percentages are computed only over these, so
       // a PR cannot lower the bar by adding an untested module elsewhere.
       include: [
+        "packages/flow-runtime/src/**/*.ts",
+        "lib/engine/checkpoint-codec.ts",
         "lib/security/**/*.ts",
         "lib/db/errors.ts",
         "lib/lifecycle.ts",

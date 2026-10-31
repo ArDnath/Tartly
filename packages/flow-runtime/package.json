@@ -1,0 +1,21 @@
+{
+  "name": "@tartly/flow-runtime",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Deterministic, checkpointed step-graph runtime with resume/replay and guarded edges",
+  "keywords": [
+    "workflow-runtime",
+    "durable-execution",
+    "checkpointing",
+    "replay",
+    "deterministic"
+  ],
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  }
+}

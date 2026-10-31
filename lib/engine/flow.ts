@@ -1,37 +1,36 @@
 import { nanoid } from "nanoid";
 
 import {
+  evaluateCondition,
+  firstNode,
+  nextNode,
+  type EdgeCondition,
+  type FlowEdge,
+  type FlowGraph,
+  type FlowNode,
+} from "@tartly/flow-runtime";
+
+import {
   flowRepository,
   type Flow,
 } from "@/lib/repositories/engine-flows";
 
 /**
- * Flow graph primitives + the seeded default flows. A graph is a list of nodes
- * (step type + config) and conditional edges evaluated against the run state.
+ * The inbound-email graph and its seeding logic.
+ *
+ * Graph primitives live in the framework-free `@tartly/flow-runtime` package and
+ * are re-exported here so existing engine/application imports keep working. This
+ * module owns only the application-specific graph content.
  */
 
-export type FlowNode = {
-  id: string;
-  type: string;
-  config?: Record<string, unknown>;
-};
-
-export type EdgeCondition = {
-  field: string;
-  equals?: unknown;
-  notEquals?: unknown;
-  truthy?: boolean;
-};
-
-export type FlowEdge = {
-  from: string;
-  to: string;
-  when?: EdgeCondition;
-};
-
-export type FlowGraph = {
-  nodes: FlowNode[];
-  edges: FlowEdge[];
+export {
+  evaluateCondition,
+  firstNode,
+  nextNode,
+  type EdgeCondition,
+  type FlowEdge,
+  type FlowGraph,
+  type FlowNode,
 };
 
 export const INBOUND_EMAIL_FLOW_NAME = "inbound-email";
@@ -89,39 +88,6 @@ export function buildInboundEmailGraph(): FlowGraph {
       { from: "um", to: "r" },
     ],
   };
-}
-
-export function firstNode(graph: FlowGraph): FlowNode | null {
-  return graph.nodes[0] ?? null;
-}
-
-export function evaluateCondition(
-  condition: EdgeCondition | undefined,
-  state: Record<string, unknown>,
-): boolean {
-  if (!condition) return true;
-  const value = state[condition.field];
-
-  if ("equals" in condition && value !== condition.equals) return false;
-  if ("notEquals" in condition && value === condition.notEquals) return false;
-  if (condition.truthy !== undefined && Boolean(value) !== condition.truthy) {
-    return false;
-  }
-  return true;
-}
-
-/** Returns the first edge from `node` whose condition matches `state`. */
-export function nextNode(
-  graph: FlowGraph,
-  node: FlowNode,
-  state: Record<string, unknown>,
-): FlowNode | null {
-  const edge = graph.edges.find(
-    (candidate) =>
-      candidate.from === node.id && evaluateCondition(candidate.when, state),
-  );
-  if (!edge) return null;
-  return graph.nodes.find((candidate) => candidate.id === edge.to) ?? null;
 }
 
 export type FlowRow = Flow;

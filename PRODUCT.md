@@ -6,6 +6,21 @@
 
 web
 
+## Engineering Core
+
+The primary engineering artifact is **Tartly Flow Runtime**
+(`packages/flow-runtime`): a dependency-free, deterministic step-graph runtime
+with a durable checkpoint journal, resume/replay, guarded edges, and
+cycle/step-ceiling guards. It validates a graph before any side effect, records
+the post-node state and the edge actually chosen before advancing, and replays a
+journal without re-invoking completed steps.
+
+The email operator is the runtime's **reference application**. It supplies the
+step registry and Postgres journal adapter (`lib/engine/runtime-adapter.ts`);
+the inbound-email pipeline is a production 16-node graph executed by the core.
+The boundary is documented in `CORE.md` and enforced by imports: the runtime
+imports nothing from the application.
+
 ## Users
 
 Solo founders and operators: individuals who live in their inbox and personally
@@ -24,18 +39,24 @@ them.
 ## Positioning
 
 A **full email client with an AI operator built in**, not a bolt-on assistant.
-`/mail` is a complete, live Gmail client (folders, labels, search, compose,
-read/star/archive/trash) and the AI rides on top of it: `/inbox` is the triage
+`/mail` is a complete, live mail client for Gmail and Outlook (folders, labels
+and categories, search, compose, read/star/archive/trash) and the AI rides on
+top of it: `/inbox` is the triage
 surface and the agent can operate the mailbox through tools. The operator is
 **approval-first by default** — it drafts and proposes, the user approves and
 sends — with an explicit **autopilot** mode that may send on its own only when
-the send gate and guardrails pass.
+the send gate and guardrails pass. The product is also the reference
+application for the repository's reusable flow runtime; the runtime is the
+engineering core, and the operator proves it under real mail, scheduling, and
+send-gate constraints.
 
 ## Operating Context
 
-- Google-only: Gmail for mail, Google Calendar for availability and events. There
-  is no Outlook/IMAP integration.
-- Onboarding: Google sign-in → create profile → connect inbox + calendar → meeting
+- Gmail and Outlook for mail (both can be connected at once and merged into one
+  shared inbox with an All / Gmail / Outlook filter). Google Calendar supplies
+  availability and events; Outlook calendar support is not part of this surface
+  yet.
+- Onboarding: sign-in → create profile → connect Gmail and/or Outlook → meeting
   preferences, then into the app.
 - A single **send gate** (`egress`) reads mailbox autonomy and per-contact
   overrides. `copilot` (the default) never sends silently; `autopilot` is opt-in
@@ -47,13 +68,15 @@ the send gate and guardrails pass.
 
 ## Capabilities and Constraints
 
-Confirmed and durable: live Gmail client; AI triage views (Needs you / Waiting on
-them / Handled); voice-matched drafts with a single approval gate; meeting
-detection, slot-finding, and booking with Google Meet links; follow-up tracking
-with stop rules; a tool-using agent that can search, read, draft, send (with
-confirmation), schedule, and research; activity/runs observability. Sending is
-gated so it is safe to retry (idempotency via `send_ledger` / `event_log`). All
-Google access is scope-limited and approved separately from sign-in.
+Confirmed and durable: live Gmail and Outlook clients merged into one shared
+inbox; AI triage views (Needs you / Waiting on them / Handled) over both
+mailboxes; voice-matched drafts with a single approval gate; meeting detection,
+slot-finding, and booking with Google Meet links; follow-up tracking with stop
+rules; a tool-using agent that can search, read, draft, send (with
+confirmation), schedule, and research on either mailbox; activity/runs
+observability. Sending is gated so it is safe to retry (idempotency via
+`send_ledger` / `event_log`). Provider access is scope-limited and approved
+separately from sign-in.
 
 **24/7 Autopilot** extends the send gate with an opt-in mailbox policy. When it
 is enabled, Tartly may send safe replies on its own inside a window the user
@@ -89,7 +112,8 @@ not fabricate them.
    first-class; the AI augments it rather than hiding it.
 3. **Do real work on real data, honestly.** Every number a screen shows is derived
    from rows the runtime actually wrote; nothing is invented or embellished.
-4. **Google-only, deliberately.** Depth on Gmail + Calendar beats shallow coverage
-   of every provider.
+4. **Two real mailboxes, one inbox.** Gmail and Outlook are full peers for mail;
+   the AI works on whichever account the message belongs to. Coverage stops at
+   those two providers rather than spreading thin across every protocol.
 5. **Privacy is a feature contract.** Limited scopes, separate consent for inbox
    access, no data selling, no ad use.

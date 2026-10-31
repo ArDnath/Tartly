@@ -19,6 +19,7 @@
       }
     ],
     "paths": {
+      "@tartly/flow-runtime": ["./packages/flow-runtime/src/index.ts"],
       "@/*": ["./*"]
     }
   },

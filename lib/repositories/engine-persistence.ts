@@ -1,6 +1,6 @@
 import "server-only";
 
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 
 import { db, type Database } from "@/lib/db";
 import { flowCheckpoints, flowRuns, type TraceEntry } from "@/lib/db/schema";
@@ -18,12 +18,24 @@ export class EnginePersistenceRepository {
     await this.database.insert(flowCheckpoints).values(values);
   }
 
+  /**
+   * Journal entries for one run. The runtime sorts by the record's `seq`; the
+   * timestamp/id order keeps legacy rows (which have no seq) stable.
+   */
+  async listCheckpoints(runId: string): Promise<FlowCheckpoint[]> {
+    return this.database
+      .select()
+      .from(flowCheckpoints)
+      .where(eq(flowCheckpoints.runId, runId))
+      .orderBy(asc(flowCheckpoints.createdAt), asc(flowCheckpoints.id));
+  }
+
   async finishRun(input: {
     runId: string;
     status: "completed" | "failed";
     state: Record<string, unknown>;
     trace: TraceEntry[];
-    error: { message: string; nodeId: string } | null;
+    error: { message: string; nodeId: string; code?: string } | null;
     finishedAt: Date;
   }): Promise<void> {
     await this.database

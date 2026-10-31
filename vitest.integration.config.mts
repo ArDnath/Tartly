@@ -18,6 +18,7 @@ const root = fileURLToPath(new URL(".", import.meta.url));
 export default defineConfig({
   resolve: {
     alias: {
+      "@tartly/flow-runtime": `${root}packages/flow-runtime/src/index.ts`,
       "@": root,
       "server-only": `${root}tests/shims/server-only.ts`,
       "client-only": `${root}tests/shims/client-only.ts`,

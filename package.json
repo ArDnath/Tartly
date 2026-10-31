@@ -1,6 +1,14 @@
 {
-  "name": "app-server",
+  "name": "tartly",
   "version": "0.1.0",
+  "description": "Tartly Flow Runtime core plus an AI email operator reference application",
+  "keywords": [
+    "workflow-runtime",
+    "durable-execution",
+    "checkpointing",
+    "replay",
+    "flow-engine"
+  ],
   "private": true,
   "packageManager": "npm@10.9.9",
   "scripts": {
@@ -27,6 +35,7 @@
     "test:autopilot": "NODE_PATH=./scripts/onboarding-test-shims tsx scripts/email-operator/phase-autopilot.ts",
     "worker": "NODE_PATH=./scripts/onboarding-test-shims tsx scripts/worker.ts",
     "test:unit": "vitest run",
+    "test:core": "vitest run tests/unit/engine",
     "test:unit:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:integration": "vitest run --config vitest.integration.config.mts",
