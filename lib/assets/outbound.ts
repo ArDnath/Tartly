@@ -4,6 +4,7 @@ import { ValidationError } from "@/lib/agent/errors";
 import type { Attachment, InlineImage } from "@/lib/gmail/mime";
 import { textToHtml } from "@/lib/gmail/mime";
 
+import { MAX_OUTBOUND_ASSETS } from "./limits";
 import { assetSendable, isImageMime, readAssetBytes } from "./service";
 
 /**
@@ -37,10 +38,15 @@ export async function resolveOutboundAssets({
   const inlineImages: InlineImage[] = [];
   const attachments: Attachment[] = [];
   const htmlParts: string[] = [];
+  const seen = new Set<string>();
 
-  for (const id of inlineImageIds.slice(0, 20)) {
+  // Inline images are resolved first so an id requested both ways is rendered
+  // inline rather than attached twice. The total is capped across both lists.
+  for (const id of inlineImageIds) {
+    if (seen.has(id) || seen.size >= MAX_OUTBOUND_ASSETS) continue;
     const resolved = await readAssetBytes({ userId, id });
     if (!resolved) continue;
+    seen.add(id);
     const { asset, body } = resolved;
     if (!assetSendable(asset)) {
       throw new ValidationError(
@@ -62,9 +68,11 @@ export async function resolveOutboundAssets({
     htmlParts.push(`<p><img src="cid:${cid}"${alt} /></p>`);
   }
 
-  for (const id of attachmentIds.slice(0, 20)) {
+  for (const id of attachmentIds) {
+    if (seen.has(id) || seen.size >= MAX_OUTBOUND_ASSETS) continue;
     const resolved = await readAssetBytes({ userId, id });
     if (!resolved) continue;
+    seen.add(id);
     if (!assetSendable(resolved.asset)) {
       throw new ValidationError(
         `"${resolved.asset.filename}" was blocked by the security scan and cannot be sent.`,

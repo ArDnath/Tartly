@@ -4,6 +4,7 @@ import { FileText, Loader2, Trash2, Upload } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { formatBytes, uploadAsset } from "@/lib/assets/client";
 
 export type AssetView = {
   id: string;
@@ -15,51 +16,6 @@ export type AssetView = {
   height: number | null;
   altText: string | null;
   createdAt: string;
-};
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-/** SHA-256 of the file, computed in the browser; content-addresses the upload. */
-async function sha256Hex(file: File): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
-  return Array.from(new Uint8Array(digest))
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-/** Intrinsic image dimensions for the library grid; best-effort. */
-async function imageSize(
-  file: File,
-): Promise<{ width: number | null; height: number | null }> {
-  if (!file.type.startsWith("image/")) return { width: null, height: null };
-  try {
-    const bitmap = await createImageBitmap(file);
-    const size = { width: bitmap.width, height: bitmap.height };
-    bitmap.close();
-    return size;
-  } catch {
-    return { width: null, height: null };
-  }
-}
-
-async function errorMessage(response: Response, fallback: string): Promise<string> {
-  const payload = (await response.json().catch(() => null)) as
-    | { error?: { message?: string } }
-    | null;
-  return payload?.error?.message || fallback;
-}
-
-type UploadTicket = {
-  mode: "blob" | "put";
-  key: string;
-  handleUploadUrl?: string;
-  access?: "public" | "private";
-  url?: string;
-  headers?: Record<string, string>;
 };
 
 /**
@@ -112,59 +68,11 @@ export function AssetLibrary() {
   }, []);
 
   const uploadOne = async (file: File) => {
-    const filename = file.name || "file";
-    const mimeType = file.type || "application/octet-stream";
-    const sizeBytes = file.size;
-    const sha256 = await sha256Hex(file);
-    const meta = { filename, mimeType, sizeBytes, sha256 };
-
-    const ticketResponse = await fetch("/api/v1/assets/upload-ticket", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(meta),
+    await uploadAsset({
+      blob: file,
+      filename: file.name || "file",
+      mimeType: file.type,
     });
-    if (!ticketResponse.ok) {
-      throw new Error(
-        await errorMessage(ticketResponse, `Couldn't upload ${filename}.`),
-      );
-    }
-    const ticket = ((await ticketResponse.json()) as { data: UploadTicket }).data;
-
-    if (ticket.mode === "blob") {
-      const { upload } = await import("@vercel/blob/client");
-      await upload(ticket.key, file, {
-        access: ticket.access ?? "private",
-        handleUploadUrl: ticket.handleUploadUrl ?? "/api/v1/assets/upload",
-        clientPayload: JSON.stringify(meta),
-        contentType: mimeType,
-        multipart: file.size > 4 * 1024 * 1024,
-      });
-    } else if (ticket.url) {
-      const put = await fetch(ticket.url, {
-        method: "PUT",
-        headers: ticket.headers,
-        body: file,
-      });
-      if (!put.ok) throw new Error(`Couldn't upload ${filename}.`);
-    } else {
-      throw new Error(`Couldn't upload ${filename}.`);
-    }
-
-    const dimensions = await imageSize(file);
-    const finalize = await fetch("/api/v1/assets", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ...meta,
-        key: ticket.key,
-        altText: null,
-        width: dimensions.width,
-        height: dimensions.height,
-      }),
-    });
-    if (!finalize.ok) {
-      throw new Error(await errorMessage(finalize, `Couldn't save ${filename}.`));
-    }
   };
 
   const upload = async (files: FileList) => {

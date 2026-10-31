@@ -32,6 +32,7 @@ import { ThreadSummaryCard } from "@/components/app/assistant/cards/thread-summa
 import { SuppressionCard } from "@/components/app/assistant/cards/suppression-card";
 import { VoiceDraftCard } from "@/components/app/assistant/cards/voice-draft-card";
 import { asRecord, asString } from "@/components/app/assistant/cards/shared";
+import { MessageAttachment } from "@/components/app/assistant/message-attachment";
 import { ToolStep } from "@/components/app/assistant/tool-step";
 import { BriefingCard } from "@/components/app/briefing/briefing-card";
 import { ChainOfThoughtStep } from "@/components/ai-elements/chain-of-thought";
@@ -41,7 +42,7 @@ import {
   MessageContent,
   MessageResponse,
 } from "@/components/ai-elements/message";
-import type { ChatBriefingPart } from "@/lib/db/schema";
+import type { ChatAttachmentPart, ChatBriefingPart } from "@/lib/db/schema";
 
 type ToolPart = ToolUIPart | DynamicToolUIPart;
 type MessagePart = UIMessage["parts"][number];
@@ -288,6 +289,36 @@ export const AgentMessage = memo(function AgentMessage({
             return (
               <div key={key}>
                 <BriefingCard part={part as unknown as ChatBriefingPart} />
+              </div>
+            );
+          }
+
+          // A rehydrated attachment is a reference to the asset library; the
+          // bytes are never stored in the transcript.
+          if ((part as { type?: string }).type === "attachment") {
+            const attachment = part as unknown as ChatAttachmentPart;
+            return (
+              <div key={key}>
+                <MessageAttachment
+                  filename={attachment.filename}
+                  mimeType={attachment.mimeType}
+                  sizeBytes={attachment.sizeBytes}
+                  url={`/api/v1/assets/${attachment.assetId}/raw`}
+                />
+              </div>
+            );
+          }
+
+          // The optimistic turn `useChat` adds locally carries file parts; keep
+          // its preview consistent with the persisted attachment above.
+          if (part.type === "file") {
+            return (
+              <div key={key}>
+                <MessageAttachment
+                  filename={part.filename ?? "Attachment"}
+                  mimeType={part.mediaType}
+                  url={part.url}
+                />
               </div>
             );
           }

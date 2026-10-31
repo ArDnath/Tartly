@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { MAX_OUTBOUND_ASSETS } from "@/lib/assets/limits";
+
 import { defineOperation } from "./registry";
 import {
   COMPOSE_ASSIST_ACTIONS,
@@ -38,6 +40,24 @@ export const mailCreateDraftBody = z.object({
   body: z.string().default(""),
   threadId: z.string().optional(),
   inReplyTo: z.string().optional(),
+  /** Library assets to attach as files. */
+  assetIds: z.array(z.string().min(1)).max(MAX_OUTBOUND_ASSETS).optional(),
+  /** Library images to render inline. */
+  inlineImageIds: z.array(z.string().min(1)).max(MAX_OUTBOUND_ASSETS).optional(),
+  /** Which connected account owns the draft. `outlook:` thread ids imply it. */
+  account: z.enum(["all", "gmail", "outlook"]).optional(),
+});
+
+/**
+ * Import an attachment from a received message into the asset library, so the
+ * composer can attach it to a forward without re-uploading it.
+ */
+export const mailAttachmentImportBody = z.object({
+  messageId: z.string().min(1).max(256),
+  attachmentId: z.string().min(1).max(512),
+  filename: z.string().min(1).max(240),
+  mimeType: z.string().min(3).max(120).optional(),
+  sizeBytes: z.number().int().positive().optional(),
 });
 
 export const mailComposeAgentBody = z.object({
@@ -63,8 +83,8 @@ export const mailSendBody = z.object({
   body: z.string().default(""),
   threadId: z.string().optional(),
   inReplyTo: z.string().optional(),
-  assetIds: z.array(z.string()).max(20).optional(),
-  inlineImageIds: z.array(z.string()).max(20).optional(),
+  assetIds: z.array(z.string().min(1)).max(MAX_OUTBOUND_ASSETS).optional(),
+  inlineImageIds: z.array(z.string().min(1)).max(MAX_OUTBOUND_ASSETS).optional(),
   /**
    * Which connected account to send from. Defaults to Gmail; `outlook` (or an
    * `outlook:` thread id) routes the message through Microsoft Graph.
@@ -136,7 +156,30 @@ function batchOperation(
   });
 }
 
+const importedAssetEnvelope = dataEnvelope(
+  z.object({ deduped: z.boolean(), asset: z.unknown() }),
+);
+
 export const mailOperations = [
+  defineOperation({
+    method: "POST",
+    path: "/api/v1/mail/attachments/import",
+    operationId: "importMailAttachment",
+    tags: ["mail"],
+    summary: "Copy a received attachment into the asset library",
+    security: "session",
+    body: mailAttachmentImportBody,
+    responses: {
+      200: {
+        description: "Identical bytes already exist in the library (deduped).",
+        schema: importedAssetEnvelope,
+      },
+      201: {
+        description: "Attachment stored as a new asset.",
+        schema: importedAssetEnvelope,
+      },
+    },
+  }),
   defineOperation({
     method: "POST",
     path: "/api/v1/mail/assist",
@@ -179,7 +222,7 @@ export const mailOperations = [
     path: "/api/v1/mail/drafts",
     operationId: "createMailDraft",
     tags: ["mail"],
-    summary: "Save a Gmail draft",
+    summary: "Save a draft to the selected mailbox",
     security: "session",
     body: mailCreateDraftBody,
     responses: createdResponse(dataEnvelope(z.object({ id: z.string() }))),
@@ -202,7 +245,7 @@ export const mailOperations = [
     path: "/api/v1/mail/labels",
     operationId: "createMailLabel",
     tags: ["mail"],
-    summary: "Create a Gmail label",
+    summary: "Create a label (Gmail) or category (Outlook)",
     security: "session",
     body: mailLabelBody,
     responses: createdResponse(dataEnvelope(z.object({ label: z.string() }))),
@@ -212,7 +255,7 @@ export const mailOperations = [
     path: "/api/v1/mail/messages",
     operationId: "listMailMessages",
     tags: ["mail"],
-    summary: "List Gmail messages (page-token paginated)",
+    summary: "List mail messages from connected accounts (page-token paginated)",
     security: "session",
     query: mailMessagesQuery,
     responses: okResponse(
@@ -230,7 +273,7 @@ export const mailOperations = [
     path: "/api/v1/mail/messages/{id}",
     operationId: "getMailMessage",
     tags: ["mail"],
-    summary: "Get a full Gmail message",
+    summary: "Get a full mail message",
     security: "session",
     responses: okResponse(dataEnvelope(z.unknown())),
   }),
@@ -239,7 +282,7 @@ export const mailOperations = [
     path: "/api/v1/mail/threads/{id}",
     operationId: "getMailThread",
     tags: ["mail"],
-    summary: "Get a full Gmail conversation",
+    summary: "Get a full mail conversation",
     security: "session",
     responses: okResponse(dataEnvelope(z.unknown())),
   }),
@@ -270,7 +313,7 @@ export const mailOperations = [
     path: "/api/v1/mail/profile",
     operationId: "getMailProfile",
     tags: ["mail"],
-    summary: "Gmail profile (address + total)",
+    summary: "Primary mail profile (address + total)",
     security: "session",
     responses: okResponse(
       dataEnvelope(

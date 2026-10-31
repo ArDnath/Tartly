@@ -3,10 +3,10 @@ import "server-only";
 /**
  * Attachment text extraction.
  *
- * A tiny registry keyed by MIME so richer formats (PDF, DOCX, OCR) can be added
- * later without touching the pipeline. Only text-like formats are handled here:
- * binary formats need a parser dependency, and the pipeline deliberately ships
- * with none.
+ * A tiny registry keyed by MIME so richer formats (DOCX, OCR) can be added
+ * later without touching the pipeline. Text-like formats are decoded directly;
+ * PDFs go through `unpdf`, which bundles a serverless build of PDF.js and is
+ * only loaded when a PDF is actually parsed.
  */
 
 export type ExtractedText = {
@@ -20,7 +20,7 @@ export type ExtractedText = {
 export type TextExtractor = {
   id: string;
   matches: (mimeType: string) => boolean;
-  extract: (bytes: Buffer) => string;
+  extract: (bytes: Buffer) => string | Promise<string>;
 };
 
 const HTML_ENTITIES: Record<string, string> = {
@@ -62,7 +62,20 @@ export function htmlToPlainText(html: string): string {
     .trim();
 }
 
+/** Extract selectable text from a PDF. Images/scans need OCR, which we don't do. */
+async function extractPdfText(bytes: Buffer): Promise<string> {
+  const { extractText: extractPdf } = await import("unpdf");
+  const result = await extractPdf(new Uint8Array(bytes), { mergePages: true });
+  const text = Array.isArray(result.text) ? result.text.join("\n\n") : result.text;
+  return text.trim();
+}
+
 const EXTRACTORS: TextExtractor[] = [
+  {
+    id: "application/pdf",
+    matches: (mime) => mime === "application/pdf",
+    extract: extractPdfText,
+  },
   {
     id: "text/html",
     matches: (mime) =>
@@ -86,7 +99,7 @@ const EXTRACTORS: TextExtractor[] = [
   },
 ];
 
-/** Register an additional extractor (e.g. a PDF parser) at the front of the list. */
+/** Register an additional extractor (e.g. DOCX) at the front of the list. */
 export function registerTextExtractor(extractor: TextExtractor): void {
   EXTRACTORS.unshift(extractor);
 }
@@ -95,15 +108,16 @@ export function registerTextExtractor(extractor: TextExtractor): void {
  * Extract text from `bytes`, or return `null` when no extractor handles the
  * MIME type. The caller owns truncation; this only produces the raw string.
  */
-export function extractText(
+export async function extractText(
   bytes: Buffer,
   mimeType: string,
-): { text: string; parser: string } | null {
+): Promise<{ text: string; parser: string } | null> {
   const mime = mimeType.toLowerCase().split(";")[0]!.trim();
   const extractor = EXTRACTORS.find((candidate) => candidate.matches(mime));
   if (!extractor) return null;
   try {
-    return { text: extractor.extract(bytes), parser: extractor.id };
+    const text = await extractor.extract(bytes);
+    return text.trim() ? { text, parser: extractor.id } : null;
   } catch {
     return null;
   }

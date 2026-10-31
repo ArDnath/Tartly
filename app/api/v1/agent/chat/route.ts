@@ -6,6 +6,12 @@ import {
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
+import { resolveActionProvider } from "@/lib/agent/action-provider";
+import {
+  expandStoredMessagesWithAttachments,
+  loadChatAttachments,
+  MAX_CHAT_ATTACHMENTS,
+} from "@/lib/agent/attachments";
 import { buildAgentContext } from "@/lib/agent/context";
 import {
   confirmationRequiredResult,
@@ -15,7 +21,6 @@ import {
 import { toSafeError } from "@/lib/agent/errors";
 import { createLoggingEventSink, type AgentEvent } from "@/lib/agent/events";
 import { streamAgentTurn, type AgentTurnSummary } from "@/lib/agent/loop";
-import { storedMessageToModelUIMessage } from "@/lib/agent/messages";
 import {
   appendMessageParts,
   createAgentRun,
@@ -65,11 +70,17 @@ const bodySchema = z
     currentEmailId: z.string().max(256).optional(),
     /** Composer toggle: allow the agent to search the public web this turn. */
     webSearch: z.boolean().optional(),
+    /** Asset-library ids uploaded from the composer for this turn. */
+    assetIds: z.array(z.string().min(1).max(64)).max(MAX_CHAT_ATTACHMENTS).optional(),
   })
-  .refine((value) => Boolean(value.resumeActionId || value.text?.trim()), {
-    message: "A message or a resumeActionId is required.",
-    path: ["text"],
-  });
+  .refine(
+    (value) =>
+      Boolean(value.resumeActionId || value.text?.trim() || value.assetIds?.length),
+    {
+      message: "A message, an attachment, or a resumeActionId is required.",
+      path: ["text"],
+    },
+  );
 
 const TERMINAL_ACTION_STATUSES = new Set([
   "SUCCEEDED",
@@ -155,8 +166,15 @@ const handleChat: UserRouteHandler = async (userId, request) => {
   if (!parsed.success) {
     return apiError("validation", "Invalid request.", 400);
   }
-  const { conversationId, text, resumeActionId, currentThreadId, currentEmailId, webSearch } =
-    parsed.data;
+  const {
+    conversationId,
+    text,
+    resumeActionId,
+    currentThreadId,
+    currentEmailId,
+    webSearch,
+    assetIds,
+  } = parsed.data;
 
   const thread = await findThreadForUser(userId, conversationId);
   if (!thread) {
@@ -196,12 +214,37 @@ const handleChat: UserRouteHandler = async (userId, request) => {
       parts: [{ type: "text", text: note.text }],
       hidden: true,
     });
-  } else if (text && text.trim()) {
-    await ensureChatThreadTitle(userId, conversationId, text);
+  } else if ((text && text.trim()) || assetIds?.length) {
+    const attachments = assetIds?.length
+      ? await loadChatAttachments({ userId, assetIds })
+      : { parts: [], rejectedIds: [] };
+    const trimmed = text?.trim() ?? "";
+
+    if (attachments.parts.length === 0 && !trimmed) {
+      return apiError(
+        "bad_request",
+        "That attachment could not be found. Upload it again and retry.",
+        400,
+      );
+    }
+    if (attachments.rejectedIds.length > 0) {
+      console.warn("[agent/chat] ignored unavailable attachments", {
+        count: attachments.rejectedIds.length,
+      });
+    }
+
+    await ensureChatThreadTitle(
+      userId,
+      conversationId,
+      trimmed || attachments.parts[0]?.filename || "Attachment",
+    );
     await appendMessageParts({
       conversationId,
       role: "user",
-      parts: [{ type: "text", text }],
+      parts: [
+        ...(trimmed ? [{ type: "text" as const, text: trimmed }] : []),
+        ...attachments.parts,
+      ],
     });
   }
 
@@ -236,8 +279,10 @@ const handleChat: UserRouteHandler = async (userId, request) => {
     includeHidden: true,
     limit: MODEL_HISTORY_LIMIT,
   });
+  // Attachment references are expanded here, not at persistence time: image
+  // bytes and PDF text are loaded owner-scoped and only for the model request.
   const modelMessages = await convertToModelMessages(
-    stored.map(storedMessageToModelUIMessage),
+    await expandStoredMessagesWithAttachments({ userId, messages: stored }),
   );
   // NOTE: we deliberately do NOT pass `originalMessages` to the UI stream. The
   // AI SDK's "continuation" mode reuses the last assistant message's id when
@@ -272,7 +317,7 @@ const handleChat: UserRouteHandler = async (userId, request) => {
       conversationId,
       toolName: request.toolName,
       args: request.input,
-      provider: "gmail",
+      provider: await resolveActionProvider(userId, request.input),
     });
     return confirmationRequiredResult({
       pendingActionId: action.id,
@@ -296,7 +341,7 @@ const handleChat: UserRouteHandler = async (userId, request) => {
       conversationId,
       toolName: request.toolName,
       args: request.input,
-      provider: "gmail",
+      provider: await resolveActionProvider(userId, request.input),
     });
     emit({
       type: "ACTION_CONFIRMED",

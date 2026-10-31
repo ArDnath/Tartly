@@ -1,9 +1,13 @@
 import { apiError, created, ok, withUser, type UserRouteHandler } from "@/lib/api/http";
 import { assetFinalizeBody as finalizeSchema } from "@/lib/api/contracts/assets";
 import {
+  ASSET_ERROR_MESSAGES,
+  ASSET_ERROR_STATUS,
+  assetErrorResponse,
+} from "@/lib/assets/http";
+import {
   listAssets,
   registerUploadedAsset,
-  type AssetError,
 } from "@/lib/assets/service";
 import { assetRateLimitPerMin, isAssetsEnabled } from "@/lib/env";
 import type { AssetKind } from "@/lib/db/schema";
@@ -16,26 +20,6 @@ import type { AssetKind } from "@/lib/db/schema";
  * function, storage is probed for the authoritative size/type, and identical
  * content dedupes on the per-user content hash.
  */
-
-const ERROR_MESSAGES: Record<AssetError, string> = {
-  disabled: "Assets are disabled.",
-  storage_unconfigured: "Asset storage is not configured.",
-  too_large: "That file is too large.",
-  unsupported_type: "That file type isn't allowed.",
-  empty: "The file is empty.",
-  invalid: "That upload could not be verified.",
-  infected: "That file failed a security scan and was rejected.",
-};
-
-const ERROR_STATUS: Record<AssetError, number> = {
-  disabled: 403,
-  storage_unconfigured: 503,
-  too_large: 413,
-  unsupported_type: 400,
-  empty: 400,
-  invalid: 400,
-  infected: 422,
-};
 
 export const runtime = "nodejs";
 
@@ -62,7 +46,11 @@ export const GET = withUser(async (userId, request) => {
 
 const handleFinalize: UserRouteHandler = async (userId, request) => {
   if (!isAssetsEnabled()) {
-    return apiError("disabled", ERROR_MESSAGES.disabled, ERROR_STATUS.disabled);
+    return apiError(
+      "disabled",
+      ASSET_ERROR_MESSAGES.disabled,
+      ASSET_ERROR_STATUS.disabled,
+    );
   }
 
   const parsed = finalizeSchema.safeParse(await request.json().catch(() => null));
@@ -72,13 +60,7 @@ const handleFinalize: UserRouteHandler = async (userId, request) => {
 
   const { key: storageKey, ...rest } = parsed.data;
   const result = await registerUploadedAsset({ userId, storageKey, ...rest });
-  if (!result.ok) {
-    return apiError(
-      result.error,
-      ERROR_MESSAGES[result.error],
-      ERROR_STATUS[result.error],
-    );
-  }
+  if (!result.ok) return assetErrorResponse(result.error);
 
   const asset = result.asset;
   const payload = {

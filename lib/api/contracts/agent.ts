@@ -29,11 +29,17 @@ export const agentChatBody = z
     currentEmailId: z.string().max(256).optional(),
     /** Composer toggle: allow the agent to search the public web this turn. */
     webSearch: z.boolean().optional(),
+    /** Asset-library ids uploaded from the composer for this turn. */
+    assetIds: z.array(z.string().min(1).max(64)).max(6).optional(),
   })
-  .refine((value) => Boolean(value.resumeActionId || value.text?.trim()), {
-    message: "A message or a resumeActionId is required.",
-    path: ["text"],
-  });
+  .refine(
+    (value) =>
+      Boolean(value.resumeActionId || value.text?.trim() || value.assetIds?.length),
+    {
+      message: "A message, an attachment, or a resumeActionId is required.",
+      path: ["text"],
+    },
+  );
 
 export const conversationParams = z.object({
   conversationId: z.string().min(1).max(64),

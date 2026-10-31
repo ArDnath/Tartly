@@ -52,7 +52,7 @@ export async function extractAndStoreAsset({
     return { status: "unsupported", parser: null, charCount: 0, truncated: false };
   }
 
-  const extracted = extractText(bytes, mimeType);
+  const extracted = await extractText(bytes, mimeType);
   if (!extracted) {
     await upsert(userId, assetId, {
       status: "failed",

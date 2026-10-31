@@ -20,10 +20,14 @@ import {
   PromptInput,
   PromptInputBody,
   PromptInputFooter,
-  PromptInputSubmit,
   PromptInputTextarea,
   PromptInputTools,
 } from "@/components/ai-elements/prompt-input";
+import {
+  ComposerAttachButton,
+  ComposerAttachments,
+  ComposerSubmit,
+} from "@/components/app/assistant/composer-attachments";
 import { AgentMessage } from "@/components/app/assistant/agent-message";
 import {
   openPaywall,
@@ -44,6 +48,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { ChatThread } from "@/lib/ai/chat-types";
+import { uploadFilePart } from "@/lib/assets/client";
 import type { CatchUp } from "@/lib/briefing/catchup-types";
 import { cn } from "@/lib/utils";
 
@@ -104,7 +109,7 @@ export function AgentChat({
   className,
   showTitle = true,
   emptyTitle = "What should we do with your inbox?",
-  emptyDescription = "Try “Find my latest email from John”, “Summarize my unread mail”, or “Search threads about pricing”.",
+  emptyDescription = "Try “Find my latest email from John”, “Summarize my unread mail”, or “Search threads about pricing”. Use + to attach a PDF or image.",
   catchUpPlan = null,
 }: {
   conversationId: string;
@@ -142,6 +147,28 @@ export function AgentChat({
    * tools (`search_web`, `open_web_page`, `research_person/company`).
    */
   const [webSearch, setWebSearch] = useState(false);
+  /**
+   * Attachments are uploaded straight into the asset library, so the composer
+   * stays usable for the next turn and the agent can refer back to a file later.
+   */
+  const [uploading, setUploading] = useState(false);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [assetsEnabled, setAssetsEnabled] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/v1/assets", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((payload: { data?: { enabled?: boolean } }) => {
+        if (active && typeof payload.data?.enabled === "boolean") {
+          setAssetsEnabled(payload.data.enabled);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const transport = useMemo(
     () =>
@@ -211,14 +238,21 @@ export function AgentChat({
   );
 
   // A resume turn is sent with empty text (the server keys off `resumeActionId`);
-  // hide that placeholder bubble so the continuation looks seamless.
+  // hide that placeholder bubble so the continuation looks seamless. A turn
+  // that carries only files is real, so attachment parts keep it visible.
   const visibleMessages = useMemo(
     () =>
       dedupeMessagesById(
-        messages.filter(
-          (message) =>
-            !(message.role === "user" && textOf(message).trim().length === 0),
-        ),
+        messages.filter((message) => {
+          if (message.role !== "user" || textOf(message).trim().length > 0) {
+            return true;
+          }
+          return message.parts.some(
+            (part) =>
+              part.type === "file" ||
+              (part as { type?: string }).type === "attachment",
+          );
+        }),
       ),
     [messages],
   );
@@ -451,26 +485,101 @@ export function AgentChat({
         </div>
       ) : null}
 
-      <div className="shrink-0 p-3">
+      <div className="relative shrink-0 p-3">
         <ApprovalDock approvals={pendingApprovals} />
+        {attachmentError ? (
+          <div className="mb-2 flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+            <span className="min-w-0 flex-1">{attachmentError}</span>
+            <button
+              type="button"
+              className="shrink-0 underline underline-offset-2"
+              onClick={() => setAttachmentError(null)}
+            >
+              Dismiss
+            </button>
+          </div>
+        ) : null}
         <PromptInput
-          onSubmit={({ text }) => {
+          // No `accept` here: allowed types come from the deployment's
+          // ASSET_ALLOWED_MIME and the server is the authority. Filtering in
+          // the browser would hide valid custom types.
+          multiple
+          maxFiles={6}
+          maxFileSize={10 * 1024 * 1024}
+          onError={(uploadError) => setAttachmentError(uploadError.message)}
+          onSubmit={async ({ text, files }) => {
             const trimmed = text.trim();
-            if (!trimmed) return;
-            if (!ensureSubscribed()) return;
-            setInput("");
-            void sendMessage({ text: trimmed }, { body: { webSearch } });
+            if (!trimmed && files.length === 0) return;
+            if (!ensureSubscribed()) throw new Error("subscription_required");
+
+            setAttachmentError(null);
+            setUploading(true);
+            try {
+              // Upload before sending so the model receives stable asset ids
+              // rather than base64 bytes in the request body.
+              const uploaded = [];
+              for (const file of files) {
+                uploaded.push(await uploadFilePart(file));
+              }
+              const assetIds = uploaded.map((asset) => asset.id);
+
+              setInput("");
+              if (uploaded.length === 0) {
+                void sendMessage(
+                  { text: trimmed },
+                  { body: { webSearch } },
+                ).catch((sendError) => {
+                  console.error("[agent-chat] send failed", sendError);
+                });
+                return;
+              }
+
+              // The optimistic user bubble previews the stored asset through
+              // the authenticated proxy; the server ignores these file parts
+              // and expands the ids from the owner-scoped library instead.
+              const optimisticFiles = uploaded.map((asset) => ({
+                type: "file" as const,
+                mediaType: asset.mimeType,
+                filename: asset.filename,
+                url: `/api/v1/assets/${asset.id}/raw`,
+              }));
+              void sendMessage(
+                trimmed
+                  ? { text: trimmed, files: optimisticFiles }
+                  : { files: optimisticFiles },
+                { body: { webSearch, assetIds } },
+              ).catch((sendError) => {
+                console.error("[agent-chat] send failed", sendError);
+              });
+            } catch (caught) {
+              setAttachmentError(
+                caught instanceof Error
+                  ? caught.message
+                  : "The file could not be uploaded.",
+              );
+              // Re-throw so PromptInput keeps the staged files for a retry.
+              throw caught;
+            } finally {
+              setUploading(false);
+            }
           }}
         >
+          <ComposerAttachments busy={uploading} />
           <PromptInputBody>
             <PromptInputTextarea
-              placeholder="Ask about your email…"
+              placeholder="Ask about your email, or attach a PDF or image…"
               value={input}
               onChange={(event) => setInput(event.target.value)}
             />
           </PromptInputBody>
           <PromptInputFooter>
             <PromptInputTools>
+              <ComposerAttachButton
+                disabled={!assetsEnabled}
+                onUnavailable={() =>
+                  setAttachmentError("Attachments are unavailable in this workspace.")
+                }
+              />
               <AutonomySwitch />
               <button
                 type="button"
@@ -492,13 +601,11 @@ export function AgentChat({
                 Web
               </button>
             </PromptInputTools>
-            <PromptInputSubmit
+            <ComposerSubmit
               status={status as ChatStatus}
               onStop={stop}
-              // Disable only when there is nothing to send; never tie this to
-              // `messages.length`, which kept the first message of a new
-              // conversation from ever being sendable.
-              disabled={!isBusy && input.trim().length === 0}
+              hasText={input.trim().length > 0}
+              uploading={uploading}
             />
           </PromptInputFooter>
         </PromptInput>
