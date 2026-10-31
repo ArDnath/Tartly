@@ -48,6 +48,7 @@ next-env.d.ts
 
 # local agent / editor scratch — machine-specific paths, never shared
 # (shared, portable skills live in .agents/skills and are tracked)
+.firecrawl/
 .claude/
 .codex/
 .cursor/
