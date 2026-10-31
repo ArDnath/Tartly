@@ -603,8 +603,8 @@ export default function HomeContent({
           </ClickSpark>
         </motion.div>
 
-        {/* Provider marks stay static below the CTAs. Outlook appears only
-            when Microsoft sign-in is configured for this deployment. */}
+        {/* Keep both provider marks visible; Microsoft sign-in can be enabled
+            independently for each deployment. */}
         <div className="mt-3 mb-1 flex flex-wrap items-center justify-center gap-3 text-sm font-medium text-[var(--landing-muted)]">
           <span>Works with</span>
           <div
@@ -616,14 +616,17 @@ export default function HomeContent({
               <GoogleIcon className="size-5" />
               <span>Google</span>
             </span>
-            {outlookAvailable ? (
-              <span role="listitem" className="inline-flex items-center gap-2">
-                <OutlookIcon className="size-5" />
-                <span>Outlook</span>
-              </span>
-            ) : null}
+            <span role="listitem" className="inline-flex items-center gap-2">
+              <OutlookIcon className="size-5" />
+              <span>Outlook</span>
+            </span>
           </div>
         </div>
+        {!outlookAvailable ? (
+          <p className="text-center text-xs text-[var(--landing-muted)]">
+            Outlook sign-in availability depends on deployment configuration.
+          </p>
+        ) : null}
       </section>
 
       {/* `#how` is the target of the hero's "See how it works" CTA. It wraps
