@@ -101,6 +101,10 @@ const envSchema = z.object({
   // The push endpoint URL, used as the OIDC audience. Defaults to
   // `${BETTER_AUTH_URL}/api/webhooks/gmail` when unset.
   GOOGLE_PUBSUB_AUDIENCE: z.string().url().optional(),
+  // The service account configured with `--push-auth-service-account` on the
+  // Pub/Sub subscription. The webhook pins this identity after verifying the
+  // Google-signed OIDC token, so another Google principal cannot invoke it.
+  GOOGLE_PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL: z.string().email().optional(),
 
   // Optional booking-link fallback when no meeting slot is agreed.
   NEXT_PUBLIC_BOOKING_URL: z.string().url().optional(),
@@ -447,6 +451,11 @@ export function getPubSubAudience(): string {
     env.GOOGLE_PUBSUB_AUDIENCE ??
     `${env.BETTER_AUTH_URL.replace(/\/$/, "")}/api/webhooks/gmail`
   );
+}
+
+/** Identity configured for the authenticated Pub/Sub push subscription. */
+export function getPubSubPushServiceAccountEmail(): string | undefined {
+  return env.GOOGLE_PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL;
 }
 
 /* -------------------------------------------------------------------------- */

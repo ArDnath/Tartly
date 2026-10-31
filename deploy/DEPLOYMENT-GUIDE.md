@@ -525,7 +525,7 @@ ssh deploy@201.18.197.194 'chmod 600 /opt/tartly/deploy/app.env /opt/tartly/depl
 
 | Variable | Needed for |
 | --- | --- |
-| `GOOGLE_PUBSUB_TOPIC`, `GOOGLE_PUBSUB_AUDIENCE` | Gmail push / email operator |
+| `GOOGLE_PUBSUB_TOPIC`, `GOOGLE_PUBSUB_AUDIENCE`, `GOOGLE_PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL` | Gmail push / email operator |
 | `DODO_PAYMENTS_API_KEY`, `_WEBHOOK_KEY`, `_ENVIRONMENT`, product IDs | billing |
 | `S3_*`, `ASSET_STORAGE_DRIVER=s3` | uploads |
 | `NEXT_PUBLIC_IMAGEKIT_URL_ENDPOINT` | media (build-time) |
@@ -1215,13 +1215,20 @@ Then sign in in a browser and confirm `https://tartly.in/mail` loads live mail.
      --topic=gmail-inbox \
      --push-endpoint=https://tartly.in/api/webhooks/gmail \
      --push-auth-service-account=<push-sa>@<project>.iam.gserviceaccount.com
+
+   gcloud iam service-accounts add-iam-policy-binding \
+     <push-sa>@<project>.iam.gserviceaccount.com \
+     --member=serviceAccount:service-<project-number>@gcp-sa-pubsub.iam.gserviceaccount.com \
+     --role=roles/iam.serviceAccountTokenCreator
    ```
 4. Set in `app.env`:
    ```dotenv
    GOOGLE_PUBSUB_TOPIC=projects/<project>/topics/gmail-inbox
    GOOGLE_PUBSUB_AUDIENCE=https://tartly.in/api/webhooks/gmail
+   GOOGLE_PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL=<push-sa>@<project>.iam.gserviceaccount.com
    ```
-5. Recreate web/worker. The route verifies the OIDC token against the audience before accepting.
+5. Recreate web/worker. The route verifies the OIDC token signature, audience,
+   and the configured push service-account identity before accepting.
 
 Verify: send yourself an email; watch `docker compose logs -f worker` for an `inbound_email` job and the thread appear in `/inbox`.
 

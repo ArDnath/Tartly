@@ -21,7 +21,13 @@ updates after "Sync now" or the daily cron.
    - `GOOGLE_PUBSUB_TOPIC` is set.
    - The topic's push subscription points at
      `$BETTER_AUTH_URL/api/webhooks/gmail` (or `GOOGLE_PUBSUB_AUDIENCE`).
-   - The push service account has `roles/pubsub.publisher`.
+   - `GOOGLE_PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL` exactly matches the service
+     account selected as `--push-auth-service-account` for that subscription.
+   - `gmail-api-push@system.gserviceaccount.com` (the Gmail publisher, not the
+     push identity) has `roles/pubsub.publisher` on the topic.
+   - Pub/Sub's service agent
+     `service-<project-number>@gcp-sa-pubsub.iam.gserviceaccount.com` has
+     `roles/iam.serviceAccountTokenCreator` on the selected push identity.
 5. Replay recent mail with "Sync now" (`POST /api/v1/inbox/sync`) so nothing is
    lost while push was down.
 

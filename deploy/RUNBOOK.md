@@ -146,7 +146,14 @@ Keep the consent-screen privacy URL and the homepage link identical:
 - Grant `gmail-api-push@system.gserviceaccount.com` **Publisher** on the topic.
 - Push subscription endpoint: `https://tartly.in/api/webhooks/gmail`
   (OIDC token, audience = that same URL).
-- Set `GOOGLE_PUBSUB_TOPIC` in `app.env`.
+- Configure the push subscription with a dedicated service account, then set
+  `GOOGLE_PUBSUB_TOPIC` and
+  `GOOGLE_PUBSUB_PUSH_SERVICE_ACCOUNT_EMAIL=<that exact service-account email>`
+  in `app.env`. The webhook rejects valid Google tokens from any other identity.
+- Grant Pub/Sub's service agent
+  `service-<project-number>@gcp-sa-pubsub.iam.gserviceaccount.com` the
+  **Service Account Token Creator** role for that push identity, so it can mint
+  the OIDC token. This is distinct from Gmail's topic-publisher account above.
 
 ### 2.4 Dodo Payments webhook
 

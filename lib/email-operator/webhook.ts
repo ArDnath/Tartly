@@ -7,7 +7,12 @@ import { recordEvent, processGmailEvent } from "@/lib/email-operator/events";
 import { findMailboxByEmail } from "@/lib/email-operator/mailbox";
 import { incrementCounter } from "@/lib/observability/metrics";
 import { logger } from "@/lib/observability/logger";
-import { getPubSubAudience, isEmailOperatorEnabled, webhookDrainBatchSize } from "@/lib/env";
+import {
+  getPubSubAudience,
+  getPubSubPushServiceAccountEmail,
+  isEmailOperatorEnabled,
+  webhookDrainBatchSize,
+} from "@/lib/env";
 import { decodeGmailPushData, verifyGoogleOidcToken } from "@/lib/gmail/pubsub";
 
 /**
@@ -24,6 +29,18 @@ export async function handleGmailPush(request: NextRequest): Promise<NextRespons
     return jsonError("disabled", "Email operator is not enabled.", 503);
   }
 
+  const pushServiceAccountEmail = getPubSubPushServiceAccountEmail();
+  if (!pushServiceAccountEmail) {
+    // A signed token without a pinned sender is insufficient for this public
+    // endpoint. Fail closed until the identity configured on the subscription
+    // is declared explicitly in the server environment.
+    return jsonError(
+      "misconfigured",
+      "Gmail push authentication is not configured.",
+      503,
+    );
+  }
+
   const authorization = request.headers.get("authorization") ?? "";
   if (!authorization.startsWith("Bearer ")) {
     return jsonError("unauthorized", "Missing OIDC token.", 401);
@@ -32,7 +49,10 @@ export async function handleGmailPush(request: NextRequest): Promise<NextRespons
   try {
     await verifyGoogleOidcToken(
       authorization.slice("Bearer ".length).trim(),
-      getPubSubAudience(),
+      {
+        audience: getPubSubAudience(),
+        serviceAccountEmail: pushServiceAccountEmail,
+      },
     );
   } catch (error) {
     logger.warn("webhook_oidc_verification_failed", {
