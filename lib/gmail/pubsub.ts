@@ -19,6 +19,8 @@ const JWKS_TIMEOUT_MS = 10_000;
 
 type Jwk = JsonWebKey & { kid?: string; alg?: string; use?: string };
 type JwksCache = { keys: Jwk[]; fetchedAt: number };
+/** Header of a Google RS256 JWT: must pin the algorithm and key id. */
+type GoogleOidcHeader = { alg?: string; kid?: string };
 
 let jwksCache: JwksCache | null = null;
 
@@ -84,7 +86,7 @@ export async function verifyGoogleOidcToken(
   }
   const [headerSegment, payloadSegment, signatureSegment] = segments;
 
-  const header = parseJsonSegment<{ alg?: string; kid?: string }>(headerSegment);
+  const header = parseJsonSegment<GoogleOidcHeader>(headerSegment);
   if (header.alg !== "RS256" || !header.kid) {
     throw new PubSubAuthError("Unsupported OIDC token header.");
   }
@@ -101,26 +103,40 @@ export async function verifyGoogleOidcToken(
     throw new PubSubAuthError("OIDC token is expired.");
   }
 
-  const verify = (keys: Jwk[]) => {
-    const jwk = keys.find((key) => key.kid === header.kid);
-    if (!jwk) return false;
-    const publicKey = createPublicKey({ key: jwk, format: "jwk" });
-    const verifier = createVerify("RSA-SHA256");
-    verifier.update(`${headerSegment}.${payloadSegment}`);
-    verifier.end();
-    return verifier.verify(publicKey, decodeSegment(signatureSegment));
-  };
+  const signatureValid = (candidateKeys: Jwk[]) =>
+    verifyGoogleSignature(header, headerSegment, payloadSegment, signatureSegment, candidateKeys);
 
   let keys = await loadJwks();
-  if (!verify(keys)) {
+  if (!signatureValid(keys)) {
     // The signing key may have rotated; refresh once before rejecting.
     keys = await loadJwks(true);
-    if (!verify(keys)) {
+    if (!signatureValid(keys)) {
       throw new PubSubAuthError("OIDC signature verification failed.");
     }
   }
 
   return claims;
+}
+
+/**
+ * Verifies the signature over `headerSegment.payloadSegment` with the key
+ * whose `kid` matches the header. Returns false when the key is unknown or the
+ * signature does not verify.
+ */
+function verifyGoogleSignature(
+  header: GoogleOidcHeader,
+  headerSegment: string,
+  payloadSegment: string,
+  signatureSegment: string,
+  keys: Jwk[],
+): boolean {
+  const jwk = keys.find((key) => key.kid === header.kid);
+  if (!jwk) return false;
+  const publicKey = createPublicKey({ key: jwk, format: "jwk" });
+  const verifier = createVerify("RSA-SHA256");
+  verifier.update(`${headerSegment}.${payloadSegment}`);
+  verifier.end();
+  return verifier.verify(publicKey, decodeSegment(signatureSegment));
 }
 
 export type GmailPushPayload = {
