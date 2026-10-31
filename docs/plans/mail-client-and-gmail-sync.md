@@ -133,7 +133,7 @@ threads mirrored. Add a case asserting `syncInbox` enqueues `mailbox_sync`.
 ## Part B — Live Gmail API for the mail client
 
 The topple client is backed by `apps/api/src/services/gmail.service.ts`, a **stateless live Gmail
-pass-through** (no mirror). Port it into app-server, reusing the existing transport in
+pass-through** (no mirror). Port it into Tartly, reusing the existing transport in
 `lib/gmail/client.ts` (`getGoogleAccessToken` + `gmailJson`).
 
 ### B1. Extend the Gmail client for `204 No Content`
@@ -146,7 +146,7 @@ if (response.status === 204) return undefined as T;
 before the JSON parse (topple's `gmailFetch` does exactly this).
 
 ### B2. New `lib/mail/service.ts` (port of `gmail.service.ts`)
-Port these, keeping app-server's `(userId, …)` + `gmailJson` signature instead of `(token, …)`:
+Port these, keeping Tartly's `(userId, …)` + `gmailJson` signature instead of `(token, …)`:
 
 - `MailAddress`, `MailAttachment`, `MailMessage`, `Correspondent` types (mirror topple's).
 - `parseAddressList`, `stripHtml`, `extractBody`, `collectAttachments`, `formatBytes`.
@@ -175,7 +175,7 @@ supports `cc`, `inReplyTo`, `references`. To serve the composer:
 - Drafts: `saveDraft(userId, mail)` → `POST /drafts` (new, small helper in `lib/mail/service.ts`).
 
 ### B4. AI compose draft (optional, recommended)
-Topple's composer has a "Draft with AI" button (`generateMailDraft`). Wire an app-server equivalent:
+Topple's composer has a "Draft with AI" button (`generateMailDraft`). Wire a Tartly equivalent:
 `POST /api/v1/mail/draft` → use `lib/ai/provider.ts` + `lib/ai/structured.ts` (or `generateText`) to write a
 body from `{ to, subject, instruction }`. Reuse `tryConsumeAiBudget`. Never auto-send.
 
@@ -199,7 +199,7 @@ Under `app/api/v1/mail/`:
 | POST | `/draft` | `{ to, subject, instruction? }` → AI body (optional) |
 
 Validate with Zod, mirror the `{ data }` / `{ error: { code, message } }` envelope (`lib/api/http.ts`),
-and rate-limit `/send` like topple (`rateLimit`-style; app-server can reuse an Upstash counter).
+and rate-limit `/send` like topple (`rateLimit`-style; Tartly can reuse an Upstash counter).
 
 ---
 
@@ -207,7 +207,7 @@ and rate-limit `/send` like topple (`rateLimit`-style; app-server can reuse an U
 
 Source → destination (`components/mail/**`, `lib/mail/**`):
 
-| topple | app-server |
+| topple | Tartly |
 |---|---|
 | `features/mail/components/MailScreen.tsx` | `components/mail/mail-screen.tsx` |
 | `MailHeader.tsx` | `components/mail/mail-header.tsx` |
@@ -285,7 +285,7 @@ Add to `app/globals.css` (single dark palette; no light variant needed):
 Register them in `@theme inline` (`--color-mail-*`) exactly as topple does, so `bg-mail-surface`,
 `text-mail-strong`, `border-mail-line`, etc. resolve.
 
-### D2. Utilities to add (topple has these; app-server does not)
+### D2. Utilities to add (topple has these; Tartly does not)
 - `.scrollbar-none`
 - `.surface-ai-gradient` (keep topple's orange→violet ramp for AI-authored affordance)
 - `.surface-primary-gradient` (dark variant: `linear-gradient(180deg,#333 0%,#111 100%)` is *lighter* than

@@ -8,7 +8,7 @@ tasks, evals), Phase 11 (sync-independence regression) and Phase 12 (realtime
 SSE) are done; the research provider is adapter-gated on `SEARCH_API_KEY`, and
 pgvector/memories remain deliberately deferred until keyword search is proven
 insufficient.
-Owner: `efforts/app-server`
+Owner: `efforts/tartly`
 Audience: whoever continues this work (human or agent). **This file is the source of
 truth for the interactive agent runtime.** When code and this doc disagree, fix one of
 them in the same change.
@@ -88,7 +88,7 @@ management, environment, and integration points. That is this part.
 ## 2. Repository map
 
 ```
-app-server/
+tartly/
 ├─ app/
 │  ├─ api/
 │  │  ├─ ai/                      # assistant surfaces (2 of them) + thread CRUD

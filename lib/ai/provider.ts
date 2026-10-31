@@ -67,7 +67,7 @@ function supportsStructuredOutputs(): boolean {
 function createOpenCodeProvider() {
   const sessionId = process.env.OPENCODE_SESSION_ID;
   const headers: Record<string, string> = {
-    "User-Agent": "app-server/1.0",
+    "User-Agent": "Tartly/1.0",
   };
   if (sessionId) {
     headers["x-opencode-session"] = sessionId;

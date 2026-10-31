@@ -1,6 +1,6 @@
 # Production Hardening — Phase Plan & Tracker
 
-> **What this file is.** The single source of truth for turning `app-server`
+> **What this file is.** The single source of truth for hardening Tartly
 > (Tartly) into a scalable, fault-tolerant, high-throughput backend, measured
 > against the universal backend skill. It is written so a **fresh agent thread
 > with zero prior context** can read this file alone and continue the work.

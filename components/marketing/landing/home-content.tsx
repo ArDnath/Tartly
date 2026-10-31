@@ -8,6 +8,8 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { motion, useReducedMotion, type Variants } from 'motion/react';
 
+import { GoogleIcon } from '@/components/icons/google-icon';
+import { OutlookIcon } from '@/components/icons/outlook-icon';
 import { TartlyAgentLogo } from '@/components/shared/brand/tartly-logo';
 import { BrutalButton } from '@/components/shared/evil-buttons/brutal-button';
 import { BlurHighlight } from '@/components/shared/motion/blur-highlight';
@@ -42,7 +44,6 @@ import {
   ImageFile,
   Expand,
 } from '@/components/marketing/landing/icons';
-import { GmailMark } from '@/components/marketing/landing/hero-brand-marks';
 import Footer from '@/components/marketing/landing/footer';
 import { PricingSection } from '@/components/marketing/landing/pricing-section';
 import { TrustSection } from '@/components/marketing/landing/trust-section';
@@ -435,7 +436,13 @@ function HeroTextDither() {
  * Google's brand-verification review checks that the homepage accurately
  * represents the app, and an invented proof row would fail that test.
  */
-function AudienceProof({ className }: { className?: string }) {
+function AudienceProof({
+  className,
+  outlookAvailable,
+}: {
+  className?: string;
+  outlookAvailable: boolean;
+}) {
   return (
     <div className={`relative flex flex-col items-center px-6 text-center ${className ?? ''}`}>
       <p className="text-sm font-medium tracking-tight text-[var(--landing-muted)] md:text-[15px]">
@@ -446,13 +453,13 @@ function AudienceProof({ className }: { className?: string }) {
         who live in their inbox.
       </p>
       <p className="mt-1.5 text-[10px] font-medium uppercase tracking-[0.22em] text-[var(--landing-faint)]">
-        Gmail · Google Calendar
+        Gmail · Google Calendar{outlookAvailable ? ' · Outlook' : ''}
       </p>
     </div>
   );
 }
 
-const FAQS = [
+const getFaqs = (outlookAvailable: boolean) => [
   {
     q: 'What exactly does Tartly do?',
     a: 'Tartly is a 24/7 AI email operator. It reads and summarizes your inbox, drafts replies in your voice, follows up with prospects, helps run campaigns, and moves sales conversations forward.',
@@ -463,7 +470,9 @@ const FAQS = [
   },
   {
     q: 'Which email providers are supported?',
-    a: 'Tartly connects to Gmail and Google Calendar, so it fits the inbox you already use.',
+    a: outlookAvailable
+      ? 'Tartly connects to Gmail and Google Calendar, and can also connect to Outlook when Microsoft sign-in is enabled for your account.'
+      : 'Tartly connects to Gmail and Google Calendar. Outlook is available on deployments with Microsoft sign-in configured.',
   },
   {
     q: 'How fast can I get value?',
@@ -482,7 +491,11 @@ const secondRowQueries: string[] = [
   'What needs my attention?',
 ];
 
-export default function HomeContent() {
+export default function HomeContent({
+  outlookAvailable = false,
+}: {
+  outlookAvailable?: boolean;
+}) {
   // Which FAQ card is expanded (single-open). Click an open card to close it.
   const [openFaq, setOpenFaq] = React.useState<number | null>(0);
   const reduceMotion = useReducedMotion();
@@ -590,15 +603,26 @@ export default function HomeContent() {
           </ClickSpark>
         </motion.div>
 
-        {/* Static "Works with" row — sits below the CTAs, no entry or hover
-            motion. Outlook is only advertised when a deployment actually has
-            Entra ID configured; the production instance is Gmail-only. */}
+        {/* Provider marks stay static below the CTAs. Outlook appears only
+            when Microsoft sign-in is configured for this deployment. */}
         <div className="mt-3 mb-1 flex flex-wrap items-center justify-center gap-3 text-sm font-medium text-[var(--landing-muted)]">
           <span>Works with</span>
-          <span className="flex items-center gap-3" aria-label="Gmail and Google Calendar">
-            <GmailMark className="size-7" />
-            <span>Google Calendar</span>
-          </span>
+          <div
+            role="list"
+            aria-label="Supported email providers"
+            className="flex items-center gap-4"
+          >
+            <span role="listitem" className="inline-flex items-center gap-2">
+              <GoogleIcon className="size-5" />
+              <span>Google</span>
+            </span>
+            {outlookAvailable ? (
+              <span role="listitem" className="inline-flex items-center gap-2">
+                <OutlookIcon className="size-5" />
+                <span>Outlook</span>
+              </span>
+            ) : null}
+          </div>
         </div>
       </section>
 
@@ -622,14 +646,17 @@ export default function HomeContent() {
                 aria-hidden
                 className="pointer-events-none absolute inset-x-0 top-4 border-t border-[var(--landing-line)]"
               />
-              <AudienceProof className="pb-2 pt-10 md:pb-2 md:pt-10" />
+              <AudienceProof
+                outlookAvailable={outlookAvailable}
+                className="pb-2 pt-10 md:pb-2 md:pt-10"
+              />
               <HeroDemo className="hidden w-full md:block" />
             </div>
           </div>
         </section>
 
         <div className="flex flex-col items-center justify-center px-4 md:hidden">
-          <AudienceProof className="pb-4 pt-10" />
+          <AudienceProof outlookAvailable={outlookAvailable} className="pb-4 pt-10" />
           <HeroDemo className="w-full rounded-xl border border-[var(--landing-line)]" />
         </div>
       </div>
@@ -1742,7 +1769,7 @@ export default function HomeContent() {
           </div>
 
           <div className="flex w-full flex-col items-start gap-[21px] lg:max-w-[590px] lg:flex-1">
-            {FAQS.map((faq, i) => {
+            {getFaqs(outlookAvailable).map((faq, i) => {
               const open = openFaq === i;
               return (
                 <div
